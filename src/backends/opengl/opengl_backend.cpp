@@ -38,6 +38,10 @@ namespace {
 #define GL_BGRA 0x80E1
 #endif
 
+#ifndef GL_RG
+#define GL_RG 0x8227
+#endif
+
 struct gl_format_mapping {
     uint32_t internal_format;
     uint32_t format;
@@ -123,11 +127,12 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
         return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
     }
 
-    auto frame_result = snd.acquire_writable_frame({
-        .width = gl_desc.width,
-        .height = gl_desc.height,
-        .format = gl_desc.format
-    });
+    bbb::nozzle::texture_desc td{};
+    td.width = gl_desc.width;
+    td.height = gl_desc.height;
+    td.format = gl_desc.format;
+
+    auto frame_result = snd.acquire_writable_frame(td);
     if (!frame_result) { return frame_result.error(); }
 
     auto &wframe = frame_result.value();
@@ -272,11 +277,12 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    auto frame_result = snd.acquire_writable_frame({
-        .width = gl_desc.width,
-        .height = gl_desc.height,
-        .format = gl_desc.format
-    });
+    bbb::nozzle::texture_desc td{};
+    td.width = gl_desc.width;
+    td.height = gl_desc.height;
+    td.format = gl_desc.format;
+
+    auto frame_result = snd.acquire_writable_frame(td);
     if (!frame_result) { return frame_result.error(); }
 
     auto &wframe = frame_result.value();
