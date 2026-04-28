@@ -19,11 +19,13 @@ struct gl_texture_desc {
     texture_format format{texture_format::rgba8_unorm};
 };
 
-// GPU-side blit from GL texture to sender's shared texture via IOSurface.
+// Publish GL texture to sender's shared texture.
+// macOS: GPU-side blit via IOSurface. Windows: CPU copy via staging texture.
 // Requires active GL context on calling thread.
 Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc);
 
-// GPU-side blit from frame's shared texture to GL texture via IOSurface.
+// Copy frame's shared texture to GL texture.
+// macOS: GPU-side blit via IOSurface. Windows: CPU copy via staging texture.
 // Requires active GL context on calling thread.
 Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &gl_desc);
 

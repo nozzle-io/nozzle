@@ -1,16 +1,25 @@
-// nozzle - opengl_backend.cpp - OpenGL↔IOSurface interop via CGLTexImageIOSurface2D
+// nozzle - opengl_backend.cpp - OpenGL interop (macOS: IOSurface blit, Windows: CPU copy)
 
 #include <bbb/nozzle/backends/opengl.hpp>
 #include <bbb/nozzle/sender.hpp>
 #include <bbb/nozzle/frame.hpp>
-#include <bbb/nozzle/backends/metal.hpp>
+#include <bbb/nozzle/texture.hpp>
 #include <bbb/nozzle/result.hpp>
 
+#include <cstring>
+#include <vector>
+
 #if NOZZLE_PLATFORM_MACOS
+#include <bbb/nozzle/backends/metal.hpp>
 #define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl.h>
 #include <OpenGL/OpenGL.h>
 #include <IOSurface/IOSurface.h>
+#elif NOZZLE_PLATFORM_WINDOWS
+#include <bbb/nozzle/backends/d3d11.hpp>
+#include <d3d11.h>
+#include <windows.h>
+#include <GL/gl.h>
 #endif
 
 namespace bbb::nozzle::gl {
@@ -19,6 +28,14 @@ namespace {
 
 #ifndef GL_RGBA16F
 #define GL_RGBA16F 0x881A
+#endif
+
+#ifndef GL_HALF_FLOAT
+#define GL_HALF_FLOAT 0x140B
+#endif
+
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
 #endif
 
 struct gl_format_mapping {
@@ -43,6 +60,28 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
     }
 }
 
+uint32_t gl_type_size(uint32_t gl_type) {
+    switch (gl_type) {
+        case GL_UNSIGNED_BYTE: return 1;
+        case GL_HALF_FLOAT:    return 2;
+        case GL_FLOAT:         return 4;
+        default:               return 0;
+    }
+}
+
+uint32_t gl_format_components(uint32_t gl_format) {
+    switch (gl_format) {
+        case GL_RED:  return 1;
+        case GL_RG:   return 2;
+        case GL_RGB:  return 3;
+        case GL_RGBA: return 4;
+        case GL_BGRA: return 4;
+        default:      return 0;
+    }
+}
+
+#if NOZZLE_PLATFORM_MACOS
+
 struct scoped_fbo {
     GLuint read_fbo{0};
     GLuint draw_fbo{0};
@@ -65,7 +104,11 @@ struct scoped_texture {
     ~scoped_texture() { if (name) { glDeleteTextures(1, &name); } }
 };
 
+#endif // NOZZLE_PLATFORM_MACOS
+
 } // anonymous namespace
+
+#if NOZZLE_PLATFORM_MACOS
 
 Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     if (gl_desc.name == 0) {
@@ -201,5 +244,188 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
 
     return {};
 }
+
+#elif NOZZLE_PLATFORM_WINDOWS
+
+Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
+    if (gl_desc.name == 0) {
+        return Error{ErrorCode::InvalidArgument, "GL texture name is 0"};
+    }
+    if (!wglGetCurrentContext()) {
+        return Error{ErrorCode::InvalidArgument, "no current GL context"};
+    }
+
+    gl_format_mapping gl_fmt;
+    if (!map_format(gl_desc.format, gl_fmt)) {
+        return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
+    }
+
+    uint32_t bpp = gl_format_components(gl_fmt.format) * gl_type_size(gl_fmt.type);
+    uint32_t row_bytes = gl_desc.width * bpp;
+    std::vector<uint8_t> pixel_data(static_cast<size_t>(row_bytes) * gl_desc.height);
+
+    GLint prev_pack = 0;
+    glGetIntegerv(GL_PACK_ALIGNMENT, &prev_pack);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, gl_desc.name);
+    glGetTexImage(GL_TEXTURE_2D, 0, gl_fmt.format, gl_fmt.type, pixel_data.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    auto frame_result = snd.acquire_writable_frame({
+        .width = gl_desc.width,
+        .height = gl_desc.height,
+        .format = gl_desc.format
+    });
+    if (!frame_result) { return frame_result.error(); }
+
+    auto &wframe = frame_result.value();
+
+    ID3D11Texture2D *d3d_tex = d3d11::get_texture(wframe.get_texture());
+    if (!d3d_tex) {
+        return Error{ErrorCode::BackendError, "no D3D11 texture in writable frame"};
+    }
+
+    ID3D11Device *d3d_device = nullptr;
+    d3d_tex->GetDevice(&d3d_device);
+    if (!d3d_device) {
+        return Error{ErrorCode::BackendError, "failed to get D3D11 device from texture"};
+    }
+
+    ID3D11DeviceContext *d3d_ctx = nullptr;
+    d3d_device->GetImmediateContext(&d3d_ctx);
+
+    D3D11_TEXTURE2D_DESC tex_desc{};
+    d3d_tex->GetDesc(&tex_desc);
+    tex_desc.Usage = D3D11_USAGE_STAGING;
+    tex_desc.BindFlags = 0;
+    tex_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    tex_desc.MiscFlags = 0;
+
+    ID3D11Texture2D *staging = nullptr;
+    HRESULT hr = d3d_device->CreateTexture2D(&tex_desc, nullptr, &staging);
+    if (FAILED(hr) || !staging) {
+        d3d_ctx->Release();
+        d3d_device->Release();
+        return Error{ErrorCode::ResourceCreationFailed, "failed to create staging texture"};
+    }
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    hr = d3d_ctx->Map(staging, 0, D3D11_MAP_WRITE, 0, &mapped);
+    if (FAILED(hr)) {
+        staging->Release();
+        d3d_ctx->Release();
+        d3d_device->Release();
+        return Error{ErrorCode::BackendError, "failed to map staging texture"};
+    }
+
+    for (uint32_t y = 0; y < gl_desc.height; ++y) {
+        std::memcpy(
+            static_cast<uint8_t *>(mapped.pData) + y * mapped.RowPitch,
+            pixel_data.data() + y * row_bytes,
+            row_bytes
+        );
+    }
+
+    d3d_ctx->Unmap(staging, 0);
+    d3d_ctx->CopySubresourceRegion(d3d_tex, 0, 0, 0, 0, staging, 0, nullptr);
+
+    staging->Release();
+    d3d_ctx->Release();
+    d3d_device->Release();
+
+    auto commit_result = snd.commit_frame(wframe);
+    if (!commit_result) { return commit_result.error(); }
+
+    return {};
+}
+
+Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &gl_desc) {
+    if (gl_desc.name == 0) {
+        return Error{ErrorCode::InvalidArgument, "GL texture name is 0"};
+    }
+    if (!frm.valid()) {
+        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
+    }
+    if (!wglGetCurrentContext()) {
+        return Error{ErrorCode::InvalidArgument, "no current GL context"};
+    }
+
+    gl_format_mapping gl_fmt;
+    if (!map_format(gl_desc.format, gl_fmt)) {
+        return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
+    }
+
+    ID3D11Texture2D *d3d_tex = d3d11::get_texture(frm.get_texture());
+    if (!d3d_tex) {
+        return Error{ErrorCode::BackendError, "no D3D11 texture in frame"};
+    }
+
+    ID3D11Device *d3d_device = nullptr;
+    d3d_tex->GetDevice(&d3d_device);
+    if (!d3d_device) {
+        return Error{ErrorCode::BackendError, "failed to get D3D11 device from texture"};
+    }
+
+    ID3D11DeviceContext *d3d_ctx = nullptr;
+    d3d_device->GetImmediateContext(&d3d_ctx);
+
+    D3D11_TEXTURE2D_DESC tex_desc{};
+    d3d_tex->GetDesc(&tex_desc);
+    tex_desc.Usage = D3D11_USAGE_STAGING;
+    tex_desc.BindFlags = 0;
+    tex_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    tex_desc.MiscFlags = 0;
+
+    ID3D11Texture2D *staging = nullptr;
+    HRESULT hr = d3d_device->CreateTexture2D(&tex_desc, nullptr, &staging);
+    if (FAILED(hr) || !staging) {
+        d3d_ctx->Release();
+        d3d_device->Release();
+        return Error{ErrorCode::ResourceCreationFailed, "failed to create staging texture"};
+    }
+
+    d3d_ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, d3d_tex, 0, nullptr);
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    hr = d3d_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(hr)) {
+        staging->Release();
+        d3d_ctx->Release();
+        d3d_device->Release();
+        return Error{ErrorCode::BackendError, "failed to map staging texture"};
+    }
+
+    uint32_t bpp = gl_format_components(gl_fmt.format) * gl_type_size(gl_fmt.type);
+    uint32_t row_bytes = gl_desc.width * bpp;
+    std::vector<uint8_t> pixel_data(static_cast<size_t>(row_bytes) * gl_desc.height);
+
+    for (uint32_t y = 0; y < gl_desc.height; ++y) {
+        std::memcpy(
+            pixel_data.data() + y * row_bytes,
+            static_cast<uint8_t *>(mapped.pData) + y * mapped.RowPitch,
+            row_bytes
+        );
+    }
+
+    d3d_ctx->Unmap(staging, 0);
+    staging->Release();
+    d3d_ctx->Release();
+    d3d_device->Release();
+
+    GLint prev_unpack = 0;
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_unpack);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, gl_desc.name);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+        gl_desc.width, gl_desc.height,
+        gl_fmt.format, gl_fmt.type, pixel_data.data());
+    glPixelStorei(GL_UNPACK_ALIGNMENT, prev_unpack);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    return {};
+}
+
+#endif // NOZZLE_PLATFORM_WINDOWS
 
 } // namespace bbb::nozzle::gl

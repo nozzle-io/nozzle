@@ -109,13 +109,17 @@ endif()
 # --- OpenGL interop ---
 option(NOZZLE_BUILD_OPENGL "Build OpenGL interop helpers" ON)
 
-if(NOZZLE_BUILD_OPENGL AND APPLE)
+if(NOZZLE_BUILD_OPENGL)
     target_sources(nozzle PRIVATE
         src/backends/opengl/opengl_backend.cpp
     )
-    find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
-    target_link_libraries(nozzle PRIVATE ${OPENGL_FRAMEWORK})
     target_compile_definitions(nozzle PUBLIC NOZZLE_HAS_OPENGL=1)
+    if(APPLE)
+        find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
+        target_link_libraries(nozzle PRIVATE ${OPENGL_FRAMEWORK})
+    elseif(WIN32)
+        target_link_libraries(nozzle PRIVATE opengl32)
+    endif()
 endif()
 
 # --- CMake package config export ---
