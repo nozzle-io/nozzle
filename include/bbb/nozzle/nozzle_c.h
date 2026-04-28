@@ -231,6 +231,26 @@ NozzleErrorCode nozzle_frame_lock_writable_pixels(
 
 void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame);
 
+// ========== GL Interop ==========
+
+NozzleErrorCode nozzle_sender_publish_gl_texture(
+    NozzleSender *sender,
+    uint32_t gl_texture_name,
+    uint32_t gl_target,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+);
+
+NozzleErrorCode nozzle_frame_copy_to_gl_texture(
+    NozzleFrame *frame,
+    uint32_t gl_texture_name,
+    uint32_t gl_target,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

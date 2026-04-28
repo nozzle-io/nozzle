@@ -10,6 +10,10 @@
 #include <bbb/nozzle/discovery.hpp>
 #include <bbb/nozzle/pixel_access.hpp>
 
+#if NOZZLE_HAS_OPENGL
+#include <bbb/nozzle/backends/opengl.hpp>
+#endif
+
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -464,6 +468,60 @@ NozzleErrorCode nozzle_frame_lock_writable_pixels(
 void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame) {
     if (!frame || !frame->writable) return;
     bbb::nozzle::unlock_writable_pixels(*frame->writable);
+}
+
+// ========== GL Interop ==========
+
+NozzleErrorCode nozzle_sender_publish_gl_texture(
+    NozzleSender *sender,
+    uint32_t gl_texture_name,
+    uint32_t gl_target,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+) {
+#if NOZZLE_HAS_OPENGL
+    if (!sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    bbb::nozzle::gl::gl_texture_desc gl_desc{};
+    gl_desc.name = gl_texture_name;
+    gl_desc.target = gl_target;
+    gl_desc.width = width;
+    gl_desc.height = height;
+    gl_desc.format = to_cpp_format(format);
+
+    auto result = bbb::nozzle::gl::publish_gl_texture(*sender->obj, gl_desc);
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+#else
+    return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+#endif
+}
+
+NozzleErrorCode nozzle_frame_copy_to_gl_texture(
+    NozzleFrame *frame,
+    uint32_t gl_texture_name,
+    uint32_t gl_target,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+) {
+#if NOZZLE_HAS_OPENGL
+    if (!frame || !frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    bbb::nozzle::gl::gl_texture_desc gl_desc{};
+    gl_desc.name = gl_texture_name;
+    gl_desc.target = gl_target;
+    gl_desc.width = width;
+    gl_desc.height = height;
+    gl_desc.format = to_cpp_format(format);
+
+    auto result = bbb::nozzle::gl::copy_frame_to_gl_texture(*frame->obj, gl_desc);
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+#else
+    return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+#endif
 }
 
 } // extern "C"
