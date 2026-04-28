@@ -33,6 +33,12 @@ void *get_default_mtl_device();
 
 void release_mtl_texture_resources(void *texture, void *surface);
 
+Result<texture> lookup_iosurface_texture(
+    uint32_t iosurface_id,
+    uint32_t width,
+    uint32_t height,
+    uint32_t format);
+
 } // namespace bbb::nozzle::metal
 
 namespace bbb::nozzle::detail {

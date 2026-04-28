@@ -89,7 +89,7 @@ nozzle/
 │   │   ├── device.cpp            #     device implementation
 │   │   ├── discovery.cpp         #     sender enumeration
 │   │   ├── metadata.cpp/hpp      #     key=value metadata serialize/parse
-│   │   └── metal_helpers.hpp     #     Metal texture helpers (detail)
+│   │   └── pixel_access.cpp      #     CPU pixel read/write
 │   ├── c_api/
 │   │   └── nozzle_c.cpp          # C ABI wrapper (thin wrapper over C++ API)
 │   └── backends/
@@ -97,10 +97,12 @@ nozzle/
 │       │   ├── metal_backend.mm  #     Device management
 │       │   ├── metal_texture.mm  #     IOSurface texture creation/lookup
 │       │   └── metal_sync.mm     #     IOSurface lock-based synchronization
-│       └── d3d11/                 # Windows D3D11 backend (stubs)
-│           ├── d3d11_backend.cpp
-│           ├── d3d11_texture.cpp
-│           └── d3d11_sync.cpp
+│       ├── d3d11/                 # Windows D3D11 backend
+│       │   ├── d3d11_backend.cpp #     Device management
+│       │   ├── d3d11_texture.cpp #     Shared texture creation/lookup
+│       │   └── d3d11_sync.cpp    #     Keyed mutex synchronization
+│       └── opengl/                # OpenGL interop (copy-based)
+│           └── opengl_backend.cpp #     GL↔Metal/IOSurface (macOS), GL↔D3D11 (Windows)
 ├── libs/plog/                    # plog submodule (header-only logging)
 ├── tests/
 │   ├── unit/                     # Unit tests (Catch2)
@@ -132,7 +134,9 @@ Synchronization uses `_Atomic` fields with `__atomic_thread_fence` for visibilit
 - **`device`**: Wraps a Metal device (`id<MTLDevice>`). Can be auto-detected or user-provided via `metal::wrap_device()`.
 - **`discovery`**: Reads the directory shared memory to enumerate active senders.
 
-### Layer 2: Metal Backend
+### Layer 2: Backends
+
+#### Metal (macOS)
 
 All ObjC++ code lives in `.mm` files under `src/backends/metal/`. Headers are pure C++ — ObjC types are stored as `void*` and cast internally.
 
@@ -144,11 +148,26 @@ Key functions:
 
 **ARC compatibility**: All `.mm` files compile under both ARC and non-ARC via `__has_feature(objc_arc)` bridging macros (`NOZZLE_BRIDGE_GET`, `NOZZLE_BRIDGE_RETAIN`, `NOZZLE_BRIDGE_RELEASE`, `NOZZLE_RETAIN`).
 
-### Layer 3: OpenGL Interop
+#### D3D11 (Windows)
 
-Planned. Will provide copy-based paths:
-- macOS: GL → IOSurface via `CGLTexImageIOSurface2D`
-- Windows: GL ↔ D3D11 via WGL_NV_DX_interop or copy
+All COM code lives in `.cpp` files under `src/backends/d3d11/`. Textures use `D3D11_RESOURCE_MISC_SHARED` with `HANDLE`-based sharing. Keyed mutex synchronizes cross-process access.
+
+Key functions:
+- `d3d11::create_shared_texture()` — Creates a shared D3D11 texture with `HANDLE`
+- `d3d11::lookup_shared_texture()` — Opens a shared texture by `HANDLE`
+- `d3d11::get_shared_handle()` — Extracts the shared `HANDLE` from a texture
+- `d3d11::get_texture()` — Extracts the `ID3D11Texture2D*` from a nozzle texture
+
+#### OpenGL Interop (Layer 3)
+
+Copy-based path in `src/backends/opengl/`. No direct GPU interop — WGL_NV_DX_interop2 is NVIDIA-only.
+
+- **macOS**: GL → IOSurface via `CGLTexImageIOSurface2D` + FBO blit
+- **Windows**: GL → `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion` (and reverse)
+
+Key functions:
+- `gl::publish_gl_texture()` — Copy GL texture to sender via backend
+- `gl::copy_frame_to_gl_texture()` — Copy received frame to GL texture
 
 ### Ring Buffer Flow
 
@@ -171,6 +190,13 @@ Receiver:
 ```
 
 Ring buffer size is configurable per sender (default: 3). Committed slots use `_Atomic uint64_t` for lock-free reads.
+
+### Windows-Specific Notes
+
+- MSVC must use **static CRT (`/MT`)** — set `CMAKE_MSVC_RUNTIME_LIBRARY` before `project()` with `CMP0091 NEW`
+- MSVC C++17 does NOT support designated initializers — use explicit assignment: `texture_desc td{}; td.width = ...;`
+- Windows `GL/gl.h` is GL 1.1 — missing `GL_RG`, `GL_RGBA16F`, `GL_HALF_FLOAT`, `GL_BGRA`; nozzle adds `#ifndef` guards
+- `ULONG_PTR` parameters do not accept `nullptr` — use `0`
 
 ## Coding Conventions
 
@@ -302,5 +328,6 @@ Stale `/nozzle_dir` and `/nozzle_*` shm segments may persist. The library does l
 | `AGENTS.md` | AI agent context and coding rules |
 | `src/common/shared_state.hpp` | Shared memory layout (ring buffer, slots, atomics) |
 | `src/common/registry.hpp` | Registry API (register/unregister/lookup senders) |
-| `src/backends/metal/metal_helpers.hpp` | Internal texture construction helpers |
+| `src/backends/metal/metal_helpers.hpp` | Metal texture construction helpers (detail) |
+| `src/backends/d3d11/d3d11_helpers.hpp` | D3D11 texture/com helpers (detail) |
 | `include/bbb/nozzle/result.hpp` | Result<T> implementation |

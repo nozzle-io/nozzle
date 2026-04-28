@@ -7,7 +7,8 @@ An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible wi
 ## Features
 
 - Named sender/receiver model with discovery
-- Metal/IOSurface backend (macOS), D3D11 backend planned (Windows)
+- Metal/IOSurface backend (macOS) and D3D11 backend (Windows)
+- OpenGL interop (copy-based: GL↔IOSurface on macOS, GL↔D3D11 staging on Windows)
 - High-precision texture formats (R32F, RGBA16F, RGBA32F, etc.)
 - C++ API with `Result<T>` error handling (no exceptions)
 - C ABI (`nozzle_c.h`) for plugin/host integration
@@ -20,13 +21,14 @@ An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible wi
 | Component | Status |
 |-----------|--------|
 | Core API (sender, receiver, frame, texture, device, discovery) | Done |
-| macOS Metal backend | Done |
-| Windows D3D11 backend | Stubs only |
+| macOS Metal/IOSurface backend | Done |
+| Windows D3D11 backend | Done |
+| OpenGL interop (macOS + Windows) | Done |
 | C ABI wrapper | Done |
 | Unit tests (11 cases, 60 assertions) | Passing |
 | Integration tests (9 cases, 59 assertions) | Passing |
-| openFrameworks addon (ofxNozzle) | In progress |
-| Max external (bbb.nozzle) | Built (universal binary) |
+| openFrameworks addon (ofxNozzle) | Done (macOS + Windows) |
+| Max external (bbb.nozzle) | Done (macOS universal binary + Windows) |
 
 ## Build
 
@@ -96,7 +98,7 @@ nozzle_sender_commit_frame(sender, frame);
 
 ```
 Layer 4: Integration wrappers (ofxNozzle, bbb.nozzle Max external)
-Layer 3: OpenGL interop (planned)
+Layer 3: OpenGL interop (copy-based GL↔backend)
 Layer 2: Backend-native API (Metal/IOSurface, D3D11)
 Layer 1: Common API (sender, receiver, frame, texture, device, discovery)
 Layer 0: Platform infrastructure (registry, IPC, shared memory)
@@ -108,15 +110,27 @@ Textures are backed by `IOSurface` for cross-process sharing. Sender creates IOS
 
 ObjC++ code is isolated in `.mm` files. All public headers are pure C++. ARC and non-ARC compatible.
 
+### Backend: Windows D3D11
+
+Textures are created with `D3D11_RESOURCE_MISC_SHARED` for cross-process sharing via `HANDLE`. Sender creates shared textures in a ring buffer. Receiver opens the shared handle and creates its own texture view. Keyed mutex synchronizes access.
+
+### OpenGL Interop
+
+Copy-based path for OpenGL integration. No direct GPU interop (WGL_NV_DX_interop2 is NVIDIA-only).
+
+- **macOS**: GL texture → IOSurface via `CGLTexImageIOSurface2D` + FBO blit
+- **Windows**: GL texture → `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion` (and reverse for receiver)
+
 ## Repository Layout
 
 ```
 include/bbb/nozzle/          Public C++ headers
-include/bbb/nozzle/backends/ Backend-specific headers (metal.hpp)
+include/bbb/nozzle/backends/ Backend-specific headers (metal.hpp, d3d11.hpp, opengl.hpp)
 src/common/                  Shared implementation (registry, sender, receiver, frame, etc.)
 src/c_api/                   C ABI wrapper
 src/backends/metal/          macOS Metal backend (.mm)
-src/backends/d3d11/          Windows D3D11 backend (stubs)
+src/backends/d3d11/          Windows D3D11 backend (.cpp)
+src/backends/opengl/         OpenGL interop (.cpp)
 libs/plog/                   plog submodule (header-only logging)
 tests/                       Unit + integration tests (Catch2)
 examples/                    Minimal sender/receiver examples
@@ -126,7 +140,7 @@ examples/                    Minimal sender/receiver examples
 
 - C++17 compiler (no exceptions, no RTTI required)
 - macOS 12+ (Metal backend)
-- Windows 10+ (D3D11 backend, planned)
+- Windows 10+ (D3D11 backend)
 - CMake 3.20+
 
 ## Design Decisions

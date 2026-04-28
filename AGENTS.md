@@ -2,7 +2,7 @@
 
 ## Project Status
 
-**Phase 0 in progress.** Layer 0 (IPC/registry) and Layer 1 (sender/receiver/frame/texture/device) implemented. Metal backend functional. Tests passing (11 test cases). `PLAN.md` is the canonical design document.
+**Phase 1 complete.** All backends implemented (Metal/IOSurface, D3D11, OpenGL interop). macOS + Windows CI green. ofxNozzle and bbb.nozzle built on both platforms. Tests passing (11 unit + 9 integration). `PLAN.md` is the canonical design document.
 
 ## What This Is
 
@@ -44,14 +44,14 @@ Layer 0: Platform infrastructure (Registry, IPC, shared memory, sync)
 - **Windows**: D3D11 shared textures with `HANDLE` sharing. COM internally.
 - **OpenGL**: Copy-based path (GL → Metal/IOSurface on macOS, GL ↔ D3D11 on Windows).
 
-## Critical Path for Phase 0
+## Critical Path (Resolved)
 
-These must be resolved before any Layer 1+ code:
+Phase 0 and Phase 1 are complete. All critical path items resolved:
 
-1. **IPC/Registry mechanism** — How senders announce themselves, how receivers discover. Not decided yet. Consult Oracle with full PLAN.md context when starting Phase 0.
-2. **Ring buffer synchronization** — Sender-internal mutex + Receiver-internal mutex + shared atomic state? Needs investigation.
-3. **D3D11 keyed mutex strategy** — What sync primitive for shared texture access.
-4. **Metal/IOSurface visibility model** — Command buffer completion + IOSurface lock semantics.
+1. **IPC/Registry mechanism** — POSIX shm_open / Windows CreateFileMappingA with fixed-size directory + per-sender shared state
+2. **Ring buffer synchronization** — Plain uint64_t/uint32_t + standalone ipc::atomic_* functions (no std::atomic in shared memory)
+3. **D3D11 keyed mutex strategy** — Keyed mutex on shared texture access
+4. **Metal/IOSurface visibility model** — IOSurface lock-based synchronization
 
 ## Additional Resolved Decisions (Phase 0)
 
@@ -75,11 +75,12 @@ These must be resolved before any Layer 1+ code:
 
 ```
 include/bbb/nozzle/          # Public headers (nozzle.hpp, sender.hpp, receiver.hpp, etc.)
-include/bbb/nozzle/backends/ # Backend-specific headers (d3d11.hpp, metal.hpp)
+include/bbb/nozzle/backends/ # Backend-specific headers (d3d11.hpp, metal.hpp, opengl.hpp)
 src/common/                  # Shared implementation (registry, sender, receiver, frame)
 src/c_api/                   # C ABI wrapper
 src/backends/d3d11/          # Windows D3D11 (.cpp)
 src/backends/metal/          # macOS Metal (.mm)
+src/backends/opengl/         # OpenGL interop (.cpp)
 tests/                       # Unit + integration tests
 ```
 

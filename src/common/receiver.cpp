@@ -2,6 +2,7 @@
 
 #include <bbb/nozzle/receiver.hpp>
 
+#include "backends/backend_dispatch.hpp"
 #include "ipc.hpp"
 #include "frame_helpers.hpp"
 #include "metadata.hpp"
@@ -12,25 +13,6 @@
 #include <cstring>
 #include <string>
 #include <thread>
-
-#if NOZZLE_HAS_METAL
-namespace bbb::nozzle::metal {
-    Result<texture> lookup_iosurface_texture(
-        uint32_t iosurface_id,
-        uint32_t width,
-        uint32_t height,
-        uint32_t format);
-} // namespace bbb::nozzle::metal
-#elif NOZZLE_HAS_D3D11
-namespace bbb::nozzle::d3d11 {
-    Result<texture> lookup_shared_texture(
-        void *d3d11_device,
-        uint64_t shared_handle,
-        uint32_t width,
-        uint32_t height,
-        uint32_t format);
-} // namespace bbb::nozzle::d3d11
-#endif
 
 namespace bbb {
 namespace nozzle {
@@ -151,27 +133,17 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
 Result<texture> create_texture_from_slot(
     const detail::SenderSharedState *state,
     uint32_t slot) {
-#if NOZZLE_HAS_METAL
-    if (state->backend == static_cast<uint8_t>(backend_type::metal)) {
-        return metal::lookup_iosurface_texture(
-            static_cast<uint32_t>(state->slots[slot].shared_resource_id),
-            state->width,
-            state->height,
-            state->format);
+    auto backend = static_cast<backend_type>(state->backend);
+    if (detail::backend::get_backend_type() != backend) {
+        return Error{ErrorCode::BackendError,
+            "sender uses a different backend than receiver"};
     }
-#elif NOZZLE_HAS_D3D11
-    if (state->backend == static_cast<uint8_t>(backend_type::d3d11)) {
-        return d3d11::lookup_shared_texture(
-            nullptr,
-            static_cast<uint32_t>(state->slots[slot].shared_resource_id),
-            state->width,
-            state->height,
-            state->format);
-    }
-#endif
-    (void)state;
-    (void)slot;
-    return Error{ErrorCode::BackendError, "no suitable backend for texture creation"};
+    return detail::backend::lookup_texture(
+        nullptr,
+        state->slots[slot].shared_resource_id,
+        state->width,
+        state->height,
+        state->format);
 }
 
 } // anonymous namespace
