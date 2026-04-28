@@ -25,7 +25,7 @@ namespace bbb::nozzle::metal {
 namespace bbb::nozzle::d3d11 {
     Result<texture> lookup_shared_texture(
         void *d3d11_device,
-        uint32_t shared_handle,
+        uint64_t shared_handle,
         uint32_t width,
         uint32_t height,
         uint32_t format);
