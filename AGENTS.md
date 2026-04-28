@@ -2,7 +2,7 @@
 
 ## Project Status
 
-**Greenfield. No source code yet.** `PLAN.md` is the canonical design document and source of truth. Read it fully before any implementation work.
+**Phase 0 in progress.** Layer 0 (IPC/registry) and Layer 1 (sender/receiver/frame/texture/device) implemented. Metal backend functional. Tests passing (11 test cases). `PLAN.md` is the canonical design document.
 
 ## What This Is
 
@@ -91,12 +91,28 @@ tests/                       # Unit + integration tests
 
 ## Coding Rules
 
+- **Naming convention: ALL snake_case.** No camelCase anywhere in the nozzle library.
+  - Types: `sender_info`, `texture_desc`, `frame_info`, `backend_type`, etc.
+  - Struct members: `application_name`, `frame_index`, `timestamp_ns`, `timeout_ms`, etc.
+  - Enum values: `r8_unorm`, `rgba8_srgb`, `gpu_copy`, `shader_read`, etc.
+  - Functions/methods: `acquire_frame()`, `create_iosurface_texture()`, etc.
+  - Variables: `state_fd`, `frame_counter`, `native_device`, etc.
+  - Files: `metal_texture.mm`, `shared_state.hpp`, etc.
+  - C API types use `Nozzle` prefix: `NozzleSender`, `NozzleReceiver` (C convention)
+  - C API functions use snake_case: `nozzle_sender_create`, `nozzle_receiver_acquire_frame`
 - C++ coding conventions: follow `~/.agents/docs/C++.md`
 - openFrameworks conventions: follow `~/.agents/docs/openFrameworks.md` (for Layer 4 integration)
 - No `as any`, `#pragma once` is fine, no exceptions
 - Objective-C++ only in `.mm` files, never in `.cpp` or headers
 - Include order: corresponding header → C++ std → OS frameworks → nozzle headers
 - `Result<T>` must always be checked — never ignore return values in examples/tests
+- Namespace: `bbb::nozzle` for C++ API
+- No `using namespace` directives
+- `{}` brace initialization preferred
+- `*` and `&` bind to the type side: `const texture &tex`, `void *ptr`
+- Namespace-closing comments required: `} // namespace nozzle` etc.
+- No unnecessary comments. Code should be self-documenting.
+- No docstrings. No file-level block comments beyond the one-line identifier.
 
 ## Plan Document
 
