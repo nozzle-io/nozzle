@@ -14,7 +14,7 @@ public:
 
     ~receiver();
 
-    receiver() = default;
+    receiver();
     receiver(const receiver &) = delete;
     receiver &operator=(const receiver &) = delete;
     receiver(receiver &&) noexcept;

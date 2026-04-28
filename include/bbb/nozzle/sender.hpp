@@ -14,7 +14,7 @@ public:
 
     ~sender();
 
-    sender() = default;
+    sender();
     sender(const sender &) = delete;
     sender &operator=(const sender &) = delete;
     sender(sender &&) noexcept;

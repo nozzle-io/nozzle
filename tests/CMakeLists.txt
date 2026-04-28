@@ -32,6 +32,31 @@ target_include_directories(nozzle_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
+# --- Integration test executable ---
+# Links against the full nozzle library (including Metal backend on macOS).
+set(INTEGRATION_TEST_SOURCES
+    integration/test_cross_process.cpp
+)
+
+add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
+
+target_link_libraries(nozzle_integration_tests PRIVATE
+    Catch2::Catch2WithMain
+    "-Wl,-force_load"
+    nozzle
+)
+
+target_include_directories(nozzle_integration_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/common
+)
+
+target_compile_options(nozzle_integration_tests PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions -fno-rtti>
+    $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions -fno-rtti>
+)
+
 include(CTest)
 include(Catch)
 catch_discover_tests(nozzle_tests)
+catch_discover_tests(nozzle_integration_tests)

@@ -18,7 +18,7 @@ uint32_t get_writable_frame_slot(const writable_frame &);
 
 class frame {
 public:
-    frame() = default;
+    frame();
     ~frame();
 
     // Movable only

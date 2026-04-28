@@ -178,6 +178,7 @@ struct receiver::Impl {
     pid_t sender_pid_{0};
 };
 
+receiver::receiver() = default;
 receiver::~receiver() {
     if (impl_ && impl_->state_view_.state) {
         detail::registry::close_sender_state(impl_->state_view_);

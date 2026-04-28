@@ -7,6 +7,7 @@
 
 namespace bbb::nozzle {
 
+frame::frame() = default;
 frame::~frame() = default;
 frame::frame(frame &&) noexcept = default;
 frame &frame::operator=(frame &&) noexcept = default;
@@ -41,6 +42,7 @@ void frame::release() {
     }
 }
 
+writable_frame::writable_frame() noexcept = default;
 writable_frame::~writable_frame() = default;
 writable_frame::writable_frame(writable_frame &&) noexcept = default;
 writable_frame &writable_frame::operator=(writable_frame &&) noexcept = default;
@@ -70,19 +72,19 @@ namespace detail {
 frame make_frame(texture tex, frame_info info) {
     frame f;
     f.impl_ = std::make_unique<frame::Impl>();
-    f.impl_->tex_ = std::move(tex);
     f.impl_->info_ = info;
     f.impl_->valid_ = tex.valid();
+    f.impl_->tex_ = std::move(tex);
     return f;
 }
 
 writable_frame make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index) {
     writable_frame f;
     f.impl_ = std::make_unique<writable_frame::Impl>();
-    f.impl_->tex_ = std::move(tex);
     f.impl_->desc_ = desc;
     f.impl_->slot_index_ = slot_index;
     f.impl_->valid_ = tex.valid();
+    f.impl_->tex_ = std::move(tex);
     return f;
 }
 

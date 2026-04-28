@@ -61,6 +61,7 @@ struct sender::Impl {
 	}
 };
 
+sender::sender() = default;
 sender::~sender() = default;
 sender::sender(sender &&) noexcept = default;
 sender &sender::operator=(sender &&) noexcept = default;
@@ -336,6 +337,9 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	);
 #endif
 
+	if (f.valid()) {
+		impl_->ring_textures_[slot] = std::move(f.get_texture());
+	}
 	f = writable_frame{};
 	impl_->slot_in_use_[slot] = false;
 

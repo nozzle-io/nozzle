@@ -14,6 +14,30 @@ namespace bbb::nozzle::metal {
 
 static constexpr uint32_t kIOSurfaceAlignBytes = 64;
 
+static MTLPixelFormat to_mtl_pixel_format(uint32_t nozzle_format) {
+    switch (static_cast<bbb::nozzle::texture_format>(nozzle_format)) {
+        case bbb::nozzle::texture_format::r8_unorm:         return MTLPixelFormatR8Unorm;
+        case bbb::nozzle::texture_format::rg8_unorm:        return MTLPixelFormatRG8Unorm;
+        case bbb::nozzle::texture_format::rgba8_unorm:      return MTLPixelFormatRGBA8Unorm;
+        case bbb::nozzle::texture_format::bgra8_unorm:      return MTLPixelFormatBGRA8Unorm;
+        case bbb::nozzle::texture_format::rgba8_srgb:       return MTLPixelFormatRGBA8Unorm_sRGB;
+        case bbb::nozzle::texture_format::bgra8_srgb:       return MTLPixelFormatBGRA8Unorm_sRGB;
+        case bbb::nozzle::texture_format::r16_unorm:        return MTLPixelFormatR16Unorm;
+        case bbb::nozzle::texture_format::rg16_unorm:       return MTLPixelFormatRG16Unorm;
+        case bbb::nozzle::texture_format::rgba16_unorm:     return MTLPixelFormatRGBA16Unorm;
+        case bbb::nozzle::texture_format::r16_float:        return MTLPixelFormatR16Float;
+        case bbb::nozzle::texture_format::rg16_float:       return MTLPixelFormatRG16Float;
+        case bbb::nozzle::texture_format::rgba16_float:     return MTLPixelFormatRGBA16Float;
+        case bbb::nozzle::texture_format::r32_float:        return MTLPixelFormatR32Float;
+        case bbb::nozzle::texture_format::rg32_float:       return MTLPixelFormatRG32Float;
+        case bbb::nozzle::texture_format::rgba32_float:     return MTLPixelFormatRGBA32Float;
+        case bbb::nozzle::texture_format::r32_uint:         return MTLPixelFormatR32Uint;
+        case bbb::nozzle::texture_format::rgba32_uint:      return MTLPixelFormatRGBA32Uint;
+        case bbb::nozzle::texture_format::depth32_float:    return MTLPixelFormatDepth32Float;
+        default:                                             return MTLPixelFormatInvalid;
+    }
+}
+
 static bool map_pixel_format(
     MTLPixelFormat mtl_format,
     uint32_t &out_iosurface_pf,
@@ -56,7 +80,14 @@ Result<metal_texture_pair> create_iosurface_texture(
             return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
         }
 
-        auto mtl_format = static_cast<MTLPixelFormat>(pixel_format);
+        auto mtl_format = to_mtl_pixel_format(pixel_format);
+        if (mtl_format == MTLPixelFormatInvalid) {
+            return Error{
+                ErrorCode::UnsupportedFormat,
+                "Unsupported nozzle pixel format for IOSurface-backed texture"
+            };
+        }
+
         uint32_t iosurface_pf = 0;
         uint32_t bytes_per_element = 0;
         if (!map_pixel_format(mtl_format, iosurface_pf, bytes_per_element)) {
@@ -170,6 +201,68 @@ mtl_texture_handle get_texture(const texture &tex) {
 
 surface_handle get_io_surface(const texture &tex) {
     return detail::get_surface_native(tex);
+}
+
+} // namespace bbb::nozzle::metal
+
+// lookup_iosurface_texture: create a Metal texture from an existing IOSurface ID
+// (used by receiver to access sender's textures cross-process)
+namespace bbb::nozzle::metal {
+
+Result<texture> lookup_iosurface_texture(
+    uint32_t iosurface_id,
+    uint32_t width,
+    uint32_t height,
+    uint32_t pixel_format
+) {
+    @autoreleasepool {
+        IOSurfaceRef surface = IOSurfaceLookup(iosurface_id);
+        if (!surface) {
+            return Error{
+                ErrorCode::ResourceCreationFailed,
+                "Failed to lookup IOSurface by ID"
+            };
+        }
+
+        id<MTLDevice> device = (id<MTLDevice>)get_default_mtl_device();
+        if (!device) {
+            CFRelease(surface);
+            return Error{ErrorCode::BackendError, "No default Metal device"};
+        }
+
+        auto mtl_format = to_mtl_pixel_format(pixel_format);
+        if (mtl_format == MTLPixelFormatInvalid) {
+            CFRelease(surface);
+            return Error{ErrorCode::UnsupportedFormat, "Unsupported nozzle pixel format"};
+        }
+
+        MTLTextureDescriptor *tex_desc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:mtl_format
+                                                               width:width
+                                                              height:height
+                                                           mipmapped:NO];
+        tex_desc.usage = MTLTextureUsageShaderRead;
+        tex_desc.resourceOptions = MTLResourceStorageModeShared;
+
+        id<MTLTexture> texture = [device newTextureWithDescriptor:tex_desc
+                                                         iosurface:surface
+                                                               plane:0];
+        if (!texture) {
+            CFRelease(surface);
+            return Error{
+                ErrorCode::ResourceCreationFailed,
+                "Failed to create Metal texture from looked-up IOSurface"
+            };
+        }
+
+        return detail::make_texture_from_backend(
+            (void *)texture,
+            (void *)surface,
+            width,
+            height,
+            pixel_format
+        );
+    }
 }
 
 } // namespace bbb::nozzle::metal
