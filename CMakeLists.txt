@@ -100,6 +100,18 @@ if(WIN32)
     target_link_libraries(nozzle PRIVATE d3d11 dxgi bcrypt)
 endif()
 
+# --- OpenGL interop ---
+option(NOZZLE_BUILD_OPENGL "Build OpenGL interop helpers" ON)
+
+if(NOZZLE_BUILD_OPENGL AND APPLE)
+    target_sources(nozzle PRIVATE
+        src/backends/opengl/opengl_backend.cpp
+    )
+    find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
+    target_link_libraries(nozzle PRIVATE ${OPENGL_FRAMEWORK})
+    target_compile_definitions(nozzle PUBLIC NOZZLE_HAS_OPENGL=1)
+endif()
+
 # --- CMake package config export ---
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
