@@ -21,11 +21,10 @@ target_compile_options(nozzle PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/EHs-c- /GR->
 )
 
-# --- MSVC: use static CRT (/MT) to match typical plugin/external requirements ---
+# --- MSVC: use static CRT (/MT) for plugin compatibility ---
 if(MSVC)
-    set_property(TARGET nozzle PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
-    )
+    cmake_policy(SET CMP0091 NEW)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
 endif()
 
 # --- Platform detection ---
