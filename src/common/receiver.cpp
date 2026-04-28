@@ -2,21 +2,16 @@
 
 #include <bbb/nozzle/receiver.hpp>
 
-#include "shared_state.hpp"
-#include "registry.hpp"
+#include "ipc.hpp"
 #include "frame_helpers.hpp"
 #include "metadata.hpp"
+#include "registry.hpp"
+#include "shared_state.hpp"
 
 #include <chrono>
 #include <cstring>
 #include <string>
 #include <thread>
-
-#include <fcntl.h>
-#include <signal.h>
-#include <sys/mman.h>
-#include <time.h>
-#include <unistd.h>
 
 #if NOZZLE_HAS_METAL
 namespace bbb::nozzle::metal {
@@ -33,19 +28,12 @@ namespace nozzle {
 
 namespace {
 
-uint64_t monotonic_ns() {
-    struct timespec ts{};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL +
-           static_cast<uint64_t>(ts.tv_nsec);
-}
-
 struct SenderDirectoryEntry {
     char shm_name[96]{};
     char application_name[64]{};
     char uuid[37]{};
     uint8_t backend{0};
-    pid_t pid{0};
+    uint64_t pid{0};
 };
 
 Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
@@ -53,24 +41,25 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
     }
 
-    int fd = shm_open(detail::kDirectoryShmName, O_RDONLY, 0);
-    if (fd < 0) {
+    auto shm_result = detail::ipc::shm_open_ro(detail::kDirectoryShmName);
+    if (!shm_result.ok()) {
         return Error{ErrorCode::SenderNotFound, "no nozzle directory found"};
     }
 
     const auto total_size = sizeof(detail::DirectoryHeader) +
                             sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
 
-    void *mapped = mmap(nullptr, total_size, PROT_READ, MAP_SHARED, fd, 0);
-    if (mapped == MAP_FAILED) {
-        close(fd);
+    auto map_result = detail::ipc::shm_map(shm_result.value(), total_size, true);
+    if (!map_result.ok()) {
+        detail::ipc::shm_close(shm_result.value());
         return Error{ErrorCode::SenderNotFound, "failed to map nozzle directory"};
     }
+    void *mapped = map_result.value();
 
     auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
     if (header->magic != detail::kDirectoryMagic) {
-        munmap(mapped, total_size);
-        close(fd);
+        detail::ipc::shm_unmap(mapped, total_size);
+        detail::ipc::shm_close(shm_result.value());
         return Error{ErrorCode::SenderNotFound, "nozzle directory has invalid magic"};
     }
 
@@ -84,10 +73,10 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         if (entries[i].valid != 1) {
             continue;
         }
-        if (entries[i].pid <= 0) {
+        if (entries[i].pid == 0) {
             continue;
         }
-        if (kill(entries[i].pid, 0) != 0 && errno == ESRCH) {
+        if (!detail::ipc::is_pid_alive(entries[i].pid)) {
             continue;
         }
         if (std::strncmp(entries[i].sender_name, name, sizeof(entries[i].sender_name)) != 0) {
@@ -103,8 +92,8 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         break;
     }
 
-    munmap(mapped, total_size);
-    close(fd);
+    detail::ipc::shm_unmap(mapped, total_size);
+    detail::ipc::shm_close(shm_result.value());
 
     if (!found_entry) {
         return Error{ErrorCode::SenderNotFound, "sender not found: " + std::string(name)};
@@ -116,7 +105,7 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
 struct ConnectionSetup {
     detail::registry::SenderStateView state_view{};
     connected_sender_info info{};
-    pid_t sender_pid{0};
+    uint64_t sender_pid{0};
 };
 
 Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
@@ -143,9 +132,9 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.info.width = state->width;
     setup.info.height = state->height;
     setup.info.format = static_cast<texture_format>(state->format);
-    setup.info.frame_counter = state->committed_frame;
-    __atomic_thread_fence(__ATOMIC_ACQUIRE);
-    setup.info.last_update_time_ns = monotonic_ns();
+    setup.info.frame_counter = detail::ipc::atomic_load_relaxed(&state->committed_frame);
+    detail::ipc::atomic_fence_acquire();
+    setup.info.last_update_time_ns = detail::ipc::monotonic_ns();
 
     return setup;
 }
@@ -176,7 +165,7 @@ struct receiver::Impl {
     uint64_t last_change_counter_{0};
     connected_sender_info connected_info_{};
     bool connected_{false};
-    pid_t sender_pid_{0};
+    uint64_t sender_pid_{0};
 };
 
 receiver::receiver() = default;
@@ -246,7 +235,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         }
     }
 
-    if (impl_->sender_pid_ > 0 && kill(impl_->sender_pid_, 0) != 0 && errno == ESRCH) {
+    if (impl_->sender_pid_ > 0 && !detail::ipc::is_pid_alive(impl_->sender_pid_)) {
         impl_->connected_ = false;
         if (impl_->state_view_.state) {
             detail::registry::close_sender_state(impl_->state_view_);
@@ -262,17 +251,17 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
     uint64_t deadline = 0;
     if (desc.timeout_ms > 0) {
-        deadline = monotonic_ns() + desc.timeout_ms * 1000000ULL;
+        deadline = detail::ipc::monotonic_ns() + desc.timeout_ms * 1000000ULL;
     }
 
     while (true) {
-        uint64_t frame = state->committed_frame;
-        __atomic_thread_fence(__ATOMIC_ACQUIRE);
-        uint32_t slot = state->committed_slot;
+        uint64_t frame = detail::ipc::atomic_load_relaxed(&state->committed_frame);
+        detail::ipc::atomic_fence_acquire();
+        uint32_t slot = detail::ipc::atomic_load_relaxed(&state->committed_slot);
 
         if (frame == 0) {
             if (desc.timeout_ms > 0) {
-                if (monotonic_ns() >= deadline) {
+                if (detail::ipc::monotonic_ns() >= deadline) {
                     return Error{ErrorCode::Timeout, "timeout waiting for first frame"};
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -283,7 +272,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
         if (frame == impl_->last_frame_) {
             if (desc.timeout_ms > 0) {
-                if (monotonic_ns() >= deadline) {
+                if (detail::ipc::monotonic_ns() >= deadline) {
                     return Error{ErrorCode::Timeout, "timeout waiting for new frame"};
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -304,7 +293,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
         frame_info info{};
         info.frame_index = frame;
-        info.timestamp_ns = monotonic_ns();
+        info.timestamp_ns = detail::ipc::monotonic_ns();
         info.width = state->width;
         info.height = state->height;
         info.format = static_cast<texture_format>(state->format);

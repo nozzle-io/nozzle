@@ -4,17 +4,12 @@
 
 #include <bbb/nozzle/result.hpp>
 
-#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
 
-#include <fcntl.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include "ipc.hpp"
+#include "shared_state.hpp"
 
 namespace bbb {
 namespace nozzle {
@@ -25,9 +20,9 @@ namespace {
 
 std::mutex process_mutex_;
 
-static void generate_uuid(char *out) {
+void generate_uuid(char *out) {
     uint8_t bytes[16]{};
-    arc4random_buf(bytes, sizeof(bytes));
+    ipc::random_bytes(bytes, sizeof(bytes));
     bytes[6] = (bytes[6] & 0x0F) | 0x40;
     bytes[8] = (bytes[8] & 0x3F) | 0x80;
     std::snprintf(
@@ -40,53 +35,45 @@ static void generate_uuid(char *out) {
 }
 
 struct ScopedDirLock {
-    int fd{-1};
+    ipc::dir_lock lock{};
+    ipc::shm_handle handle{};
     void *mapped{nullptr};
     std::size_t mapped_size{0};
-    bool locked{false};
 
     ~ScopedDirLock() {
-        if (locked && fd >= 0) {
-            struct flock fl{};
-            fl.l_type = F_UNLCK;
-            fl.l_whence = SEEK_SET;
-            fl.l_start = 0;
-            fl.l_len = 0;
-            fcntl(fd, F_SETLK, &fl);
-        }
         if (mapped != nullptr) {
-            munmap(mapped, mapped_size);
+            ipc::shm_unmap(mapped, mapped_size);
         }
-        if (fd >= 0) {
-            close(fd);
-        }
+        ipc::shm_close(handle);
+        ipc::dir_lock_release(lock);
     }
 
     ScopedDirLock() = default;
 
     ScopedDirLock(const ScopedDirLock &) = delete;
     ScopedDirLock &operator=(const ScopedDirLock &) = delete;
+
     ScopedDirLock(ScopedDirLock &&other) noexcept
-        : fd{other.fd}
+        : lock{other.lock}
+        , handle{other.handle}
         , mapped{other.mapped}
         , mapped_size{other.mapped_size}
-        , locked{other.locked}
     {
-        other.fd = -1;
+        other.lock = {};
+        other.handle = {};
         other.mapped = nullptr;
         other.mapped_size = 0;
-        other.locked = false;
     }
     ScopedDirLock &operator=(ScopedDirLock &&other) noexcept {
         if (this != &other) {
-            fd = other.fd;
+            lock = other.lock;
+            handle = other.handle;
             mapped = other.mapped;
             mapped_size = other.mapped_size;
-            locked = other.locked;
-            other.fd = -1;
+            other.lock = {};
+            other.handle = {};
             other.mapped = nullptr;
             other.mapped_size = 0;
-            other.locked = false;
         }
         return *this;
     }
@@ -94,56 +81,41 @@ struct ScopedDirLock {
 
 Result<ScopedDirLock> open_directory_locked(bool read_only) {
     ScopedDirLock dir{};
-
-    const int flags = read_only ? O_RDONLY : O_RDWR | O_CREAT;
-    const mode_t mode = 0666;
-    dir.fd = shm_open(kDirectoryShmName, flags, mode);
-    if (dir.fd < 0) {
-        return Error{ErrorCode::ResourceCreationFailed, "shm_open failed for directory"};
-    }
-
     const auto total_size = sizeof(DirectoryHeader) + sizeof(DirectoryEntry) * kMaxSenders;
-    dir.mapped_size = total_size;
 
-    if (!read_only) {
-        struct stat st{};
-        bool needs_truncate = true;
-        if (fstat(dir.fd, &st) == 0 && static_cast<std::size_t>(st.st_size) >= total_size) {
-            needs_truncate = false;
-        }
-        if (needs_truncate) {
-            if (ftruncate(dir.fd, static_cast<off_t>(total_size)) != 0) {
-                auto saved_errno = errno;
-                // Segment may be corrupt — destroy and recreate
-                close(dir.fd);
-                dir.fd = -1;
-                shm_unlink(kDirectoryShmName);
-                dir.fd = shm_open(kDirectoryShmName, flags, mode);
-                if (dir.fd < 0) {
-                    return Error{ErrorCode::ResourceCreationFailed, "shm_open recreate failed for directory"};
-                }
-                if (ftruncate(dir.fd, static_cast<off_t>(total_size)) != 0) {
-                    auto saved2 = errno;
-                    char buf[160]{};
-                    std::snprintf(buf, sizeof(buf),
-                                  "ftruncate failed for directory: %s (errno=%d, size=%zu, retry_errno=%d)",
-                                  std::strerror(saved_errno), saved_errno, total_size, saved2);
-                    close(dir.fd);
-                    dir.fd = -1;
-                    return Error{ErrorCode::ResourceCreationFailed, buf};
-                }
-            }
-        }
+    auto lock_result = ipc::dir_lock_acquire(kDirectoryShmName, !read_only);
+    if (!lock_result.ok()) {
+        return lock_result.error();
     }
+    dir.lock = std::move(lock_result.value());
 
-    const int prot = read_only ? PROT_READ : PROT_READ | PROT_WRITE;
-    dir.mapped = mmap(nullptr, total_size, prot, MAP_SHARED, dir.fd, 0);
-    if (dir.mapped == MAP_FAILED) {
-        dir.mapped = nullptr;
-        return Error{ErrorCode::ResourceCreationFailed, "mmap failed for directory"};
-    }
+    if (read_only) {
+        auto shm_result = ipc::shm_open_ro(kDirectoryShmName);
+        if (!shm_result.ok()) {
+            return shm_result.error();
+        }
+        dir.handle = std::move(shm_result.value());
 
-    if (!read_only) {
+        auto map_result = ipc::shm_map(dir.handle, total_size, true);
+        if (!map_result.ok()) {
+            return map_result.error();
+        }
+        dir.mapped = map_result.value();
+        dir.mapped_size = total_size;
+    } else {
+        auto shm_result = ipc::shm_create(kDirectoryShmName, total_size);
+        if (!shm_result.ok()) {
+            return shm_result.error();
+        }
+        dir.handle = std::move(shm_result.value());
+
+        auto map_result = ipc::shm_map(dir.handle, total_size, false);
+        if (!map_result.ok()) {
+            return map_result.error();
+        }
+        dir.mapped = map_result.value();
+        dir.mapped_size = total_size;
+
         auto *header = static_cast<DirectoryHeader *>(dir.mapped);
         if (header->magic != kDirectoryMagic) {
             std::memset(dir.mapped, 0, total_size);
@@ -151,25 +123,9 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
             header->version = kSharedMemVersion;
             header->capacity = kMaxSenders;
         }
-
-        struct flock fl{};
-        fl.l_type = F_WRLCK;
-        fl.l_whence = SEEK_SET;
-        fl.l_start = 0;
-        fl.l_len = 0;
-        if (fcntl(dir.fd, F_SETLKW, &fl) == 0) {
-            dir.locked = true;
-        }
     }
 
     return dir;
-}
-
-bool is_pid_alive(pid_t pid) {
-    if (pid <= 0) {
-        return false;
-    }
-    return kill(pid, 0) == 0 || errno != ESRCH;
 }
 
 } // anonymous namespace
@@ -186,14 +142,13 @@ void cleanup_stale_entries() {
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid == 1 && !is_pid_alive(entries[i].pid)) {
+        if (entries[i].valid == 1 && !ipc::is_pid_alive(entries[i].pid)) {
             entries[i].valid = 0;
         }
     }
 
-    __atomic_store_n(&header->change_counter,
-                     __atomic_load_n(&header->change_counter, __ATOMIC_RELAXED) + 1,
-                     __ATOMIC_RELAXED);
+    ipc::atomic_store_relaxed(&header->change_counter,
+        ipc::atomic_load_relaxed(&header->change_counter) + 1);
 }
 
 Result<Registration> register_sender(
@@ -227,7 +182,7 @@ Result<Registration> register_sender(
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid == 1 && !is_pid_alive(entries[i].pid)) {
+        if (entries[i].valid == 1 && !ipc::is_pid_alive(entries[i].pid)) {
             entries[i].valid = 0;
         }
     }
@@ -250,36 +205,27 @@ Result<Registration> register_sender(
     std::memcpy(entry.uuid, reg.uuid, sizeof(entry.uuid));
     std::memcpy(entry.shm_name, reg.shm_name, sizeof(entry.shm_name));
     entry.backend = backend;
-    entry.pid = getpid();
+    entry.pid = ipc::current_pid();
     entry.valid = 1;
 
-    __atomic_store_n(&header->change_counter,
-                     __atomic_load_n(&header->change_counter, __ATOMIC_RELAXED) + 1,
-                     __ATOMIC_RELAXED);
+    ipc::atomic_store_relaxed(&header->change_counter,
+        ipc::atomic_load_relaxed(&header->change_counter) + 1);
 
-    int sender_fd = shm_open(reg.shm_name, O_RDWR | O_CREAT | O_EXCL, 0666);
-    if (sender_fd < 0) {
+    auto sender_shm = ipc::shm_create(reg.shm_name, sizeof(SenderSharedState));
+    if (!sender_shm.ok()) {
         entry.valid = 0;
-        return Error{ErrorCode::ResourceCreationFailed, "shm_open failed for sender state"};
+        return Error{ErrorCode::ResourceCreationFailed, "shm_create failed for sender state"};
     }
 
-    if (ftruncate(sender_fd, static_cast<off_t>(sizeof(SenderSharedState))) != 0) {
-        close(sender_fd);
-        shm_unlink(reg.shm_name);
+    auto sender_map = ipc::shm_map(sender_shm.value(), sizeof(SenderSharedState), false);
+    if (!sender_map.ok()) {
+        ipc::shm_close(sender_shm.value());
+        ipc::shm_unlink(reg.shm_name);
         entry.valid = 0;
-        return Error{ErrorCode::ResourceCreationFailed, "ftruncate failed for sender state"};
+        return Error{ErrorCode::ResourceCreationFailed, "shm_map failed for sender state"};
     }
 
-    void *sender_ptr = mmap(
-        nullptr, sizeof(SenderSharedState), PROT_READ | PROT_WRITE, MAP_SHARED, sender_fd, 0);
-    if (sender_ptr == MAP_FAILED) {
-        close(sender_fd);
-        shm_unlink(reg.shm_name);
-        entry.valid = 0;
-        return Error{ErrorCode::ResourceCreationFailed, "mmap failed for sender state"};
-    }
-
-    auto *state = static_cast<SenderSharedState *>(sender_ptr);
+    auto *state = static_cast<SenderSharedState *>(sender_map.value());
     std::memset(state, 0, sizeof(SenderSharedState));
     state->magic = kSenderMagic;
     state->version = kSharedMemVersion;
@@ -292,8 +238,8 @@ Result<Registration> register_sender(
     state->format = format;
     state->ring_size = ring_size < 1 ? 1 : (ring_size > kMaxRingSlots ? kMaxRingSlots : ring_size);
 
-    munmap(sender_ptr, sizeof(SenderSharedState));
-    close(sender_fd);
+    ipc::shm_unmap(sender_map.value(), sizeof(SenderSharedState));
+    ipc::shm_close(sender_shm.value());
 
     return reg;
 }
@@ -327,11 +273,10 @@ Result<void> unregister_sender(const char *uuid) {
         return Error{ErrorCode::SenderNotFound, "sender not found in directory"};
     }
 
-    __atomic_store_n(&header->change_counter,
-                     __atomic_load_n(&header->change_counter, __ATOMIC_RELAXED) + 1,
-                     __ATOMIC_RELAXED);
+    ipc::atomic_store_relaxed(&header->change_counter,
+        ipc::atomic_load_relaxed(&header->change_counter) + 1);
 
-    shm_unlink(shm_name);
+    ipc::shm_unlink(shm_name);
 
     return {};
 }
@@ -339,19 +284,20 @@ Result<void> unregister_sender(const char *uuid) {
 Result<SenderStateView> open_sender_state(const char *shm_name) {
     SenderStateView view{};
 
-    view.fd = shm_open(shm_name, O_RDONLY, 0);
-    if (view.fd < 0) {
-        return Error{ErrorCode::SenderNotFound, "shm_open failed for sender state"};
+    auto shm_result = ipc::shm_open_ro(shm_name);
+    if (!shm_result.ok()) {
+        return shm_result.error();
     }
+    view.handle = std::move(shm_result.value());
 
     view.mapped_size = sizeof(SenderSharedState);
-    view.mapped = mmap(nullptr, sizeof(SenderSharedState), PROT_READ, MAP_SHARED, view.fd, 0);
-    if (view.mapped == MAP_FAILED) {
-        view.mapped = nullptr;
-        close(view.fd);
-        view.fd = -1;
-        return Error{ErrorCode::ResourceCreationFailed, "mmap failed for sender state"};
+    auto map_result = ipc::shm_map(view.handle, view.mapped_size, true);
+    if (!map_result.ok()) {
+        ipc::shm_close(view.handle);
+        view.handle = {};
+        return map_result.error();
     }
+    view.mapped = map_result.value();
 
     view.state = static_cast<const SenderSharedState *>(view.mapped);
 
@@ -365,13 +311,10 @@ Result<SenderStateView> open_sender_state(const char *shm_name) {
 
 void close_sender_state(SenderStateView &view) {
     if (view.mapped != nullptr) {
-        munmap(view.mapped, view.mapped_size);
+        ipc::shm_unmap(view.mapped, view.mapped_size);
         view.mapped = nullptr;
     }
-    if (view.fd >= 0) {
-        close(view.fd);
-        view.fd = -1;
-    }
+    ipc::shm_close(view.handle);
     view.state = nullptr;
     view.mapped_size = 0;
 }

@@ -5,19 +5,15 @@
 #include <array>
 #include <cstring>
 #include <mutex>
-#include <stdatomic.h>
-
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <bbb/nozzle/device.hpp>
 #include <bbb/nozzle/result.hpp>
 
 #include "frame_helpers.hpp"
+#include "ipc.hpp"
+#include "metadata.hpp"
 #include "registry.hpp"
 #include "shared_state.hpp"
-#include "metadata.hpp"
 
 #if NOZZLE_HAS_METAL
 #include "backends/metal/metal_helpers.hpp"
@@ -31,7 +27,7 @@ namespace bbb::nozzle {
 struct sender::Impl {
 	detail::registry::Registration registration_{};
 	detail::SenderSharedState *state{nullptr};
-	int state_fd{-1};
+	detail::ipc::shm_handle state_handle{};
 	device device_{};
 #if NOZZLE_HAS_METAL
 	void *native_device_{nullptr};
@@ -51,13 +47,10 @@ struct sender::Impl {
 			slot_in_use_[i] = false;
 		}
 		if (state != nullptr) {
-			munmap(state, sizeof(detail::SenderSharedState));
+			detail::ipc::shm_unmap(state, sizeof(detail::SenderSharedState));
 			state = nullptr;
 		}
-		if (state_fd >= 0) {
-			close(state_fd);
-			state_fd = -1;
-		}
+		detail::ipc::shm_close(state_handle);
 		detail::registry::unregister_sender(registration_.uuid);
 	}
 };
@@ -99,32 +92,25 @@ Result<sender> sender::create(const sender_desc &desc) {
 	}
 	auto reg = std::move(reg_result.value());
 
-	int state_fd = shm_open(reg.shm_name, O_RDWR, 0);
-	if (state_fd < 0) {
+	auto state_shm = detail::ipc::shm_open_rw(reg.shm_name);
+	if (!state_shm.ok()) {
 		detail::registry::unregister_sender(reg.uuid);
 		return Error{ErrorCode::ResourceCreationFailed,
 			"failed to reopen sender shared state"};
 	}
 
-	void *mapped = mmap(
-		nullptr,
-		sizeof(detail::SenderSharedState),
-		PROT_READ | PROT_WRITE,
-		MAP_SHARED,
-		state_fd,
-		0
-	);
-	if (mapped == MAP_FAILED) {
-		close(state_fd);
+	auto mapped = detail::ipc::shm_map(state_shm.value(), sizeof(detail::SenderSharedState), false);
+	if (!mapped.ok()) {
+		detail::ipc::shm_close(state_shm.value());
 		detail::registry::unregister_sender(reg.uuid);
 		return Error{ErrorCode::ResourceCreationFailed,
 			"failed to mmap sender shared state"};
 	}
 
-	auto *state = static_cast<detail::SenderSharedState *>(mapped);
+	auto *state = static_cast<detail::SenderSharedState *>(mapped.value());
 	if (state->magic != detail::kSenderMagic) {
-		munmap(mapped, sizeof(detail::SenderSharedState));
-		close(state_fd);
+		detail::ipc::shm_unmap(mapped.value(), sizeof(detail::SenderSharedState));
+		detail::ipc::shm_close(state_shm.value());
 		detail::registry::unregister_sender(reg.uuid);
 		return Error{ErrorCode::BackendError,
 			"sender state has invalid magic"};
@@ -134,7 +120,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_ = std::make_unique<Impl>();
 	s.impl_->registration_ = std::move(reg);
 	s.impl_->state = state;
-	s.impl_->state_fd = state_fd;
+	s.impl_->state_handle = std::move(state_shm.value());
 	s.impl_->device_ = std::move(dev);
 #if NOZZLE_HAS_METAL
 	s.impl_->native_device_ = metal::get_default_mtl_device();
@@ -195,16 +181,8 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 		impl_->state->height = tex_desc.height;
 	}
 
-	atomic_store_explicit(
-		&impl_->state->committed_frame,
-		frame_number,
-		memory_order_release
-	);
-	atomic_store_explicit(
-		&impl_->state->committed_slot,
-		slot,
-		memory_order_release
-	);
+	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 
 	return {};
 #else
@@ -326,16 +304,8 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	impl_->state->slots[slot].frame_number = frame_number;
 	impl_->state->slots[slot].iosurface_id = surface_id;
 
-	atomic_store_explicit(
-		&impl_->state->committed_frame,
-		frame_number,
-		memory_order_release
-	);
-	atomic_store_explicit(
-		&impl_->state->committed_slot,
-		slot,
-		memory_order_release
-	);
+	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 #endif
 
 	if (f.valid()) {

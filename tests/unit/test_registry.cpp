@@ -116,7 +116,7 @@ TEST_CASE("Registry: open sender state", "[registry]") {
     registry::close_sender_state(view);
     REQUIRE(view.state == nullptr);
     REQUIRE(view.mapped == nullptr);
-    REQUIRE(view.fd < 0);
+    REQUIRE(!view.handle.valid());
 
     registry::unregister_sender(reg.uuid);
 }

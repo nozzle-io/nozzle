@@ -1,9 +1,15 @@
 function(add_nozzle_example NAME)
     add_executable(${NAME} ${NAME}.cpp)
-    target_link_libraries(${NAME} PRIVATE
-        "-Wl,-force_load"
-        nozzle
-    )
+    if(APPLE)
+        target_link_libraries(${NAME} PRIVATE
+            "-Wl,-force_load"
+            nozzle
+        )
+    else()
+        target_link_libraries(${NAME} PRIVATE
+            nozzle
+        )
+    endif()
     target_include_directories(${NAME} PRIVATE
         ${plog_SOURCE_DIR}/include
     )

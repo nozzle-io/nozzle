@@ -2,6 +2,7 @@
 
 #include <bbb/nozzle/result.hpp>
 
+#include "ipc.hpp"
 #include "shared_state.hpp"
 
 #include <cstddef>
@@ -18,7 +19,7 @@ struct Registration {
 
 struct SenderStateView {
     const SenderSharedState *state{nullptr};
-    int fd{-1};
+    ipc::shm_handle handle{};
     void *mapped{nullptr};
     std::size_t mapped_size{0};
 };

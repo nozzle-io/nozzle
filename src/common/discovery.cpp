@@ -3,15 +3,11 @@
 #include <bbb/nozzle/discovery.hpp>
 #include <bbb/nozzle/types.hpp>
 
+#include "ipc.hpp"
 #include "shared_state.hpp"
 
 #include <cstring>
 #include <vector>
-
-#include <fcntl.h>
-#include <signal.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 namespace bbb {
 namespace nozzle {
@@ -19,24 +15,25 @@ namespace nozzle {
 std::vector<sender_info> enumerate_senders() {
     std::vector<sender_info> result;
 
-    int fd = shm_open(detail::kDirectoryShmName, O_RDONLY, 0);
-    if (fd < 0) {
+    auto shm_result = detail::ipc::shm_open_ro(detail::kDirectoryShmName);
+    if (!shm_result.ok()) {
         return result;
     }
 
     const auto total_size = sizeof(detail::DirectoryHeader) +
                             sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
 
-    void *mapped = mmap(nullptr, total_size, PROT_READ, MAP_SHARED, fd, 0);
-    if (mapped == MAP_FAILED) {
-        close(fd);
+    auto map_result = detail::ipc::shm_map(shm_result.value(), total_size, true);
+    if (!map_result.ok()) {
+        detail::ipc::shm_close(shm_result.value());
         return result;
     }
+    void *mapped = map_result.value();
 
     auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
     if (header->magic != detail::kDirectoryMagic) {
-        munmap(mapped, total_size);
-        close(fd);
+        detail::ipc::shm_unmap(mapped, total_size);
+        detail::ipc::shm_close(shm_result.value());
         return result;
     }
 
@@ -48,11 +45,11 @@ std::vector<sender_info> enumerate_senders() {
             continue;
         }
 
-        if (entries[i].pid <= 0) {
+        if (entries[i].pid == 0) {
             continue;
         }
 
-        if (kill(entries[i].pid, 0) != 0 && errno == ESRCH) {
+        if (!detail::ipc::is_pid_alive(entries[i].pid)) {
             continue;
         }
 
@@ -64,8 +61,8 @@ std::vector<sender_info> enumerate_senders() {
         result.push_back(std::move(info));
     }
 
-    munmap(mapped, total_size);
-    close(fd);
+    detail::ipc::shm_unmap(mapped, total_size);
+    detail::ipc::shm_close(shm_result.value());
     return result;
 }
 

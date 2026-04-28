@@ -15,6 +15,7 @@ set(UNIT_TEST_SOURCES
     unit/test_main.cpp
     unit/test_registry.cpp
     unit/test_discovery.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp
 )
@@ -40,9 +41,15 @@ set(INTEGRATION_TEST_SOURCES
 
 add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
 
+if(APPLE)
+    set(NOZZLE_FORCE_LOAD_FLAG "-Wl,-force_load")
+else()
+    set(NOZZLE_FORCE_LOAD_FLAG "")
+endif()
+
 target_link_libraries(nozzle_integration_tests PRIVATE
     Catch2::Catch2WithMain
-    "-Wl,-force_load"
+    ${NOZZLE_FORCE_LOAD_FLAG}
     nozzle
 )
 

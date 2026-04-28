@@ -59,6 +59,7 @@ target_include_directories(nozzle PRIVATE
 
 # --- Common sources ---
 target_sources(nozzle PRIVATE
+    src/common/ipc.cpp
     src/common/registry.cpp
     src/common/sender.cpp
     src/common/receiver.cpp
@@ -95,7 +96,7 @@ if(WIN32)
         src/backends/d3d11/d3d11_texture.cpp
         src/backends/d3d11/d3d11_sync.cpp
     )
-    target_link_libraries(nozzle PRIVATE d3d11 dxgi)
+    target_link_libraries(nozzle PRIVATE d3d11 dxgi bcrypt)
 endif()
 
 # --- CMake package config export ---
