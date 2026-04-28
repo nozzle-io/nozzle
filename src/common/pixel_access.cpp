@@ -2,9 +2,9 @@
 
 #include <bbb/nozzle/pixel_access.hpp>
 #include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/backends/metal.hpp>
 
 #if NOZZLE_PLATFORM_MACOS
+#include <bbb/nozzle/backends/metal.hpp>
 #include <IOSurface/IOSurface.h>
 #endif
 
