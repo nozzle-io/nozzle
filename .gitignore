@@ -12,3 +12,4 @@ Makefile
 *.xcuserdata/
 *.swp
 *~
+build-nozzle/

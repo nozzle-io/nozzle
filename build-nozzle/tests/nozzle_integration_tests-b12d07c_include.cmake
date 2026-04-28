@@ -1,5 +1,0 @@
-if(EXISTS "/Users/2bit/prog/cpp/nozzle/build-nozzle/tests/nozzle_integration_tests-b12d07c_tests.cmake")
-  include("/Users/2bit/prog/cpp/nozzle/build-nozzle/tests/nozzle_integration_tests-b12d07c_tests.cmake")
-else()
-  add_test(nozzle_integration_tests_NOT_BUILT-b12d07c nozzle_integration_tests_NOT_BUILT-b12d07c)
-endif()
