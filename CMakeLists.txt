@@ -21,6 +21,13 @@ target_compile_options(nozzle PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/EHs-c- /GR->
 )
 
+# --- MSVC: use static CRT (/MT) to match typical plugin/external requirements ---
+if(MSVC)
+    set_property(TARGET nozzle PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+endif()
+
 # --- Platform detection ---
 if(APPLE)
     set(NOZZLE_PLATFORM_MACOS 1)
