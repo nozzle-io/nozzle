@@ -3,6 +3,7 @@
 #if NOZZLE_HAS_D3D11
 
 #include <d3d11.h>
+#include <cstdint>
 
 namespace bbb {
 namespace nozzle {
