@@ -86,14 +86,22 @@ void *get_texture_native(const texture &t) {
     if (!t.valid()) {
         return nullptr;
     }
+#if NOZZLE_HAS_METAL
     return t.impl_->native_texture;
+#else
+    return nullptr;
+#endif
 }
 
 void *get_surface_native(const texture &t) {
     if (!t.valid()) {
         return nullptr;
     }
+#if NOZZLE_HAS_METAL
     return t.impl_->native_surface;
+#else
+    return nullptr;
+#endif
 }
 
 } // namespace detail
