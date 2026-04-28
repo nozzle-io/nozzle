@@ -140,6 +140,10 @@ examples/                    Minimal sender/receiver examples
 | Logging | plog (header-only, submodule) |
 | Crash cleanup | Lazy — receiver detects dead sender on access failure |
 
+## Acknowledgments
+
+Nozzle draws significant inspiration from [Syphon](https://syphon.info/) and [Spout](http://spout.zeal.co/). The named sender/receiver model, the concept of shared GPU textures between local processes, and the focus on creative-coding and real-time graphics integration all follow the path they established. While nozzle is an independent implementation with its own API design and is not protocol-compatible with either project, their work directly informed the architecture and goals. Much respect to the Syphon and Spout developers for proving this model works and matters.
+
 ## License
 
 MIT
