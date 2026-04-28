@@ -1,0 +1,341 @@
+// nozzle - receiver.cpp - Texture receiver implementation
+
+#include <bbb/nozzle/receiver.hpp>
+
+#include "shared_state.hpp"
+#include "registry.hpp"
+#include "frame_helpers.hpp"
+
+#include <chrono>
+#include <cstring>
+#include <string>
+#include <thread>
+
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/mman.h>
+#include <time.h>
+#include <unistd.h>
+
+#if NOZZLE_HAS_METAL
+namespace bbb::nozzle::metal {
+    Result<texture> lookup_iosurface_texture(
+        uint32_t iosurface_id,
+        uint32_t width,
+        uint32_t height,
+        uint32_t format);
+} // namespace bbb::nozzle::metal
+#endif
+
+namespace bbb {
+namespace nozzle {
+
+namespace {
+
+uint64_t monotonic_ns() {
+    struct timespec ts{};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL +
+           static_cast<uint64_t>(ts.tv_nsec);
+}
+
+struct SenderDirectoryEntry {
+    char shm_name[96]{};
+    char application_name[64]{};
+    char uuid[37]{};
+    uint8_t backend{0};
+    pid_t pid{0};
+};
+
+Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
+    if (!name || name[0] == '\0') {
+        return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
+    }
+
+    int fd = shm_open(detail::kDirectoryShmName, O_RDONLY, 0);
+    if (fd < 0) {
+        return Error{ErrorCode::SenderNotFound, "no nozzle directory found"};
+    }
+
+    const auto total_size = sizeof(detail::DirectoryHeader) +
+                            sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
+
+    void *mapped = mmap(nullptr, total_size, PROT_READ, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) {
+        close(fd);
+        return Error{ErrorCode::SenderNotFound, "failed to map nozzle directory"};
+    }
+
+    auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
+    if (header->magic != detail::kDirectoryMagic) {
+        munmap(mapped, total_size);
+        close(fd);
+        return Error{ErrorCode::SenderNotFound, "nozzle directory has invalid magic"};
+    }
+
+    auto *entries = reinterpret_cast<const detail::DirectoryEntry *>(
+        static_cast<const uint8_t *>(mapped) + sizeof(detail::DirectoryHeader));
+
+    SenderDirectoryEntry found{};
+    bool found_entry = false;
+
+    for (uint32_t i = 0; i < header->capacity; ++i) {
+        if (entries[i].valid != 1) {
+            continue;
+        }
+        if (entries[i].pid <= 0) {
+            continue;
+        }
+        if (kill(entries[i].pid, 0) != 0 && errno == ESRCH) {
+            continue;
+        }
+        if (std::strncmp(entries[i].sender_name, name, sizeof(entries[i].sender_name)) != 0) {
+            continue;
+        }
+
+        std::memcpy(found.shm_name, entries[i].shm_name, sizeof(found.shm_name));
+        std::memcpy(found.application_name, entries[i].application_name, sizeof(found.application_name));
+        std::memcpy(found.uuid, entries[i].uuid, sizeof(found.uuid));
+        found.backend = entries[i].backend;
+        found.pid = entries[i].pid;
+        found_entry = true;
+        break;
+    }
+
+    munmap(mapped, total_size);
+    close(fd);
+
+    if (!found_entry) {
+        return Error{ErrorCode::SenderNotFound, "sender not found: " + std::string(name)};
+    }
+
+    return found;
+}
+
+struct ConnectionSetup {
+    detail::registry::SenderStateView state_view{};
+    ConnectedSenderInfo info{};
+    pid_t sender_pid{0};
+};
+
+Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
+    auto dir_entry = find_sender_in_directory(sender_name.c_str());
+    if (!dir_entry.ok()) {
+        return dir_entry.error();
+    }
+
+    auto state_result = detail::registry::open_sender_state(dir_entry.value().shm_name);
+    if (!state_result.ok()) {
+        return Error{ErrorCode::SenderNotFound,
+                     "failed to open sender state for: " + sender_name};
+    }
+
+    ConnectionSetup setup{};
+    setup.state_view = std::move(state_result.value());
+    setup.sender_pid = dir_entry.value().pid;
+
+    auto *state = setup.state_view.state;
+    setup.info.name = state->name;
+    setup.info.applicationName = state->application_name;
+    setup.info.id = state->uuid;
+    setup.info.backend = static_cast<BackendType>(state->backend);
+    setup.info.width = state->width;
+    setup.info.height = state->height;
+    setup.info.format = static_cast<TextureFormat>(state->format);
+    setup.info.frameCounter = state->committed_frame;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    setup.info.lastUpdateTimeNs = monotonic_ns();
+
+    return setup;
+}
+
+Result<texture> create_texture_from_slot(
+    const detail::SenderSharedState *state,
+    uint32_t slot) {
+#if NOZZLE_HAS_METAL
+    if (state->backend == static_cast<uint8_t>(BackendType::Metal)) {
+        return metal::lookup_iosurface_texture(
+            state->slots[slot].iosurface_id,
+            state->width,
+            state->height,
+            state->format);
+    }
+#endif
+    (void)state;
+    (void)slot;
+    return Error{ErrorCode::BackendError, "no suitable backend for texture creation"};
+}
+
+} // anonymous namespace
+
+struct receiver::Impl {
+    std::string sender_name_{};
+    detail::registry::SenderStateView state_view_{};
+    uint64_t last_frame_{0};
+    uint64_t last_change_counter_{0};
+    ConnectedSenderInfo connected_info_{};
+    bool connected_{false};
+    pid_t sender_pid_{0};
+};
+
+receiver::~receiver() {
+    if (impl_ && impl_->state_view_.state) {
+        detail::registry::close_sender_state(impl_->state_view_);
+    }
+}
+
+receiver::receiver(receiver &&other) noexcept
+    : impl_{std::move(other.impl_)} {}
+
+receiver &receiver::operator=(receiver &&other) noexcept {
+    if (this != &other) {
+        if (impl_ && impl_->state_view_.state) {
+            detail::registry::close_sender_state(impl_->state_view_);
+        }
+        impl_ = std::move(other.impl_);
+    }
+    return *this;
+}
+
+Result<receiver> receiver::create(const ReceiverDesc &desc) {
+    if (desc.name.empty()) {
+        return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
+    }
+
+    auto setup = establish_connection(desc.name);
+    if (!setup.ok()) {
+        return setup.error();
+    }
+
+    receiver recv;
+    recv.impl_ = std::make_unique<Impl>();
+    recv.impl_->sender_name_ = desc.name;
+    recv.impl_->state_view_ = std::move(setup.value().state_view);
+    recv.impl_->sender_pid_ = setup.value().sender_pid;
+    recv.impl_->connected_ = true;
+    recv.impl_->last_frame_ = 0;
+    recv.impl_->connected_info_ = std::move(setup.value().info);
+
+    return recv;
+}
+
+Result<frame> receiver::acquire_frame() {
+    return acquire_frame(AcquireDesc{});
+}
+
+Result<frame> receiver::acquire_frame(const AcquireDesc &desc) {
+    if (!impl_ || !impl_->connected_) {
+        if (impl_) {
+            auto setup = establish_connection(impl_->sender_name_);
+            if (!setup.ok()) {
+                return Error{ErrorCode::SenderNotFound,
+                             "reconnect failed: " + setup.error().message};
+            }
+            if (impl_->state_view_.state) {
+                detail::registry::close_sender_state(impl_->state_view_);
+            }
+            impl_->state_view_ = std::move(setup.value().state_view);
+            impl_->sender_pid_ = setup.value().sender_pid;
+            impl_->connected_ = true;
+            impl_->last_frame_ = 0;
+            impl_->connected_info_ = std::move(setup.value().info);
+        } else {
+            return Error{ErrorCode::SenderNotFound, "receiver not initialized"};
+        }
+    }
+
+    if (impl_->sender_pid_ > 0 && kill(impl_->sender_pid_, 0) != 0 && errno == ESRCH) {
+        impl_->connected_ = false;
+        if (impl_->state_view_.state) {
+            detail::registry::close_sender_state(impl_->state_view_);
+        }
+        return Error{ErrorCode::SenderClosed, "sender process is no longer alive"};
+    }
+
+    auto *state = impl_->state_view_.state;
+    if (!state) {
+        impl_->connected_ = false;
+        return Error{ErrorCode::SenderClosed, "sender state is null"};
+    }
+
+    uint64_t deadline = 0;
+    if (desc.timeoutMs > 0) {
+        deadline = monotonic_ns() + desc.timeoutMs * 1000000ULL;
+    }
+
+    while (true) {
+        uint64_t frame = state->committed_frame;
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        uint32_t slot = state->committed_slot;
+
+        if (frame == 0) {
+            if (desc.timeoutMs > 0) {
+                if (monotonic_ns() >= deadline) {
+                    return Error{ErrorCode::Timeout, "timeout waiting for first frame"};
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                continue;
+            }
+            return Error{ErrorCode::Timeout, "sender has not produced any frames yet"};
+        }
+
+        if (frame == impl_->last_frame_) {
+            if (desc.timeoutMs > 0) {
+                if (monotonic_ns() >= deadline) {
+                    return Error{ErrorCode::Timeout, "timeout waiting for new frame"};
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                continue;
+            }
+            return Error{ErrorCode::Timeout, "no new frame"};
+        }
+
+        if (slot >= state->ring_size) {
+            slot = slot % state->ring_size;
+        }
+
+        uint32_t dropped = 0;
+        if (frame > impl_->last_frame_) {
+            dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
+        }
+        impl_->last_frame_ = frame;
+
+        FrameInfo info{};
+        info.frameIndex = frame;
+        info.timestampNs = monotonic_ns();
+        info.width = state->width;
+        info.height = state->height;
+        info.format = static_cast<TextureFormat>(state->format);
+        info.transferMode = TransferMode::ZeroCopySharedTexture;
+        info.syncMode = SyncMode::None;
+        info.droppedFrameCount = dropped;
+
+        auto tex_result = create_texture_from_slot(state, slot);
+        if (!tex_result.ok()) {
+            return tex_result.error();
+        }
+
+        impl_->connected_info_.frameCounter = frame;
+        impl_->connected_info_.lastUpdateTimeNs = info.timestampNs;
+
+        return detail::make_frame(std::move(tex_result.value()), info);
+    }
+}
+
+ConnectedSenderInfo receiver::connected_info() const {
+    if (!impl_) {
+        return {};
+    }
+    return impl_->connected_info_;
+}
+
+bool receiver::is_connected() const {
+    return impl_ && impl_->connected_;
+}
+
+bool receiver::valid() const {
+    return impl_ && impl_->connected_;
+}
+
+} // namespace nozzle
+} // namespace bbb
