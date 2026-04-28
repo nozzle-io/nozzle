@@ -11,7 +11,7 @@ frame::~frame() = default;
 frame::frame(frame &&) noexcept = default;
 frame &frame::operator=(frame &&) noexcept = default;
 
-FrameInfo frame::info() const {
+frame_info frame::info() const {
     if (!impl_) {
         return {};
     }
@@ -53,8 +53,8 @@ texture &writable_frame::get_texture() {
     return impl_->tex_;
 }
 
-const TextureDesc &writable_frame::desc() const {
-    static const TextureDesc empty{};
+const texture_desc &writable_frame::desc() const {
+    static const texture_desc empty{};
     if (!impl_) {
         return empty;
     }
@@ -67,7 +67,7 @@ bool writable_frame::valid() const {
 
 namespace detail {
 
-frame make_frame(texture tex, FrameInfo info) {
+frame make_frame(texture tex, frame_info info) {
     frame f;
     f.impl_ = std::make_unique<frame::Impl>();
     f.impl_->tex_ = std::move(tex);
@@ -76,7 +76,7 @@ frame make_frame(texture tex, FrameInfo info) {
     return f;
 }
 
-writable_frame make_writable_frame(texture tex, TextureDesc desc, uint32_t slot_index) {
+writable_frame make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index) {
     writable_frame f;
     f.impl_ = std::make_unique<writable_frame::Impl>();
     f.impl_->tex_ = std::move(tex);

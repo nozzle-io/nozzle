@@ -19,11 +19,11 @@ static void clear_all_registered_senders() {
 }
 
 static bool contains_sender(
-    const std::vector<bbb::nozzle::SenderInfo> &senders,
+    const std::vector<bbb::nozzle::sender_info> &senders,
     const std::string &name)
 {
     return std::any_of(senders.begin(), senders.end(),
-        [&](const bbb::nozzle::SenderInfo &info) {
+        [&](const bbb::nozzle::sender_info &info) {
             return info.name == name;
         });
 }
@@ -52,7 +52,7 @@ TEST_CASE("Discovery: find registered sender", "[discovery]") {
             if (s.id == std::string(reg.uuid)) {
                 found = true;
                 REQUIRE(s.name == "discoverable_sender");
-                REQUIRE(s.applicationName == "test_app");
+                REQUIRE(s.application_name == "test_app");
                 break;
             }
         }
@@ -64,7 +64,7 @@ TEST_CASE("Discovery: find registered sender", "[discovery]") {
 
         auto senders = bbb::nozzle::enumerate_senders();
         bool still_present = std::any_of(senders.begin(), senders.end(),
-            [&](const bbb::nozzle::SenderInfo &info) {
+            [&](const bbb::nozzle::sender_info &info) {
                 return info.id == std::string(reg.uuid);
             });
         REQUIRE_FALSE(still_present);
@@ -111,7 +111,7 @@ TEST_CASE("Discovery: enumerate returns correct backend type", "[discovery]") {
     for (const auto &s : senders) {
         if (s.id == std::string(reg.uuid)) {
             found = true;
-            REQUIRE(s.backend == bbb::nozzle::BackendType::D3D11);
+            REQUIRE(s.backend == bbb::nozzle::backend_type::d3d11);
             break;
         }
     }

@@ -114,7 +114,7 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
 
 struct ConnectionSetup {
     detail::registry::SenderStateView state_view{};
-    ConnectedSenderInfo info{};
+    connected_sender_info info{};
     pid_t sender_pid{0};
 };
 
@@ -136,15 +136,15 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
 
     auto *state = setup.state_view.state;
     setup.info.name = state->name;
-    setup.info.applicationName = state->application_name;
+    setup.info.application_name = state->application_name;
     setup.info.id = state->uuid;
-    setup.info.backend = static_cast<BackendType>(state->backend);
+    setup.info.backend = static_cast<backend_type>(state->backend);
     setup.info.width = state->width;
     setup.info.height = state->height;
-    setup.info.format = static_cast<TextureFormat>(state->format);
-    setup.info.frameCounter = state->committed_frame;
+    setup.info.format = static_cast<texture_format>(state->format);
+    setup.info.frame_counter = state->committed_frame;
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
-    setup.info.lastUpdateTimeNs = monotonic_ns();
+    setup.info.last_update_time_ns = monotonic_ns();
 
     return setup;
 }
@@ -153,7 +153,7 @@ Result<texture> create_texture_from_slot(
     const detail::SenderSharedState *state,
     uint32_t slot) {
 #if NOZZLE_HAS_METAL
-    if (state->backend == static_cast<uint8_t>(BackendType::Metal)) {
+    if (state->backend == static_cast<uint8_t>(backend_type::metal)) {
         return metal::lookup_iosurface_texture(
             state->slots[slot].iosurface_id,
             state->width,
@@ -173,7 +173,7 @@ struct receiver::Impl {
     detail::registry::SenderStateView state_view_{};
     uint64_t last_frame_{0};
     uint64_t last_change_counter_{0};
-    ConnectedSenderInfo connected_info_{};
+    connected_sender_info connected_info_{};
     bool connected_{false};
     pid_t sender_pid_{0};
 };
@@ -197,7 +197,7 @@ receiver &receiver::operator=(receiver &&other) noexcept {
     return *this;
 }
 
-Result<receiver> receiver::create(const ReceiverDesc &desc) {
+Result<receiver> receiver::create(const receiver_desc &desc) {
     if (desc.name.empty()) {
         return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
     }
@@ -220,10 +220,10 @@ Result<receiver> receiver::create(const ReceiverDesc &desc) {
 }
 
 Result<frame> receiver::acquire_frame() {
-    return acquire_frame(AcquireDesc{});
+    return acquire_frame(acquire_desc{});
 }
 
-Result<frame> receiver::acquire_frame(const AcquireDesc &desc) {
+Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
     if (!impl_ || !impl_->connected_) {
         if (impl_) {
             auto setup = establish_connection(impl_->sender_name_);
@@ -259,8 +259,8 @@ Result<frame> receiver::acquire_frame(const AcquireDesc &desc) {
     }
 
     uint64_t deadline = 0;
-    if (desc.timeoutMs > 0) {
-        deadline = monotonic_ns() + desc.timeoutMs * 1000000ULL;
+    if (desc.timeout_ms > 0) {
+        deadline = monotonic_ns() + desc.timeout_ms * 1000000ULL;
     }
 
     while (true) {
@@ -269,7 +269,7 @@ Result<frame> receiver::acquire_frame(const AcquireDesc &desc) {
         uint32_t slot = state->committed_slot;
 
         if (frame == 0) {
-            if (desc.timeoutMs > 0) {
+            if (desc.timeout_ms > 0) {
                 if (monotonic_ns() >= deadline) {
                     return Error{ErrorCode::Timeout, "timeout waiting for first frame"};
                 }
@@ -280,7 +280,7 @@ Result<frame> receiver::acquire_frame(const AcquireDesc &desc) {
         }
 
         if (frame == impl_->last_frame_) {
-            if (desc.timeoutMs > 0) {
+            if (desc.timeout_ms > 0) {
                 if (monotonic_ns() >= deadline) {
                     return Error{ErrorCode::Timeout, "timeout waiting for new frame"};
                 }
@@ -300,29 +300,29 @@ Result<frame> receiver::acquire_frame(const AcquireDesc &desc) {
         }
         impl_->last_frame_ = frame;
 
-        FrameInfo info{};
-        info.frameIndex = frame;
-        info.timestampNs = monotonic_ns();
+        frame_info info{};
+        info.frame_index = frame;
+        info.timestamp_ns = monotonic_ns();
         info.width = state->width;
         info.height = state->height;
-        info.format = static_cast<TextureFormat>(state->format);
-        info.transferMode = TransferMode::ZeroCopySharedTexture;
-        info.syncMode = SyncMode::None;
-        info.droppedFrameCount = dropped;
+        info.format = static_cast<texture_format>(state->format);
+        info.transfer_mode_val = transfer_mode::zero_copy_shared_texture;
+        info.sync_mode_val = sync_mode::none;
+        info.dropped_frame_count = dropped;
 
         auto tex_result = create_texture_from_slot(state, slot);
         if (!tex_result.ok()) {
             return tex_result.error();
         }
 
-        impl_->connected_info_.frameCounter = frame;
-        impl_->connected_info_.lastUpdateTimeNs = info.timestampNs;
+        impl_->connected_info_.frame_counter = frame;
+        impl_->connected_info_.last_update_time_ns = info.timestamp_ns;
 
         return detail::make_frame(std::move(tex_result.value()), info);
     }
 }
 
-ConnectedSenderInfo receiver::connected_info() const {
+connected_sender_info receiver::connected_info() const {
     if (!impl_) {
         return {};
     }

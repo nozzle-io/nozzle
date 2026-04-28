@@ -39,8 +39,8 @@ struct sender::Impl {
 	std::array<bool, detail::kMaxRingSlots> slot_in_use_{};
 	uint32_t next_slot_{0};
 	uint64_t frame_counter_{0};
-	SenderInfo info_{};
-	Metadata metadata_{};
+	sender_info info_{};
+	metadata_list metadata_{};
 	bool valid_{false};
 	std::mutex mutex_;
 
@@ -65,14 +65,14 @@ sender::~sender() = default;
 sender::sender(sender &&) noexcept = default;
 sender &sender::operator=(sender &&) noexcept = default;
 
-Result<sender> sender::create(const SenderDesc &desc) {
+Result<sender> sender::create(const sender_desc &desc) {
 	if (desc.name.empty()) {
 		return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
 	}
 
-	const char *app_name = desc.applicationName.empty()
+	const char *app_name = desc.application_name.empty()
 		? "unknown"
-		: desc.applicationName.c_str();
+		: desc.application_name.c_str();
 
 	auto dev_result = device::default_device();
 	if (!dev_result.ok()) {
@@ -82,7 +82,7 @@ Result<sender> sender::create(const SenderDesc &desc) {
 
 	uint8_t backend = 0;
 #if NOZZLE_HAS_METAL
-	backend = static_cast<uint8_t>(BackendType::Metal);
+	backend = static_cast<uint8_t>(backend_type::metal);
 #endif
 
 	auto reg_result = detail::registry::register_sender(
@@ -90,7 +90,7 @@ Result<sender> sender::create(const SenderDesc &desc) {
 		app_name,
 		backend,
 		0, 0, 0,
-		desc.ringBufferSize
+		desc.ring_buffer_size
 	);
 	if (!reg_result.ok()) {
 		return reg_result.error();
@@ -139,10 +139,10 @@ Result<sender> sender::create(const SenderDesc &desc) {
 #endif
 	s.impl_->slot_in_use_.fill(false);
 	s.impl_->info_.name = desc.name;
-	s.impl_->info_.applicationName = desc.applicationName;
+	s.impl_->info_.application_name = desc.application_name;
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 #if NOZZLE_HAS_METAL
-	s.impl_->info_.backend = BackendType::Metal;
+	s.impl_->info_.backend = backend_type::metal;
 #endif
 	s.impl_->metadata_ = desc.metadata;
 	s.impl_->valid_ = true;
@@ -211,7 +211,7 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 #endif
 }
 
-Result<writable_frame> sender::acquire_writable_frame(const TextureDesc &tdesc) {
+Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc) {
 	if (!impl_ || !impl_->valid_) {
 		return Error{ErrorCode::BackendError, "sender is not valid"};
 	}
@@ -342,14 +342,14 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	return {};
 }
 
-SenderInfo sender::info() const {
+sender_info sender::info() const {
 	if (!impl_) {
 		return {};
 	}
 	return impl_->info_;
 }
 
-Result<void> sender::set_metadata(const Metadata &metadata) {
+Result<void> sender::set_metadata(const metadata_list &metadata) {
 	if (!impl_ || !impl_->valid_) {
 		return Error{ErrorCode::BackendError, "sender is not valid"};
 	}

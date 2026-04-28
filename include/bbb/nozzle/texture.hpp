@@ -24,8 +24,8 @@ public:
     texture(texture &&) noexcept;
     texture &operator=(texture &&) noexcept;
 
-    const TextureDesc &desc() const;
-    TextureLayout layout() const;
+    const texture_desc &desc() const;
+    texture_layout layout() const;
     bool valid() const;
 
 private:

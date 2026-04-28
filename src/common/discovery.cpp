@@ -16,8 +16,8 @@
 namespace bbb {
 namespace nozzle {
 
-std::vector<SenderInfo> enumerate_senders() {
-    std::vector<SenderInfo> result;
+std::vector<sender_info> enumerate_senders() {
+    std::vector<sender_info> result;
 
     int fd = shm_open(detail::kDirectoryShmName, O_RDONLY, 0);
     if (fd < 0) {
@@ -56,11 +56,11 @@ std::vector<SenderInfo> enumerate_senders() {
             continue;
         }
 
-        SenderInfo info{};
+        sender_info info{};
         info.name = entries[i].sender_name;
-        info.applicationName = entries[i].application_name;
+        info.application_name = entries[i].application_name;
         info.id = entries[i].uuid;
-        info.backend = static_cast<BackendType>(entries[i].backend);
+        info.backend = static_cast<backend_type>(entries[i].backend);
         result.push_back(std::move(info));
     }
 

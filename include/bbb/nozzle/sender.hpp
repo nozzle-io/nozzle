@@ -10,7 +10,7 @@ namespace bbb::nozzle {
 
 class sender {
 public:
-    static Result<sender> create(const SenderDesc &desc);
+    static Result<sender> create(const sender_desc &desc);
 
     ~sender();
 
@@ -24,12 +24,12 @@ public:
     Result<void> publish_external_texture(const texture &tex);
 
     // Acquire/commit pattern for nozzle-owned textures
-    Result<writable_frame> acquire_writable_frame(const TextureDesc &desc);
+    Result<writable_frame> acquire_writable_frame(const texture_desc &desc);
     Result<void> commit_frame(writable_frame &frame);
 
     // Info
-    SenderInfo info() const;
-    Result<void> set_metadata(const Metadata &metadata);
+    sender_info info() const;
+    Result<void> set_metadata(const metadata_list &metadata);
 
     bool valid() const;
 

@@ -11,8 +11,8 @@ namespace bbb::nozzle::metal {
 namespace bbb::nozzle {
 
 struct texture::Impl {
-    TextureDesc desc{};
-    TextureLayout layout_{};
+    texture_desc desc{};
+    texture_layout layout_{};
 #if NOZZLE_HAS_METAL
     void *native_texture{nullptr}; // id<MTLTexture>
     void *native_surface{nullptr}; // IOSurfaceRef
@@ -35,15 +35,15 @@ texture::~texture() = default;
 texture::texture(texture &&) noexcept = default;
 texture &texture::operator=(texture &&) noexcept = default;
 
-const TextureDesc &texture::desc() const {
-    static const TextureDesc empty{};
+const texture_desc &texture::desc() const {
+    static const texture_desc empty{};
     if (!impl_) {
         return empty;
     }
     return impl_->desc;
 }
 
-TextureLayout texture::layout() const {
+texture_layout texture::layout() const {
     if (!impl_) {
         return {};
     }
@@ -70,7 +70,7 @@ texture make_texture_from_backend(
     t.impl_->native_surface = backend_surface;
     t.impl_->desc.width = width;
     t.impl_->desc.height = height;
-    t.impl_->desc.format = static_cast<TextureFormat>(pixel_format);
+    t.impl_->desc.format = static_cast<texture_format>(pixel_format);
     t.impl_->valid = (backend_texture != nullptr);
 #else
     (void)backend_texture;

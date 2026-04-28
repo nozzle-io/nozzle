@@ -7,148 +7,148 @@
 namespace bbb {
 namespace nozzle {
 
-enum class BackendType {
-    Unknown,
-    D3D11,
-    Metal,
-    OpenGL,
+enum class backend_type {
+    unknown,
+    d3d11,
+    metal,
+    opengl,
 };
 
-enum class TextureFormat {
-    Unknown,
-    R8_UNorm,
-    RG8_UNorm,
-    RGBA8_UNorm,
-    BGRA8_UNorm,
-    RGBA8_SRGB,
-    BGRA8_SRGB,
-    R16_UNorm,
-    RG16_UNorm,
-    RGBA16_UNorm,
-    R16_Float,
-    RG16_Float,
-    RGBA16_Float,
-    R32_Float,
-    RG32_Float,
-    RGBA32_Float,
-    R32_UInt,
-    RGBA32_UInt,
-    Depth32_Float,
+enum class texture_format {
+    unknown,
+    r8_unorm,
+    rg8_unorm,
+    rgba8_unorm,
+    bgra8_unorm,
+    rgba8_srgb,
+    bgra8_srgb,
+    r16_unorm,
+    rg16_unorm,
+    rgba16_unorm,
+    r16_float,
+    rg16_float,
+    rgba16_float,
+    r32_float,
+    rg32_float,
+    rgba32_float,
+    r32_uint,
+    rgba32_uint,
+    depth32_float,
 };
 
-enum class TransferMode {
-    Unknown,
-    ZeroCopySharedTexture,
-    GpuCopy,
-    CpuCopy,
+enum class transfer_mode {
+    unknown,
+    zero_copy_shared_texture,
+    gpu_copy,
+    cpu_copy,
 };
 
-enum class SyncMode {
-    None,
-    AccessGuarded,
-    GpuFenceBestEffort,
+enum class sync_mode {
+    none,
+    access_guarded,
+    gpu_fence_best_effort,
 };
 
-enum class ReceiveMode {
-    LatestOnly,
-    SequentialBestEffort,
+enum class receive_mode {
+    latest_only,
+    sequential_best_effort,
 };
 
-enum class FrameStatus {
-    NewFrame,
-    NoNewFrame,
-    DroppedFrames,
-    SenderClosed,
-    Error,
+enum class frame_status {
+    new_frame,
+    no_new_frame,
+    dropped_frames,
+    sender_closed,
+    error,
 };
 
-enum class TextureUsage : uint32_t {
-    None = 0,
-    ShaderRead = 1 << 0,
-    ShaderWrite = 1 << 1,
-    RenderTarget = 1 << 2,
-    Shared = 1 << 3,
+enum class texture_usage : uint32_t {
+    none = 0,
+    shader_read = 1 << 0,
+    shader_write = 1 << 1,
+    render_target = 1 << 2,
+    shared = 1 << 3,
 };
 
-constexpr TextureUsage operator|(TextureUsage a, TextureUsage b) {
-    return static_cast<TextureUsage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+constexpr texture_usage operator|(texture_usage a, texture_usage b) {
+    return static_cast<texture_usage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
 }
 
-constexpr TextureUsage operator&(TextureUsage a, TextureUsage b) {
-    return static_cast<TextureUsage>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+constexpr texture_usage operator&(texture_usage a, texture_usage b) {
+    return static_cast<texture_usage>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
 }
 
-struct FrameInfo {
-    uint64_t frameIndex{0};
-    uint64_t timestampNs{0};
+struct frame_info {
+    uint64_t frame_index{0};
+    uint64_t timestamp_ns{0};
     uint32_t width{0};
     uint32_t height{0};
-    TextureFormat format{TextureFormat::Unknown};
-    TransferMode transferMode{TransferMode::Unknown};
-    SyncMode syncMode{SyncMode::None};
-    uint32_t droppedFrameCount{0};
+    texture_format format{texture_format::unknown};
+    transfer_mode transfer_mode_val{transfer_mode::unknown};
+    sync_mode sync_mode_val{sync_mode::none};
+    uint32_t dropped_frame_count{0};
 };
 
-struct TextureDesc {
+struct texture_desc {
     uint32_t width{0};
     uint32_t height{0};
-    TextureFormat format{TextureFormat::Unknown};
-    TextureUsage usage{TextureUsage::ShaderRead | TextureUsage::Shared};
+    texture_format format{texture_format::unknown};
+    texture_usage usage{texture_usage::shader_read | texture_usage::shared};
 };
 
-struct TextureLayout {
-    uint32_t rowPitchBytes{0};
-    uint32_t slicePitchBytes{0};
-    uint32_t alignmentBytes{0};
+struct texture_layout {
+    uint32_t row_pitch_bytes{0};
+    uint32_t slice_pitch_bytes{0};
+    uint32_t alignment_bytes{0};
 };
 
-struct TextureFormatDesc {
-    TextureFormat commonFormat{TextureFormat::Unknown};
-    uint32_t nativeFormat{0};
+struct texture_format_desc {
+    texture_format common_format{texture_format::unknown};
+    uint32_t native_format{0};
 };
 
-struct SenderInfo {
+struct sender_info {
     std::string name{};
-    std::string applicationName{};
+    std::string application_name{};
     std::string id{};
-    BackendType backend{BackendType::Unknown};
+    backend_type backend{backend_type::unknown};
 };
 
-struct ConnectedSenderInfo {
+struct connected_sender_info {
     std::string name{};
-    std::string applicationName{};
+    std::string application_name{};
     std::string id{};
-    BackendType backend{BackendType::Unknown};
+    backend_type backend{backend_type::unknown};
     uint32_t width{0};
     uint32_t height{0};
-    TextureFormat format{TextureFormat::Unknown};
-    double estimatedFps{0.0};
-    uint64_t frameCounter{0};
-    uint64_t lastUpdateTimeNs{0};
+    texture_format format{texture_format::unknown};
+    double estimated_fps{0.0};
+    uint64_t frame_counter{0};
+    uint64_t last_update_time_ns{0};
 };
 
-struct KeyValue {
+struct key_value {
     std::string key{};
     std::string value{};
 };
 
-using Metadata = std::vector<KeyValue>;
+using metadata_list = std::vector<key_value>;
 
-struct SenderDesc {
+struct sender_desc {
     std::string name{};
-    std::string applicationName{};
-    uint32_t ringBufferSize{3};
-    Metadata metadata{};
+    std::string application_name{};
+    uint32_t ring_buffer_size{3};
+    metadata_list metadata{};
 };
 
-struct ReceiverDesc {
+struct receiver_desc {
     std::string name{};
-    std::string applicationName{};
-    ReceiveMode receiveMode{ReceiveMode::LatestOnly};
+    std::string application_name{};
+    receive_mode receive_mode_val{receive_mode::latest_only};
 };
 
-struct AcquireDesc {
-    uint64_t timeoutMs{0};
+struct acquire_desc {
+    uint64_t timeout_ms{0};
 };
 
 } // namespace nozzle

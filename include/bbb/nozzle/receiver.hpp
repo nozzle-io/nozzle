@@ -10,7 +10,7 @@ namespace bbb::nozzle {
 
 class receiver {
 public:
-    static Result<receiver> create(const ReceiverDesc &desc);
+    static Result<receiver> create(const receiver_desc &desc);
 
     ~receiver();
 
@@ -22,10 +22,10 @@ public:
 
     // Frame acquisition
     Result<frame> acquire_frame();
-    Result<frame> acquire_frame(const AcquireDesc &desc);
+    Result<frame> acquire_frame(const acquire_desc &desc);
 
     // Connected sender info
-    ConnectedSenderInfo connected_info() const;
+    connected_sender_info connected_info() const;
     bool is_connected() const;
 
     bool valid() const;

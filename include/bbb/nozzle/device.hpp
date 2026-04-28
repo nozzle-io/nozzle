@@ -25,8 +25,8 @@ public:
     device(device &&) noexcept;
     device &operator=(device &&) noexcept;
 
-    bool supports_format(TextureFormat format, TextureUsage usage) const;
-    bool supports_native_format(uint32_t native_format, TextureUsage usage) const;
+    bool supports_format(texture_format format, texture_usage usage) const;
+    bool supports_native_format(uint32_t native_format, texture_usage usage) const;
 
     bool valid() const;
 

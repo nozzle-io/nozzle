@@ -41,7 +41,7 @@ static uint32_t align_up(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-Result<MetalTexturePair> create_iosurface_texture(
+Result<metal_texture_pair> create_iosurface_texture(
     void *mtl_device_ptr,
     uint32_t width,
     uint32_t height,
@@ -103,7 +103,7 @@ Result<MetalTexturePair> create_iosurface_texture(
             };
         }
 
-        MetalTexturePair result{};
+        metal_texture_pair result{};
         result.mtl_texture = (void *)texture;
         result.io_surface = (void *)surface;
         result.io_surface_id = IOSurfaceGetID(surface);
@@ -138,9 +138,9 @@ void release_mtl_texture_resources(void *texture_ptr, void *surface_ptr) {
     }
 }
 
-Result<texture> wrap_texture(const TextureWrapDesc &desc) {
+Result<texture> wrap_texture(const texture_wrap_desc &desc) {
     if (!desc.texture) {
-        return Error{ErrorCode::InvalidArgument, "TextureWrapDesc.texture is null"};
+        return Error{ErrorCode::InvalidArgument, "texture_wrap_desc.texture is null"};
     }
     @autoreleasepool {
         id<MTLTexture> mtl_tex = (id<MTLTexture>)desc.texture;
@@ -164,11 +164,11 @@ Result<texture> wrap_texture(const TextureWrapDesc &desc) {
     }
 }
 
-MTLTextureHandle get_texture(const texture &tex) {
+mtl_texture_handle get_texture(const texture &tex) {
     return detail::get_texture_native(tex);
 }
 
-SurfaceHandle get_io_surface(const texture &tex) {
+surface_handle get_io_surface(const texture &tex) {
     return detail::get_surface_native(tex);
 }
 

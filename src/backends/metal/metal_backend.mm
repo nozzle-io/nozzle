@@ -12,7 +12,6 @@ namespace bbb::nozzle::metal {
 void *get_default_mtl_device() {
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-        // MTLCreateSystemDefaultDevice follows "Create Rule" — caller owns the reference.
         return (void *)device;
     }
 }
@@ -25,8 +24,8 @@ bool metal_supports_format(void *device_ptr, uint32_t format, uint32_t usage) {
             return false;
         }
 
-        auto fmt = static_cast<TextureFormat>(format);
-        if (fmt == TextureFormat::Unknown) {
+        auto fmt = static_cast<texture_format>(format);
+        if (fmt == texture_format::unknown) {
             return false;
         }
 
@@ -43,9 +42,9 @@ void release_mtl_device(void *device_ptr) {
     }
 }
 
-Result<device> wrap_device(const DeviceDesc &desc) {
+Result<device> wrap_device(const device_desc &desc) {
     if (!desc.device) {
-        return Error{ErrorCode::InvalidArgument, "DeviceDesc.device is null"};
+        return Error{ErrorCode::InvalidArgument, "device_desc.device is null"};
     }
     @autoreleasepool {
         id<MTLDevice> mtl_device = (id<MTLDevice>)desc.device;

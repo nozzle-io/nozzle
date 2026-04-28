@@ -49,7 +49,7 @@ Result<device> device::default_device() {
 #endif
 }
 
-bool device::supports_format(TextureFormat format, TextureUsage usage) const {
+bool device::supports_format(texture_format format, texture_usage usage) const {
     if (!impl_ || !impl_->valid) {
         return false;
     }
@@ -66,7 +66,7 @@ bool device::supports_format(TextureFormat format, TextureUsage usage) const {
 #endif
 }
 
-bool device::supports_native_format(uint32_t native_format, TextureUsage usage) const {
+bool device::supports_native_format(uint32_t native_format, texture_usage usage) const {
     (void)native_format;
     (void)usage;
     return false; // stub — will be implemented per-backend

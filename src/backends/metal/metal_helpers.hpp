@@ -1,7 +1,6 @@
 #pragma once
 
 // Internal helpers for Metal backend — only included from .mm files.
-// Metal.framework and IOSurface.framework types are passed as void*.
 
 #include <bbb/nozzle/types.hpp>
 #include <bbb/nozzle/result.hpp>
@@ -10,7 +9,7 @@
 
 namespace bbb::nozzle::metal {
 
-struct MetalTexturePair {
+struct metal_texture_pair {
     void *mtl_texture{nullptr};  // id<MTLTexture>, owned
     void *io_surface{nullptr};   // IOSurfaceRef, owned
     uint32_t io_surface_id{0};
@@ -19,7 +18,7 @@ struct MetalTexturePair {
     uint32_t pixel_format{0};    // MTLPixelFormat as uint32_t
 };
 
-Result<MetalTexturePair> create_iosurface_texture(
+Result<metal_texture_pair> create_iosurface_texture(
     void *mtl_device,
     uint32_t width,
     uint32_t height,

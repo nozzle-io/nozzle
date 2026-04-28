@@ -11,8 +11,8 @@ class frame;
 class writable_frame;
 
 namespace detail {
-frame make_frame(texture, FrameInfo);
-writable_frame make_writable_frame(texture, TextureDesc, uint32_t);
+frame make_frame(texture, frame_info);
+writable_frame make_writable_frame(texture, texture_desc, uint32_t);
 uint32_t get_writable_frame_slot(const writable_frame &);
 }
 
@@ -28,7 +28,7 @@ public:
     frame &operator=(frame &&) noexcept;
 
     // Access
-    FrameInfo info() const;
+    frame_info info() const;
     const texture &get_texture() const;
     bool valid() const;
 
@@ -39,7 +39,7 @@ public:
     void release();
 
 private:
-    friend frame detail::make_frame(texture, FrameInfo);
+    friend frame detail::make_frame(texture, frame_info);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
@@ -56,11 +56,11 @@ public:
     writable_frame &operator=(writable_frame &&) noexcept;
 
     texture &get_texture();
-    const TextureDesc &desc() const;
+    const texture_desc &desc() const;
     bool valid() const;
 
 private:
-    friend writable_frame detail::make_writable_frame(texture, TextureDesc, uint32_t);
+    friend writable_frame detail::make_writable_frame(texture, texture_desc, uint32_t);
     friend uint32_t detail::get_writable_frame_slot(const writable_frame &);
     struct Impl;
     std::unique_ptr<Impl> impl_;
