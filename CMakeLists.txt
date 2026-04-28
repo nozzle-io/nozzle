@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 
+# --- MSVC: use static CRT (/MT) for plugin compatibility ---
+if(MSVC)
+    cmake_policy(SET CMP0091 NEW)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 project(nozzle
     VERSION 0.1.0
     DESCRIPTION "Local inter-process GPU texture sharing library"
@@ -20,12 +26,6 @@ target_compile_options(nozzle PRIVATE
     $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions -fno-rtti>
     $<$<CXX_COMPILER_ID:MSVC>:/EHs-c- /GR->
 )
-
-# --- MSVC: use static CRT (/MT) for plugin compatibility ---
-if(MSVC)
-    cmake_policy(SET CMP0091 NEW)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
-endif()
 
 # --- Platform detection ---
 if(APPLE)
