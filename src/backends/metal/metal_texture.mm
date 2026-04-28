@@ -65,6 +65,23 @@ static uint32_t align_up(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+// Helper: convert void* to ObjC object with appropriate cast
+#if __has_feature(objc_arc)
+    #define NOZZLE_BRIDGE_GET(T, ptr)       ((__bridge T)(ptr))
+    #define NOZZLE_BRIDGE_RETAIN(T, obj)    (__bridge_retained void *)(obj)
+    #define NOZZLE_BRIDGE_RELEASE(ptr)      do { \
+        __unused id _tmp = (__bridge_transfer id)(ptr); \
+    } while(0)
+    #define NOZZLE_RETAIN(obj)              CFRetain((__bridge void *)(obj))
+#else
+    #define NOZZLE_BRIDGE_GET(T, ptr)       ((T)(ptr))
+    #define NOZZLE_BRIDGE_RETAIN(T, obj)    ((void *)(obj))
+    #define NOZZLE_BRIDGE_RELEASE(ptr)      do { \
+        [(id)(ptr) release]; \
+    } while(0)
+    #define NOZZLE_RETAIN(obj)              [(obj) retain]
+#endif
+
 Result<metal_texture_pair> create_iosurface_texture(
     void *mtl_device_ptr,
     uint32_t width,
@@ -72,7 +89,7 @@ Result<metal_texture_pair> create_iosurface_texture(
     uint32_t pixel_format
 ) {
     @autoreleasepool {
-        id<MTLDevice> mtl_device = (id<MTLDevice>)mtl_device_ptr;
+        id<MTLDevice> mtl_device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);
         if (!mtl_device) {
             return Error{ErrorCode::InvalidArgument, "Metal device is null"};
         }
@@ -135,7 +152,7 @@ Result<metal_texture_pair> create_iosurface_texture(
         }
 
         metal_texture_pair result{};
-        result.mtl_texture = (void *)texture;
+        result.mtl_texture = NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, texture);
         result.io_surface = (void *)surface;
         result.io_surface_id = IOSurfaceGetID(surface);
         result.width = width;
@@ -157,15 +174,11 @@ uint32_t get_iosurface_id(void *io_surface_ptr) {
 }
 
 void release_mtl_texture_resources(void *texture_ptr, void *surface_ptr) {
-    @autoreleasepool {
-        if (texture_ptr) {
-            id<MTLTexture> texture = (id<MTLTexture>)texture_ptr;
-            [texture release];
-        }
-        if (surface_ptr) {
-            IOSurfaceRef surface = (IOSurfaceRef)surface_ptr;
-            CFRelease(surface);
-        }
+    if (texture_ptr) {
+        NOZZLE_BRIDGE_RELEASE(texture_ptr);
+    }
+    if (surface_ptr) {
+        CFRelease((IOSurfaceRef)surface_ptr);
     }
 }
 
@@ -174,9 +187,9 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
         return Error{ErrorCode::InvalidArgument, "texture_wrap_desc.texture is null"};
     }
     @autoreleasepool {
-        id<MTLTexture> mtl_tex = (id<MTLTexture>)desc.texture;
-        [mtl_tex retain];
-        void *tex_ptr = (void *)mtl_tex;
+        id<MTLTexture> mtl_tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, desc.texture);
+        NOZZLE_RETAIN(mtl_tex);
+        void *tex_ptr = NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, mtl_tex);
 
         void *surface_ptr = nullptr;
         if (desc.io_surface) {
@@ -224,7 +237,7 @@ Result<texture> lookup_iosurface_texture(
             };
         }
 
-        id<MTLDevice> device = (id<MTLDevice>)get_default_mtl_device();
+        id<MTLDevice> device = NOZZLE_BRIDGE_GET(id<MTLDevice>, get_default_mtl_device());
         if (!device) {
             CFRelease(surface);
             return Error{ErrorCode::BackendError, "No default Metal device"};
@@ -256,7 +269,7 @@ Result<texture> lookup_iosurface_texture(
         }
 
         return detail::make_texture_from_backend(
-            (void *)texture,
+            NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, texture),
             (void *)surface,
             width,
             height,
