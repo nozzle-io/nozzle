@@ -8,6 +8,7 @@
 #include <bbb/nozzle/texture.hpp>
 #include <bbb/nozzle/device.hpp>
 #include <bbb/nozzle/discovery.hpp>
+#include <bbb/nozzle/pixel_access.hpp>
 
 #include <cstdlib>
 #include <cstring>
@@ -415,6 +416,54 @@ NozzleErrorCode nozzle_device_get_default(
 
 void nozzle_device_destroy(NozzleDevice *device) {
     delete device;
+}
+
+// ========== Pixel Access (CPU) ==========
+
+NozzleErrorCode nozzle_frame_lock_pixels(
+    NozzleFrame *frame,
+    NozzleMappedPixels *out_pixels
+) {
+    if (!frame || !out_pixels || !frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    auto result = bbb::nozzle::lock_frame_pixels(*frame->obj);
+    if (!result.ok()) return to_c_error(result.error().code);
+
+    const auto &mp = result.value();
+    out_pixels->data = mp.data;
+    out_pixels->row_bytes = mp.row_bytes;
+    out_pixels->width = mp.width;
+    out_pixels->height = mp.height;
+    out_pixels->format = to_c_format(mp.format);
+    return NOZZLE_OK;
+}
+
+void nozzle_frame_unlock_pixels(NozzleFrame *frame) {
+    if (!frame || !frame->obj) return;
+    bbb::nozzle::unlock_frame_pixels(*frame->obj);
+}
+
+NozzleErrorCode nozzle_frame_lock_writable_pixels(
+    NozzleFrame *frame,
+    NozzleMappedPixels *out_pixels
+) {
+    if (!frame || !out_pixels || !frame->writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    auto result = bbb::nozzle::lock_writable_pixels(*frame->writable);
+    if (!result.ok()) return to_c_error(result.error().code);
+
+    const auto &mp = result.value();
+    out_pixels->data = mp.data;
+    out_pixels->row_bytes = mp.row_bytes;
+    out_pixels->width = mp.width;
+    out_pixels->height = mp.height;
+    out_pixels->format = to_c_format(mp.format);
+    return NOZZLE_OK;
+}
+
+void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame) {
+    if (!frame || !frame->writable) return;
+    bbb::nozzle::unlock_writable_pixels(*frame->writable);
 }
 
 } // extern "C"

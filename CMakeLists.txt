@@ -68,6 +68,7 @@ target_sources(nozzle PRIVATE
     src/common/device.cpp
     src/common/discovery.cpp
     src/common/metadata.cpp
+    src/common/pixel_access.cpp
     src/c_api/nozzle_c.cpp
 )
 

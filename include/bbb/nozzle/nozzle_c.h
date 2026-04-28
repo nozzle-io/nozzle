@@ -207,6 +207,30 @@ NozzleErrorCode nozzle_device_get_default(
 
 void nozzle_device_destroy(NozzleDevice *device);
 
+// ========== Pixel Access (CPU) ==========
+
+typedef struct NozzleMappedPixels {
+    void *data;
+    uint32_t row_bytes;
+    uint32_t width;
+    uint32_t height;
+    NozzleTextureFormat format;
+} NozzleMappedPixels;
+
+NozzleErrorCode nozzle_frame_lock_pixels(
+    NozzleFrame *frame,
+    NozzleMappedPixels *out_pixels
+);
+
+void nozzle_frame_unlock_pixels(NozzleFrame *frame);
+
+NozzleErrorCode nozzle_frame_lock_writable_pixels(
+    NozzleFrame *frame,
+    NozzleMappedPixels *out_pixels
+);
+
+void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
