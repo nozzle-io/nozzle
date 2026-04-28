@@ -17,6 +17,7 @@
 #include "frame_helpers.hpp"
 #include "registry.hpp"
 #include "shared_state.hpp"
+#include "metadata.hpp"
 
 #if NOZZLE_HAS_METAL
 #include "backends/metal/metal_helpers.hpp"
@@ -361,27 +362,10 @@ Result<void> sender::set_metadata(const metadata_list &metadata) {
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	impl_->metadata_ = metadata;
-
-	auto *buf = impl_->state->metadata;
-	std::memset(buf, 0, sizeof(impl_->state->metadata));
-
-	std::size_t offset = 0;
-	for (const auto &kv : metadata) {
-		std::size_t key_len = kv.key.size();
-		std::size_t val_len = kv.value.size();
-		std::size_t entry_len = key_len + 1 + val_len + 1;
-
-		if (offset + entry_len > sizeof(impl_->state->metadata) - 1) {
-			break;
-		}
-
-		std::memcpy(buf + offset, kv.key.c_str(), key_len);
-		offset += key_len;
-		buf[offset++] = '=';
-		std::memcpy(buf + offset, kv.value.c_str(), val_len);
-		offset += val_len;
-		buf[offset++] = '\0';
-	}
+	detail::serialize_metadata(
+		metadata,
+		impl_->state->metadata,
+		sizeof(impl_->state->metadata));
 
 	return {};
 }

@@ -26,6 +26,7 @@ public:
 
     // Connected sender info
     connected_sender_info connected_info() const;
+    metadata_list sender_metadata() const;
     bool is_connected() const;
 
     bool valid() const;

@@ -5,6 +5,7 @@
 #include "shared_state.hpp"
 #include "registry.hpp"
 #include "frame_helpers.hpp"
+#include "metadata.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -328,6 +329,15 @@ connected_sender_info receiver::connected_info() const {
         return {};
     }
     return impl_->connected_info_;
+}
+
+metadata_list receiver::sender_metadata() const {
+    if (!impl_ || !impl_->state_view_.state) {
+        return {};
+    }
+    return detail::parse_metadata(
+        impl_->state_view_.state->metadata,
+        sizeof(impl_->state_view_.state->metadata));
 }
 
 bool receiver::is_connected() const {

@@ -277,3 +277,36 @@ TEST_CASE("Integration: enumerate_senders filters dead entries", "[integration]"
     auto senders_after = bbb::nozzle::enumerate_senders();
     REQUIRE_FALSE(contains_sender_named(senders_after, "integ_filter_test"));
 }
+
+TEST_CASE("Integration: metadata round-trip via shared state", "[integration]") {
+    clear_all_registered_senders();
+
+    bbb::nozzle::sender_desc desc{};
+    desc.name = "integ_metadata_test";
+    desc.application_name = "integ_app";
+
+    auto sender_result = bbb::nozzle::sender::create(desc);
+    REQUIRE(sender_result.ok());
+    auto snd = std::move(sender_result.value());
+
+    bbb::nozzle::metadata_list md;
+    md.push_back({"color_space", "linear"});
+    md.push_back({"channel_semantics", "depth"});
+
+    auto set_result = snd.set_metadata(md);
+    REQUIRE(set_result.ok());
+
+    bbb::nozzle::receiver_desc rdesc{};
+    rdesc.name = "integ_metadata_test";
+
+    auto recv_result = bbb::nozzle::receiver::create(rdesc);
+    REQUIRE(recv_result.ok());
+    auto recv = std::move(recv_result.value());
+
+    auto sender_md = recv.sender_metadata();
+    REQUIRE(sender_md.size() == 2);
+    REQUIRE(sender_md[0].key == "color_space");
+    REQUIRE(sender_md[0].value == "linear");
+    REQUIRE(sender_md[1].key == "channel_semantics");
+    REQUIRE(sender_md[1].value == "depth");
+}

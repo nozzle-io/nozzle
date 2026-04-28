@@ -11,6 +11,16 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# --- Logging (plog - header-only, download only) ---
+include(FetchContent)
+FetchContent_Declare(
+    plog
+    GIT_REPOSITORY https://github.com/SergiusTheBest/plog.git
+    GIT_TAG        1.1.10
+    GIT_SHALLOW    true
+)
+FetchContent_MakeAvailable(plog)
+
 add_library(nozzle STATIC)
 
 target_compile_options(nozzle PRIVATE
@@ -51,6 +61,7 @@ target_include_directories(nozzle PUBLIC
 
 target_include_directories(nozzle PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${plog_SOURCE_DIR}/include
 )
 
 # --- Common sources ---
@@ -130,6 +141,12 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
 )
+
+# --- Examples ---
+option(NOZZLE_BUILD_EXAMPLES "Build nozzle examples" ON)
+if(NOZZLE_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
 
 # --- Tests ---
 option(NOZZLE_BUILD_TESTS "Build nozzle tests" ON)
