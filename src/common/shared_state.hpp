@@ -53,8 +53,7 @@ struct SenderSharedState {
 
     struct SlotInfo {
         uint64_t frame_number{0};
-        uint32_t iosurface_id{0};
-        uint32_t shared_handle{0};
+        uint64_t shared_resource_id{0}; // IOSurface ID (Metal) or HANDLE (D3D11)
     } slots[kMaxRingSlots]{};
 
     char metadata[512]{};

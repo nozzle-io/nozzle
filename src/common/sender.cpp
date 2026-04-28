@@ -20,6 +20,12 @@
 namespace bbb::nozzle::metal {
 	void *get_default_mtl_device();
 } // namespace bbb::nozzle::metal
+#elif NOZZLE_HAS_D3D11
+namespace bbb::nozzle::d3d11 {
+	void *get_default_d3d11_device();
+	Result<texture> create_shared_texture(void *d3d11_device, uint32_t width, uint32_t height, uint32_t format);
+	void *get_shared_handle(const texture &tex);
+} // namespace bbb::nozzle::d3d11
 #endif
 
 namespace bbb::nozzle {
@@ -30,6 +36,8 @@ struct sender::Impl {
 	detail::ipc::shm_handle state_handle{};
 	device device_{};
 #if NOZZLE_HAS_METAL
+	void *native_device_{nullptr};
+#elif NOZZLE_HAS_D3D11
 	void *native_device_{nullptr};
 #endif
 	std::array<texture, detail::kMaxRingSlots> ring_textures_{};
@@ -78,6 +86,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 	uint8_t backend = 0;
 #if NOZZLE_HAS_METAL
 	backend = static_cast<uint8_t>(backend_type::metal);
+#elif NOZZLE_HAS_D3D11
+	backend = static_cast<uint8_t>(backend_type::d3d11);
 #endif
 
 	auto reg_result = detail::registry::register_sender(
@@ -124,6 +134,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->device_ = std::move(dev);
 #if NOZZLE_HAS_METAL
 	s.impl_->native_device_ = metal::get_default_mtl_device();
+#elif NOZZLE_HAS_D3D11
+	s.impl_->native_device_ = d3d11::get_default_d3d11_device();
 #endif
 	s.impl_->slot_in_use_.fill(false);
 	s.impl_->info_.name = desc.name;
@@ -131,6 +143,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 #if NOZZLE_HAS_METAL
 	s.impl_->info_.backend = backend_type::metal;
+#elif NOZZLE_HAS_D3D11
+	s.impl_->info_.backend = backend_type::d3d11;
 #endif
 	s.impl_->metadata_ = desc.metadata;
 	s.impl_->valid_ = true;
@@ -172,7 +186,39 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	uint64_t frame_number = ++impl_->frame_counter_;
 
 	impl_->state->slots[slot].frame_number = frame_number;
-	impl_->state->slots[slot].iosurface_id = surface_id;
+	impl_->state->slots[slot].shared_resource_id = static_cast<uint64_t>(surface_id);
+
+	const auto &tex_desc = tex.desc();
+	if (impl_->state->width != tex_desc.width ||
+		impl_->state->height != tex_desc.height) {
+		impl_->state->width = tex_desc.width;
+		impl_->state->height = tex_desc.height;
+	}
+
+	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+
+	return {};
+#elif NOZZLE_HAS_D3D11
+	std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+	void *handle = d3d11::get_shared_handle(tex);
+	if (!handle) {
+		return Error{ErrorCode::InvalidArgument,
+			"texture has no shared handle"};
+	}
+
+	uint32_t ring_size = impl_->state->ring_size;
+	if (ring_size < 1) {
+		ring_size = 1;
+	}
+
+	uint32_t slot = impl_->next_slot_;
+	impl_->next_slot_ = (impl_->next_slot_ + 1) % ring_size;
+	uint64_t frame_number = ++impl_->frame_counter_;
+
+	impl_->state->slots[slot].frame_number = frame_number;
+	impl_->state->slots[slot].shared_resource_id = reinterpret_cast<uint64_t>(handle);
 
 	const auto &tex_desc = tex.desc();
 	if (impl_->state->width != tex_desc.width ||
@@ -253,6 +299,30 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			pair.pixel_format
 		);
 	}
+#elif NOZZLE_HAS_D3D11
+	bool needs_create = !impl_->ring_textures_[slot].valid() ||
+		impl_->ring_textures_[slot].desc().width != tdesc.width ||
+		impl_->ring_textures_[slot].desc().height != tdesc.height ||
+		impl_->ring_textures_[slot].desc().format != tdesc.format;
+
+	if (needs_create) {
+		if (!impl_->native_device_) {
+			return Error{ErrorCode::BackendError,
+				"device has no native handle"};
+		}
+
+		auto tex_result = d3d11::create_shared_texture(
+			impl_->native_device_,
+			tdesc.width,
+			tdesc.height,
+			static_cast<uint32_t>(tdesc.format)
+		);
+		if (!tex_result.ok()) {
+			return tex_result.error();
+		}
+
+		impl_->ring_textures_[slot] = std::move(tex_result.value());
+	}
 #endif
 
 	impl_->slot_in_use_[slot] = true;
@@ -302,7 +372,23 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	uint64_t frame_number = ++impl_->frame_counter_;
 
 	impl_->state->slots[slot].frame_number = frame_number;
-	impl_->state->slots[slot].iosurface_id = surface_id;
+	impl_->state->slots[slot].shared_resource_id = static_cast<uint64_t>(surface_id);
+
+	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+#elif NOZZLE_HAS_D3D11
+	void *handle = d3d11::get_shared_handle(f.get_texture());
+	if (!handle) {
+		f = writable_frame{};
+		impl_->slot_in_use_[slot] = false;
+		return Error{ErrorCode::BackendError,
+			"frame texture has no shared handle"};
+	}
+
+	uint64_t frame_number = ++impl_->frame_counter_;
+
+	impl_->state->slots[slot].frame_number = frame_number;
+	impl_->state->slots[slot].shared_resource_id = reinterpret_cast<uint64_t>(handle);
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);

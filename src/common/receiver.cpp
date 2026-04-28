@@ -21,6 +21,15 @@ namespace bbb::nozzle::metal {
         uint32_t height,
         uint32_t format);
 } // namespace bbb::nozzle::metal
+#elif NOZZLE_HAS_D3D11
+namespace bbb::nozzle::d3d11 {
+    Result<texture> lookup_shared_texture(
+        void *d3d11_device,
+        uint32_t shared_handle,
+        uint32_t width,
+        uint32_t height,
+        uint32_t format);
+} // namespace bbb::nozzle::d3d11
 #endif
 
 namespace bbb {
@@ -145,7 +154,16 @@ Result<texture> create_texture_from_slot(
 #if NOZZLE_HAS_METAL
     if (state->backend == static_cast<uint8_t>(backend_type::metal)) {
         return metal::lookup_iosurface_texture(
-            state->slots[slot].iosurface_id,
+            static_cast<uint32_t>(state->slots[slot].shared_resource_id),
+            state->width,
+            state->height,
+            state->format);
+    }
+#elif NOZZLE_HAS_D3D11
+    if (state->backend == static_cast<uint8_t>(backend_type::d3d11)) {
+        return d3d11::lookup_shared_texture(
+            nullptr,
+            static_cast<uint32_t>(state->slots[slot].shared_resource_id),
             state->width,
             state->height,
             state->format);

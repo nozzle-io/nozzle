@@ -8,12 +8,13 @@
 #include <bbb/nozzle/texture.hpp>
 #include <bbb/nozzle/device.hpp>
 
-// Forward declare D3D11 types to avoid including d3d11.h in header
 struct ID3D11Device;
 struct ID3D11DeviceContext;
 struct ID3D11Texture2D;
 enum DXGI_FORMAT;
+#ifndef HANDLE
 typedef void *HANDLE;
+#endif
 
 namespace bbb::nozzle::d3d11 {
 

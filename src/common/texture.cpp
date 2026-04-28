@@ -6,6 +6,10 @@
 namespace bbb::nozzle::metal {
     void release_mtl_texture_resources(void *texture, void *surface);
 } // namespace bbb::nozzle::metal
+#elif NOZZLE_HAS_D3D11
+namespace bbb::nozzle::d3d11 {
+    void release_d3d11_texture_resources(void *texture, void *shared_handle);
+} // namespace bbb::nozzle::d3d11
 #endif
 
 namespace bbb::nozzle {
@@ -16,6 +20,9 @@ struct texture::Impl {
 #if NOZZLE_HAS_METAL
     void *native_texture{nullptr}; // id<MTLTexture>
     void *native_surface{nullptr}; // IOSurfaceRef
+#elif NOZZLE_HAS_D3D11
+    void *native_texture{nullptr}; // ID3D11Texture2D*
+    void *native_shared_handle{nullptr}; // HANDLE
 #endif
     bool valid{false};
 
@@ -25,6 +32,12 @@ struct texture::Impl {
             metal::release_mtl_texture_resources(native_texture, native_surface);
             native_texture = nullptr;
             native_surface = nullptr;
+        }
+#elif NOZZLE_HAS_D3D11
+        if (native_texture || native_shared_handle) {
+            d3d11::release_d3d11_texture_resources(native_texture, native_shared_handle);
+            native_texture = nullptr;
+            native_shared_handle = nullptr;
         }
 #endif
     }
@@ -72,6 +85,13 @@ texture make_texture_from_backend(
     t.impl_->desc.height = height;
     t.impl_->desc.format = static_cast<texture_format>(pixel_format);
     t.impl_->valid = (backend_texture != nullptr);
+#elif NOZZLE_HAS_D3D11
+    t.impl_->native_texture = backend_texture;
+    t.impl_->native_shared_handle = backend_surface;
+    t.impl_->desc.width = width;
+    t.impl_->desc.height = height;
+    t.impl_->desc.format = static_cast<texture_format>(pixel_format);
+    t.impl_->valid = (backend_texture != nullptr);
 #else
     (void)backend_texture;
     (void)backend_surface;
@@ -88,6 +108,8 @@ void *get_texture_native(const texture &t) {
     }
 #if NOZZLE_HAS_METAL
     return t.impl_->native_texture;
+#elif NOZZLE_HAS_D3D11
+    return t.impl_->native_texture;
 #else
     return nullptr;
 #endif
@@ -99,6 +121,8 @@ void *get_surface_native(const texture &t) {
     }
 #if NOZZLE_HAS_METAL
     return t.impl_->native_surface;
+#elif NOZZLE_HAS_D3D11
+    return t.impl_->native_shared_handle;
 #else
     return nullptr;
 #endif

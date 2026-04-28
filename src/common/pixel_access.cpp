@@ -89,13 +89,13 @@ void unlock_writable_pixels(writable_frame &frm) {
 #else // Windows stubs
 
 Result<mapped_pixels> lock_frame_pixels(const frame &) {
-    return Error{ErrorCode::UnsupportedBackend, "lock_frame_pixels not implemented on this platform"};
+    return Error{ErrorCode::UnsupportedBackend, "D3D11 pixel access requires staging texture — use GPU path instead"};
 }
 
 void unlock_frame_pixels(const frame &) {}
 
 Result<mapped_pixels> lock_writable_pixels(writable_frame &) {
-    return Error{ErrorCode::UnsupportedBackend, "lock_writable_pixels not implemented on this platform"};
+    return Error{ErrorCode::UnsupportedBackend, "D3D11 pixel access requires staging texture — use GPU path instead"};
 }
 
 void unlock_writable_pixels(writable_frame &) {}
