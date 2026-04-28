@@ -11,15 +11,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# --- Logging (plog - header-only, download only) ---
-include(FetchContent)
-FetchContent_Declare(
-    plog
-    GIT_REPOSITORY https://github.com/SergiusTheBest/plog.git
-    GIT_TAG        1.1.10
-    GIT_SHALLOW    true
-)
-FetchContent_MakeAvailable(plog)
+# --- Logging (plog - header-only, via submodule) ---
 
 add_library(nozzle STATIC)
 
@@ -62,6 +54,7 @@ target_include_directories(nozzle PUBLIC
 target_include_directories(nozzle PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${plog_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/libs/plog/include
 )
 
 # --- Common sources ---
