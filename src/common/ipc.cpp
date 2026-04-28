@@ -59,6 +59,12 @@ Result<shm_handle> shm_create(const char *name, std::size_t size) {
         std::snprintf(buf, sizeof(buf), "CreateFileMappingA failed: %lu", err);
         return Error{ErrorCode::ResourceCreationFailed, buf};
     }
+
+    // Keep an extra handle open so the named mapping survives shm_close.
+    // On Windows, a named file mapping is destroyed when ALL handles are closed,
+    // unlike POSIX shm_open where close(fd) leaves the named segment alive.
+    OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, wname);
+
     return shm_handle{h};
 }
 
@@ -104,7 +110,13 @@ void shm_close(shm_handle &h) noexcept {
     }
 }
 
-void shm_unlink(const char *) noexcept {
+void shm_unlink(const char *name) noexcept {
+    // Close the extra handle opened in shm_create.
+    const char *wname = win_shm_name(name);
+    void *h = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, wname);
+    if (h) {
+        CloseHandle(h);
+    }
 }
 
 Result<std::size_t> shm_get_size(const shm_handle &) {
