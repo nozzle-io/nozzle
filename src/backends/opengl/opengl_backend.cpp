@@ -20,6 +20,10 @@
 #include <d3d11.h>
 #include <windows.h>
 #include <GL/gl.h>
+#elif NOZZLE_PLATFORM_LINUX
+#include <bbb/nozzle/backends/linux.hpp>
+#include <EGL/egl.h>
+#include <GL/gl.h>
 #endif
 
 namespace bbb::nozzle::gl {
@@ -433,5 +437,78 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
 }
 
 #endif // NOZZLE_PLATFORM_WINDOWS
+
+#if NOZZLE_PLATFORM_LINUX
+
+Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
+    if (gl_desc.name == 0) {
+        return Error{ErrorCode::InvalidArgument, "GL texture name is 0"};
+    }
+
+    gl_format_mapping gl_fmt;
+    if (!map_format(gl_desc.format, gl_fmt)) {
+        return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
+    }
+
+    uint32_t bpp = gl_format_components(gl_fmt.format) * gl_type_size(gl_fmt.type);
+    uint32_t row_bytes = gl_desc.width * bpp;
+    std::vector<uint8_t> pixel_data(static_cast<size_t>(row_bytes) * gl_desc.height);
+
+    GLint prev_pack = 0;
+    glGetIntegerv(GL_PACK_ALIGNMENT, &prev_pack);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glBindTexture(GL_TEXTURE_2D, gl_desc.name);
+    glGetTexImage(GL_TEXTURE_2D, 0, gl_fmt.format, gl_fmt.type, pixel_data.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    bbb::nozzle::texture_desc td{};
+    td.width = gl_desc.width;
+    td.height = gl_desc.height;
+    td.format = gl_desc.format;
+
+    auto frame_result = snd.acquire_writable_frame(td);
+    if (!frame_result) { return frame_result.error(); }
+
+    auto &wframe = frame_result.value();
+
+    void *egl_image = dma_buf::get_egl_image(wframe.get_texture());
+    if (!egl_image) {
+        return Error{ErrorCode::BackendError, "no EGLImage in writable frame"};
+    }
+
+    // TODO: Phase 2 — use EGLImage + GL mapping for zero-copy.
+    // Phase 1: CPU copy via pixel access API (once DMA-BUF mmap is implemented).
+    auto commit_result = snd.commit_frame(wframe);
+    if (!commit_result) { return commit_result.error(); }
+
+    return {};
+}
+
+Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &gl_desc) {
+    if (gl_desc.name == 0) {
+        return Error{ErrorCode::InvalidArgument, "GL texture name is 0"};
+    }
+    if (!frm.valid()) {
+        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
+    }
+
+    gl_format_mapping gl_fmt;
+    if (!map_format(gl_desc.format, gl_fmt)) {
+        return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
+    }
+
+    void *egl_image = dma_buf::get_egl_image(frm.get_texture());
+    if (!egl_image) {
+        return Error{ErrorCode::BackendError, "no EGLImage in frame"};
+    }
+
+    // TODO: Phase 2 — use EGLImage + GL mapping for zero-copy.
+    // Phase 1: CPU copy via pixel access API (once DMA-BUF mmap is implemented).
+
+    return {};
+}
+
+#endif // NOZZLE_PLATFORM_LINUX
 
 } // namespace bbb::nozzle::gl

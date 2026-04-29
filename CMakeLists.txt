@@ -42,6 +42,13 @@ elseif(WIN32)
         NOZZLE_PLATFORM_WINDOWS=1
         NOZZLE_HAS_D3D11=1
     )
+elseif(UNIX AND NOT APPLE)
+    set(NOZZLE_PLATFORM_LINUX 1)
+    set(NOZZLE_HAS_DMA_BUF 1)
+    target_compile_definitions(nozzle PUBLIC
+        NOZZLE_PLATFORM_LINUX=1
+        NOZZLE_HAS_DMA_BUF=1
+    )
 endif()
 
 # --- macOS deployment target ---
@@ -106,6 +113,26 @@ if(WIN32)
     target_link_libraries(nozzle PRIVATE d3d11 dxgi bcrypt)
 endif()
 
+if(NOZZLE_HAS_DMA_BUF)
+    target_sources(nozzle PRIVATE
+        src/backends/linux/linux_texture.cpp
+    )
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
+    pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
+    pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+    target_link_libraries(nozzle PRIVATE
+        PkgConfig::DRM
+        PkgConfig::GBM
+        PkgConfig::EGL
+    )
+    target_include_directories(nozzle PRIVATE
+        ${DRM_INCLUDE_DIRS}
+        ${GBM_INCLUDE_DIRS}
+        ${EGL_INCLUDE_DIRS}
+    )
+endif()
+
 # --- OpenGL interop ---
 option(NOZZLE_BUILD_OPENGL "Build OpenGL interop helpers" ON)
 
@@ -119,6 +146,8 @@ if(NOZZLE_BUILD_OPENGL)
         target_link_libraries(nozzle PRIVATE ${OPENGL_FRAMEWORK})
     elseif(WIN32)
         target_link_libraries(nozzle PRIVATE opengl32)
+    elseif(NOZZLE_HAS_DMA_BUF)
+        target_link_libraries(nozzle PRIVATE GL)
     endif()
 endif()
 

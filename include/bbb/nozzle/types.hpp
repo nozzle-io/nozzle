@@ -12,6 +12,7 @@ enum class backend_type {
     d3d11,
     metal,
     opengl,
+    dma_buf,
 };
 
 enum class texture_format {

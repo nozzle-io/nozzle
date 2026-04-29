@@ -27,4 +27,6 @@ auto get_backend_type() -> backend_type;
     #include "metal/metal_backend_dispatch.hpp"
 #elif NOZZLE_HAS_D3D11
     #include "d3d11/d3d11_backend_dispatch.hpp"
+#elif NOZZLE_HAS_DMA_BUF
+    #include "linux/linux_backend_dispatch.hpp"
 #endif
