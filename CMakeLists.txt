@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 
-# --- MSVC: use static CRT (/MT) for plugin compatibility ---
+# --- MSVC: use static CRT (/MT) by default (overridable by parent project) ---
 if(MSVC)
     cmake_policy(SET CMP0091 NEW)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    if(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
 
 project(nozzle
