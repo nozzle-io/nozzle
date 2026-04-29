@@ -148,6 +148,7 @@ NozzleErrorCode nozzle_sender_create(
     if (desc->name) cpp_desc.name = desc->name;
     if (desc->application_name) cpp_desc.application_name = desc->application_name;
     cpp_desc.ring_buffer_size = desc->ring_buffer_size;
+    cpp_desc.allow_format_fallback = desc->allow_format_fallback != 0;
 
     auto result = bbb::nozzle::sender::create(cpp_desc);
     if (!result.ok()) return to_c_error(result.error().code);

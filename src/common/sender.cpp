@@ -9,6 +9,8 @@
 #include <bbb/nozzle/device.hpp>
 #include <bbb/nozzle/result.hpp>
 
+#include <plog/Log.h>
+
 #include "backends/backend_dispatch.hpp"
 #include "frame_helpers.hpp"
 #include "ipc.hpp"
@@ -30,6 +32,7 @@ struct sender::Impl {
 	uint64_t frame_counter_{0};
 	sender_info info_{};
 	metadata_list metadata_{};
+	bool allow_format_fallback_{true};
 	bool valid_{false};
 	std::mutex mutex_;
 
@@ -118,10 +121,34 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 	s.impl_->info_.backend = detail::backend::get_backend_type();
 	s.impl_->metadata_ = desc.metadata;
+	s.impl_->allow_format_fallback_ = desc.allow_format_fallback;
 	s.impl_->valid_ = true;
 
 	return s;
 }
+
+namespace {
+
+texture_format get_next_fallback(texture_format fmt) {
+    switch (fmt) {
+        case texture_format::r8_unorm:      return texture_format::rg8_unorm;
+        case texture_format::rg8_unorm:     return texture_format::rgba8_unorm;
+        case texture_format::rgba8_unorm:   return texture_format::bgra8_unorm;
+        case texture_format::bgra8_unorm:   return texture_format::unknown;
+        case texture_format::r16_float:     return texture_format::rg16_float;
+        case texture_format::rg16_float:    return texture_format::rgba16_float;
+        case texture_format::rgba16_float:  return texture_format::rgba8_unorm;
+        case texture_format::r32_float:     return texture_format::r16_float;
+        case texture_format::rg32_float:    return texture_format::rg16_float;
+        case texture_format::rgba32_float:  return texture_format::rgba16_float;
+        case texture_format::r16_unorm:     return texture_format::rg16_unorm;
+        case texture_format::rg16_unorm:    return texture_format::rgba16_unorm;
+        case texture_format::rgba16_unorm:  return texture_format::rgba8_unorm;
+        default:                            return texture_format::unknown;
+    }
+}
+
+} // namespace nozzle
 
 Result<void> sender::publish_external_texture(const texture &tex) {
 	if (!impl_ || !impl_->valid_) {
@@ -207,17 +234,52 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 				"device has no native handle"};
 		}
 
+		texture_format actual_format = tdesc.format;
 		auto tex_result = detail::backend::create_ring_texture(
 			impl_->native_device_,
 			tdesc.width,
 			tdesc.height,
-			static_cast<uint32_t>(tdesc.format)
+			static_cast<uint32_t>(actual_format)
 		);
+
+		if (!tex_result.ok() && impl_->allow_format_fallback_) {
+			texture_format fallback = get_next_fallback(actual_format);
+			while (fallback != texture_format::unknown) {
+				tex_result = detail::backend::create_ring_texture(
+					impl_->native_device_,
+					tdesc.width,
+					tdesc.height,
+					static_cast<uint32_t>(fallback)
+				);
+				if (tex_result.ok()) {
+					LOG_WARNING << "format fallback: "
+						<< static_cast<int>(tdesc.format)
+						<< " -> " << static_cast<int>(fallback);
+					actual_format = fallback;
+					break;
+				}
+				fallback = get_next_fallback(fallback);
+			}
+		}
+
 		if (!tex_result.ok()) {
 			return tex_result.error();
 		}
 
 		impl_->ring_textures_[slot] = std::move(tex_result.value());
+
+		texture_desc actual_desc{tdesc.width, tdesc.height, actual_format, tdesc.usage};
+		impl_->slot_in_use_[slot] = true;
+
+		impl_->state->width = tdesc.width;
+		impl_->state->height = tdesc.height;
+		impl_->state->format = static_cast<uint32_t>(actual_format);
+
+		return detail::make_writable_frame(
+			std::move(impl_->ring_textures_[slot]),
+			actual_desc,
+			slot
+		);
 	}
 
 	impl_->slot_in_use_[slot] = true;

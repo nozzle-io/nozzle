@@ -82,6 +82,7 @@ typedef struct NozzleSenderDesc {
     const char *name;
     const char *application_name;
     uint32_t ring_buffer_size;
+    int allow_format_fallback;
 } NozzleSenderDesc;
 
 typedef struct NozzleReceiverDesc {

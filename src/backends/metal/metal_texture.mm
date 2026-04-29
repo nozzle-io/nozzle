@@ -105,6 +105,14 @@ static bool map_pixel_format(
     }
 }
 
+uint32_t nozzle_format_to_mtl(uint32_t nozzle_format) {
+    return static_cast<uint32_t>(to_mtl_pixel_format(nozzle_format));
+}
+
+bool mtl_format_to_iosurface(uint32_t mtl_format, uint32_t &out_pf, uint32_t &out_bpe) {
+    return map_pixel_format(static_cast<MTLPixelFormat>(mtl_format), out_pf, out_bpe);
+}
+
 static uint32_t align_up(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
