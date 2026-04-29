@@ -44,17 +44,61 @@ static bool map_pixel_format(
     uint32_t &out_bytes_per_element
 ) {
     switch (mtl_format) {
+        case MTLPixelFormatR8Unorm:
+            out_iosurface_pf = 'L008'; // kCVPixelFormatType_OneComponent8
+            out_bytes_per_element = 1;
+            return true;
+        case MTLPixelFormatRG8Unorm:
+            out_iosurface_pf = '2C08'; // kCVPixelFormatType_TwoComponent8
+            out_bytes_per_element = 2;
+            return true;
         case MTLPixelFormatBGRA8Unorm:
-            out_iosurface_pf = 0x42475241; // kCVPixelFormatType_32BGRA
+            out_iosurface_pf = 'BGRA'; // kCVPixelFormatType_32BGRA
             out_bytes_per_element = 4;
             return true;
         case MTLPixelFormatRGBA8Unorm:
-            out_iosurface_pf = 0x52474241; // kCVPixelFormatType_32RGBA
+            out_iosurface_pf = 'RGBA'; // kCVPixelFormatType_32RGBA
+            out_bytes_per_element = 4;
+            return true;
+        case MTLPixelFormatRGBA8Unorm_sRGB:
+            out_iosurface_pf = 'RGBA'; // kCVPixelFormatType_32RGBA (sRGB handled by Metal)
+            out_bytes_per_element = 4;
+            return true;
+        case MTLPixelFormatBGRA8Unorm_sRGB:
+            out_iosurface_pf = 'BGRA'; // kCVPixelFormatType_32BGRA (sRGB handled by Metal)
+            out_bytes_per_element = 4;
+            return true;
+        case MTLPixelFormatR16Unorm:
+            out_iosurface_pf = 'L016'; // kCVPixelFormatType_OneComponent16
+            out_bytes_per_element = 2;
+            return true;
+        case MTLPixelFormatRG16Unorm:
+            out_iosurface_pf = '2C16'; // kCVPixelFormatType_TwoComponent16
+            out_bytes_per_element = 4;
+            return true;
+        case MTLPixelFormatR16Float:
+            out_iosurface_pf = 'L00h'; // kCVPixelFormatType_OneComponent16Half
+            out_bytes_per_element = 2;
+            return true;
+        case MTLPixelFormatRG16Float:
+            out_iosurface_pf = '2C0h'; // kCVPixelFormatType_TwoComponent16Half
             out_bytes_per_element = 4;
             return true;
         case MTLPixelFormatRGBA16Float:
-            out_iosurface_pf = 0x52476841;
+            out_iosurface_pf = 'RGhA'; // kCVPixelFormatType_64RGBAHalf
             out_bytes_per_element = 8;
+            return true;
+        case MTLPixelFormatR32Float:
+            out_iosurface_pf = 'L00f'; // kCVPixelFormatType_OneComponent32Float
+            out_bytes_per_element = 4;
+            return true;
+        case MTLPixelFormatRG32Float:
+            out_iosurface_pf = '2C0f'; // kCVPixelFormatType_TwoComponent32Float
+            out_bytes_per_element = 8;
+            return true;
+        case MTLPixelFormatRGBA32Float:
+            out_iosurface_pf = 'RGfA'; // kCVPixelFormatType_128RGBAFloat
+            out_bytes_per_element = 16;
             return true;
         default:
             return false;
