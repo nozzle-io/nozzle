@@ -33,6 +33,23 @@ target_include_directories(nozzle_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
+if(WIN32)
+    target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_PLATFORM_WINDOWS=1
+        NOZZLE_HAS_D3D11=1
+    )
+elseif(APPLE)
+    target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_PLATFORM_MACOS=1
+        NOZZLE_HAS_METAL=1
+    )
+elseif(UNIX AND NOT APPLE)
+    target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_PLATFORM_LINUX=1
+        NOZZLE_HAS_DMA_BUF=1
+    )
+endif()
+
 # --- Integration test executable ---
 # Links against the full nozzle library (including Metal backend on macOS).
 set(INTEGRATION_TEST_SOURCES
