@@ -22,6 +22,9 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#if NOZZLE_PLATFORM_LINUX
+#include <sys/random.h>
+#endif
 
 #endif
 
@@ -339,7 +342,20 @@ bool is_pid_alive(pid_type pid) noexcept {
 }
 
 void random_bytes(void *buf, std::size_t len) noexcept {
+#if NOZZLE_PLATFORM_LINUX
+    auto *p = static_cast<unsigned char *>(buf);
+    while (len > 0) {
+        ssize_t n = getrandom(p, len, 0);
+        if (n < 0) {
+            if (errno == EINTR) { continue; }
+            return;
+        }
+        p += static_cast<std::size_t>(n);
+        len -= static_cast<std::size_t>(n);
+    }
+#else
     arc4random_buf(buf, len);
+#endif
 }
 
 uint64_t monotonic_ns() noexcept {
