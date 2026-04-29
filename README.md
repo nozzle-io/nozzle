@@ -7,7 +7,7 @@ An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible wi
 ## Features
 
 - Named sender/receiver model with discovery
-- Metal/IOSurface backend (macOS) and D3D11 backend (Windows)
+- Metal/IOSurface backend (macOS), D3D11 backend (Windows), DMA-BUF backend (Linux)
 - OpenGL interop (copy-based: GL↔IOSurface on macOS, GL↔D3D11 staging on Windows)
 - High-precision texture formats (R32F, RGBA16F, RGBA32F, etc.)
 - C++ API with `Result<T>` error handling (no exceptions)
@@ -23,12 +23,21 @@ An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible wi
 | Core API (sender, receiver, frame, texture, device, discovery) | Done |
 | macOS Metal/IOSurface backend | Done |
 | Windows D3D11 backend | Done |
+| Linux DMA-BUF backend | Done |
 | OpenGL interop (macOS + Windows) | Done |
 | C ABI wrapper | Done |
-| Unit tests (11 cases, 60 assertions) | Passing |
-| Integration tests (9 cases, 59 assertions) | Passing |
-| openFrameworks addon (ofxNozzle) | Done (macOS + Windows) |
-| Max external (bbb.nozzle) | Done (macOS universal binary + Windows) |
+| Unit tests (11 cases) | Passing |
+| Integration tests (9 cases) | Passing |
+| py.nozzle (Python, nanobind) | Done (macOS, Windows, Linux) |
+| nozzle.swift (Swift, SPM) | Done (macOS) |
+| nozzle.rs (Rust, cargo) | Done (macOS, Windows, Linux) |
+| ofxNozzle (openFrameworks addon) | Done (macOS, Windows, Linux) |
+| nozzle.max (Max/MSP externals) | Done (macOS, Windows) |
+| nozzle-TOP (TouchDesigner plugins) | Done (macOS, Windows) |
+| obs-nozzle (OBS Studio plugin) | Done (macOS, Windows, Linux) |
+| blender-nozzle (Blender addon) | Done (macOS, Windows, Linux) |
+| nozzle.unity (Unity plugin) | Postponed |
+| nozzle.wasm (WebAssembly) | Pended |
 
 ## Build
 
@@ -97,9 +106,9 @@ nozzle_sender_commit_frame(sender, frame);
 ## Architecture
 
 ```
-Layer 4: Integration wrappers (ofxNozzle, bbb.nozzle Max external)
+Layer 4: Integration wrappers (ofxNozzle, nozzle.max, py.nozzle, etc.)
 Layer 3: OpenGL interop (copy-based GL↔backend)
-Layer 2: Backend-native API (Metal/IOSurface, D3D11)
+Layer 2: Backend-native API (Metal/IOSurface, D3D11, DMA-BUF)
 Layer 1: Common API (sender, receiver, frame, texture, device, discovery)
 Layer 0: Platform infrastructure (registry, IPC, shared memory)
 ```
@@ -131,6 +140,7 @@ src/c_api/                   C ABI wrapper
 src/backends/metal/          macOS Metal backend (.mm)
 src/backends/d3d11/          Windows D3D11 backend (.cpp)
 src/backends/opengl/         OpenGL interop (.cpp)
+src/backends/linux/          Linux DMA-BUF backend (.cpp)
 libs/plog/                   plog submodule (header-only logging)
 tests/                       Unit + integration tests (Catch2)
 examples/                    Minimal sender/receiver examples
@@ -141,6 +151,7 @@ examples/                    Minimal sender/receiver examples
 - C++17 compiler (no exceptions, no RTTI required)
 - macOS 12+ (Metal backend)
 - Windows 10+ (D3D11 backend)
+- Linux (DMA-BUF backend, glibc 2.31+)
 - CMake 3.20+
 
 ## Design Decisions
