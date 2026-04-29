@@ -243,33 +243,33 @@ void *import_egl_image(
         return nullptr;
     }
 
-    EGLAttrib attribs[] = {
-        EGL_WIDTH, static_cast<EGLAttrib>(width),
-        EGL_HEIGHT, static_cast<EGLAttrib>(height),
-        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLAttrib>(fourcc),
-        EGL_DMA_BUF_PLANE0_FD_EXT, static_cast<EGLAttrib>(fd),
-        EGL_DMA_BUF_PLANE0_PITCH_EXT, static_cast<EGLAttrib>(stride),
-        EGL_DMA_BUF_PLANE0_OFFSET_EXT, static_cast<EGLAttrib>(0),
+    EGLint attribs[] = {
+        EGL_WIDTH, static_cast<EGLint>(width),
+        EGL_HEIGHT, static_cast<EGLint>(height),
+        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLint>(fourcc),
+        EGL_DMA_BUF_PLANE0_FD_EXT, static_cast<EGLint>(fd),
+        EGL_DMA_BUF_PLANE0_PITCH_EXT, static_cast<EGLint>(stride),
+        EGL_DMA_BUF_PLANE0_OFFSET_EXT, static_cast<EGLint>(0),
     };
 
-    EGLAttrib modifier_attrs[] = {
+    EGLint modifier_attrs[] = {
         EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
-            static_cast<EGLAttrib>(modifier & 0xFFFFFFFF),
+            static_cast<EGLint>(modifier & 0xFFFFFFFF),
         EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
-            static_cast<EGLAttrib>(modifier >> 32),
+            static_cast<EGLint>(modifier >> 32),
         EGL_NONE,
     };
 
-    EGLAttrib final_attribs[32]{};
+    EGLint final_attribs[32]{};
     std::memcpy(final_attribs, attribs, sizeof(attribs));
 
     if (modifier != DRM_FORMAT_MOD_LINEAR) {
         std::memcpy(
-            final_attribs + (sizeof(attribs) / sizeof(EGLAttrib)) - 1,
+            final_attribs + (sizeof(attribs) / sizeof(EGLint)) - 1,
             modifier_attrs,
             sizeof(modifier_attrs));
     } else {
-        size_t base_count = sizeof(attribs) / sizeof(EGLAttrib);
+        size_t base_count = sizeof(attribs) / sizeof(EGLint);
         final_attribs[base_count - 1] = EGL_NONE;
     }
 
