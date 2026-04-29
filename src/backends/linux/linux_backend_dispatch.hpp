@@ -4,14 +4,14 @@
 
 #include "linux_helpers.hpp"
 #include "linux_fd_transfer.hpp"
-#include <bbb/nozzle/backends/linux.hpp>
+#include <nozzle/backends/linux.hpp>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <mutex>
 
-namespace bbb::nozzle {
+namespace nozzle {
 namespace detail {
 namespace backend {
 
@@ -185,4 +185,4 @@ inline auto get_backend_type() -> backend_type {
 
 } // namespace backend
 } // namespace detail
-} // namespace bbb::nozzle
+} // namespace nozzle

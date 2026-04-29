@@ -28,7 +28,6 @@
 
 #endif
 
-namespace bbb {
 namespace nozzle {
 namespace detail {
 namespace ipc {
@@ -370,4 +369,3 @@ uint64_t monotonic_ns() noexcept {
 } // namespace ipc
 } // namespace detail
 } // namespace nozzle
-} // namespace bbb

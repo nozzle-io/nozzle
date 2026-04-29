@@ -3,9 +3,9 @@
 #pragma once
 
 #include "d3d11_helpers.hpp"
-#include <bbb/nozzle/backends/d3d11.hpp>
+#include <nozzle/backends/d3d11.hpp>
 
-namespace bbb::nozzle {
+namespace nozzle {
 namespace detail {
 namespace backend {
 
@@ -45,4 +45,4 @@ inline auto get_backend_type() -> backend_type {
 
 } // namespace backend
 } // namespace detail
-} // namespace bbb::nozzle
+} // namespace nozzle

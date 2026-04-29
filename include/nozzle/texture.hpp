@@ -1,10 +1,10 @@
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/types.hpp>
 
 #include <memory>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 class texture;
 
@@ -36,4 +36,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace bbb::nozzle
+} // namespace nozzle

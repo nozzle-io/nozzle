@@ -3,7 +3,6 @@
 #include <string>
 #include <utility>
 
-namespace bbb {
 namespace nozzle {
 
 enum class ErrorCode {
@@ -164,4 +163,3 @@ private:
 };
 
 } // namespace nozzle
-} // namespace bbb

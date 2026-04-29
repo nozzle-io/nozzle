@@ -2,17 +2,17 @@
 
 #include "registry.hpp"
 
-#include <bbb/nozzle/discovery.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/discovery.hpp>
+#include <nozzle/types.hpp>
 
 #include <cstring>
 #include <string>
 #include <vector>
 
-namespace registry = bbb::nozzle::detail::registry;
+namespace registry = nozzle::detail::registry;
 
 static void clear_all_registered_senders() {
-    auto senders = bbb::nozzle::enumerate_senders();
+    auto senders = nozzle::enumerate_senders();
     for (const auto &sender : senders) {
         registry::unregister_sender(sender.id.c_str());
     }
@@ -30,7 +30,7 @@ TEST_CASE("Registry: register and unregister sender", "[registry]") {
     SECTION("registration fields are valid") {
         REQUIRE(std::strlen(reg.uuid) > 0);
         REQUIRE(reg.uuid[0] != '\0');
-        REQUIRE(std::strncmp(reg.shm_name, bbb::nozzle::detail::kSenderShmPrefix, std::strlen(bbb::nozzle::detail::kSenderShmPrefix)) == 0);
+        REQUIRE(std::strncmp(reg.shm_name, nozzle::detail::kSenderShmPrefix, std::strlen(nozzle::detail::kSenderShmPrefix)) == 0);
     }
 
     SECTION("open sender state and verify fields") {
@@ -90,7 +90,7 @@ TEST_CASE("Registry: register multiple senders", "[registry]") {
 TEST_CASE("Registry: unregister non-existent sender", "[registry]") {
     auto result = registry::unregister_sender("00000000-0000-0000-0000-000000000000");
     REQUIRE(!result.ok());
-    REQUIRE(result.error().code == bbb::nozzle::ErrorCode::SenderNotFound);
+    REQUIRE(result.error().code == nozzle::ErrorCode::SenderNotFound);
 }
 
 TEST_CASE("Registry: open sender state", "[registry]") {
@@ -106,8 +106,8 @@ TEST_CASE("Registry: open sender state", "[registry]") {
 
     auto view = state_result.value();
     REQUIRE(view.state != nullptr);
-    REQUIRE(view.state->magic == bbb::nozzle::detail::kSenderMagic);
-    REQUIRE(view.state->version == bbb::nozzle::detail::kSharedMemVersion);
+    REQUIRE(view.state->magic == nozzle::detail::kSenderMagic);
+    REQUIRE(view.state->version == nozzle::detail::kSharedMemVersion);
     REQUIRE(view.state->width == 800);
     REQUIRE(view.state->height == 600);
     REQUIRE(view.state->format == 7);

@@ -4,9 +4,9 @@
 #error "D3D11 backend not available on this platform"
 #endif
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -16,7 +16,7 @@ enum DXGI_FORMAT;
 typedef void *HANDLE;
 #endif
 
-namespace bbb::nozzle::d3d11 {
+namespace nozzle::d3d11 {
 
 struct DeviceDesc {
     ID3D11Device *device{nullptr};
@@ -37,4 +37,4 @@ Result<texture> wrap_texture(const TextureWrapDesc &desc);
 ID3D11Texture2D *get_texture(const texture &tex);
 HANDLE get_shared_handle(const texture &tex);
 
-} // namespace bbb::nozzle::d3d11
+} // namespace nozzle::d3d11

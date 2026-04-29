@@ -1,12 +1,12 @@
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/types.hpp>
 
 #include <vector>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 // Discover available senders on the local machine
 std::vector<sender_info> enumerate_senders();
 
-} // namespace bbb::nozzle
+} // namespace nozzle

@@ -1,12 +1,11 @@
 #pragma once
 
-#include <bbb/nozzle/frame.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/frame.hpp>
+#include <nozzle/types.hpp>
 
 #include <cstdint>
 #include <memory>
 
-namespace bbb {
 namespace nozzle {
 namespace detail {
 
@@ -30,4 +29,3 @@ struct writable_frame::Impl {
 };
 
 } // namespace nozzle
-} // namespace bbb

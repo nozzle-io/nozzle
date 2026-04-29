@@ -3,9 +3,9 @@
 #pragma once
 
 #include "metal_helpers.hpp"
-#include <bbb/nozzle/backends/metal.hpp>
+#include <nozzle/backends/metal.hpp>
 
-namespace bbb::nozzle {
+namespace nozzle {
 namespace detail {
 namespace backend {
 
@@ -51,4 +51,4 @@ inline auto get_backend_type() -> backend_type {
 
 } // namespace backend
 } // namespace detail
-} // namespace bbb::nozzle
+} // namespace nozzle

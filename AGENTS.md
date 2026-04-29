@@ -57,14 +57,14 @@ Phase 0 and Phase 1 are complete. All critical path items resolved:
 
 | Decision | Resolution |
 |---|---|
-| Namespace | `bbb::nozzle` (bbb is the author's library prefix) |
+| Namespace | `nozzle` (bbb is the author's library prefix) |
 | applicationName | User-provided. Auto-detection optional if easy. |
 | timestampNs | Host time (`clock_gettime(CLOCK_MONOTONIC)` / `QueryPerformanceCounter`) |
 | Format compatibility | Warning + fallback to nearest compatible format when receiver device differs |
 
 ## API Conventions
 
-- `bbb::nozzle::` namespace for C++ API (class names are `snake_case` inside `bbb` namespace)
+- `nozzle::` namespace for C++ API (class names are `snake_case` inside `nozzle` namespace)
 - `Nozzle*` opaque handles for C ABI
 - `NOZZLE_PLATFORM_*` / `NOZZLE_HAS_*` macros for conditional compilation
 - Backend-specific code guarded: `#if NOZZLE_HAS_D3D11`, `#if NOZZLE_HAS_METAL`
@@ -74,8 +74,8 @@ Phase 0 and Phase 1 are complete. All critical path items resolved:
 ## Repository Layout
 
 ```
-include/bbb/nozzle/          # Public headers (nozzle.hpp, sender.hpp, receiver.hpp, etc.)
-include/bbb/nozzle/backends/ # Backend-specific headers (d3d11.hpp, metal.hpp, opengl.hpp)
+include/nozzle/          # Public headers (nozzle.hpp, sender.hpp, receiver.hpp, etc.)
+include/nozzle/backends/ # Backend-specific headers (d3d11.hpp, metal.hpp, opengl.hpp)
 src/common/                  # Shared implementation (registry, sender, receiver, frame)
 src/c_api/                   # C ABI wrapper
 src/backends/d3d11/          # Windows D3D11 (.cpp)
@@ -107,7 +107,7 @@ tests/                       # Unit + integration tests
 - Objective-C++ only in `.mm` files, never in `.cpp` or headers
 - Include order: corresponding header → C++ std → OS frameworks → nozzle headers
 - `Result<T>` must always be checked — never ignore return values in examples/tests
-- Namespace: `bbb::nozzle` for C++ API
+- Namespace: `nozzle` for C++ API
 - No `using namespace` directives
 - `{}` brace initialization preferred
 - `*` and `&` bind to the type side: `const texture &tex`, `void *ptr`

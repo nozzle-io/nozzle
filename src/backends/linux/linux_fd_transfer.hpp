@@ -7,7 +7,7 @@
 #include <mutex>
 #include <string>
 
-namespace bbb::nozzle::detail::linux_backend {
+namespace nozzle::detail::linux_backend {
 
 bool send_fds(int socket_fd, const int *fds, size_t count);
 
@@ -77,6 +77,6 @@ private:
     std::array<bool, 8> valid_{};
 };
 
-} // namespace bbb::nozzle::detail::linux_backend
+} // namespace nozzle::detail::linux_backend
 
 #endif

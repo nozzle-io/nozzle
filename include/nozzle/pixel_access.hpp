@@ -1,10 +1,10 @@
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/frame.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/frame.hpp>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 struct mapped_pixels {
     void *data{nullptr};
@@ -20,4 +20,4 @@ void unlock_frame_pixels(const frame &frm);
 Result<mapped_pixels> lock_writable_pixels(writable_frame &frm);
 void unlock_writable_pixels(writable_frame &frm);
 
-} // namespace bbb::nozzle
+} // namespace nozzle

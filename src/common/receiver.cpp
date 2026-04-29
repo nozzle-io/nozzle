@@ -1,6 +1,6 @@
 // nozzle - receiver.cpp - Texture receiver implementation
 
-#include <bbb/nozzle/receiver.hpp>
+#include <nozzle/receiver.hpp>
 
 #include "backends/backend_dispatch.hpp"
 #include "ipc.hpp"
@@ -14,7 +14,6 @@
 #include <string>
 #include <thread>
 
-namespace bbb {
 namespace nozzle {
 
 namespace {
@@ -328,4 +327,3 @@ bool receiver::valid() const {
 }
 
 } // namespace nozzle
-} // namespace bbb

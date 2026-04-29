@@ -1,11 +1,11 @@
 #pragma once
 
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 
 #include <memory>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 class frame;
 class writable_frame;
@@ -66,4 +66,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace bbb::nozzle
+} // namespace nozzle

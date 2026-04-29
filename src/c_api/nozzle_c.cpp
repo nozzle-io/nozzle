@@ -1,17 +1,17 @@
 // nozzle - nozzle_c.cpp - C ABI wrapper for nozzle public API
 
-#include <bbb/nozzle/nozzle_c.h>
+#include <nozzle/nozzle_c.h>
 
-#include <bbb/nozzle/sender.hpp>
-#include <bbb/nozzle/receiver.hpp>
-#include <bbb/nozzle/frame.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
-#include <bbb/nozzle/discovery.hpp>
-#include <bbb/nozzle/pixel_access.hpp>
+#include <nozzle/sender.hpp>
+#include <nozzle/receiver.hpp>
+#include <nozzle/frame.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
+#include <nozzle/discovery.hpp>
+#include <nozzle/pixel_access.hpp>
 
 #if NOZZLE_HAS_OPENGL
-#include <bbb/nozzle/backends/opengl.hpp>
+#include <nozzle/backends/opengl.hpp>
 #endif
 
 #include <cstdlib>
@@ -21,117 +21,117 @@
 
 namespace {
 
-NozzleErrorCode to_c_error(bbb::nozzle::ErrorCode code) {
+NozzleErrorCode to_c_error(nozzle::ErrorCode code) {
     switch (code) {
-        case bbb::nozzle::ErrorCode::Ok: return NOZZLE_OK;
-        case bbb::nozzle::ErrorCode::Unknown: return NOZZLE_ERROR_UNKNOWN;
-        case bbb::nozzle::ErrorCode::InvalidArgument: return NOZZLE_ERROR_INVALID_ARGUMENT;
-        case bbb::nozzle::ErrorCode::UnsupportedBackend: return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
-        case bbb::nozzle::ErrorCode::UnsupportedFormat: return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
-        case bbb::nozzle::ErrorCode::DeviceMismatch: return NOZZLE_ERROR_DEVICE_MISMATCH;
-        case bbb::nozzle::ErrorCode::ResourceCreationFailed: return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
-        case bbb::nozzle::ErrorCode::SharedHandleFailed: return NOZZLE_ERROR_SHARED_HANDLE_FAILED;
-        case bbb::nozzle::ErrorCode::SenderNotFound: return NOZZLE_ERROR_SENDER_NOT_FOUND;
-        case bbb::nozzle::ErrorCode::SenderClosed: return NOZZLE_ERROR_SENDER_CLOSED;
-        case bbb::nozzle::ErrorCode::Timeout: return NOZZLE_ERROR_TIMEOUT;
-        case bbb::nozzle::ErrorCode::BackendError: return NOZZLE_ERROR_BACKEND_ERROR;
+        case nozzle::ErrorCode::Ok: return NOZZLE_OK;
+        case nozzle::ErrorCode::Unknown: return NOZZLE_ERROR_UNKNOWN;
+        case nozzle::ErrorCode::InvalidArgument: return NOZZLE_ERROR_INVALID_ARGUMENT;
+        case nozzle::ErrorCode::UnsupportedBackend: return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+        case nozzle::ErrorCode::UnsupportedFormat: return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
+        case nozzle::ErrorCode::DeviceMismatch: return NOZZLE_ERROR_DEVICE_MISMATCH;
+        case nozzle::ErrorCode::ResourceCreationFailed: return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+        case nozzle::ErrorCode::SharedHandleFailed: return NOZZLE_ERROR_SHARED_HANDLE_FAILED;
+        case nozzle::ErrorCode::SenderNotFound: return NOZZLE_ERROR_SENDER_NOT_FOUND;
+        case nozzle::ErrorCode::SenderClosed: return NOZZLE_ERROR_SENDER_CLOSED;
+        case nozzle::ErrorCode::Timeout: return NOZZLE_ERROR_TIMEOUT;
+        case nozzle::ErrorCode::BackendError: return NOZZLE_ERROR_BACKEND_ERROR;
     }
     return NOZZLE_ERROR_UNKNOWN;
 }
 
-NozzleBackendType to_c_backend_type(bbb::nozzle::backend_type bt) {
+NozzleBackendType to_c_backend_type(nozzle::backend_type bt) {
     switch (bt) {
-        case bbb::nozzle::backend_type::d3d11: return NOZZLE_BACKEND_D3D11;
-        case bbb::nozzle::backend_type::metal: return NOZZLE_BACKEND_METAL;
-        case bbb::nozzle::backend_type::opengl: return NOZZLE_BACKEND_OPENGL;
-        case bbb::nozzle::backend_type::unknown:
+        case nozzle::backend_type::d3d11: return NOZZLE_BACKEND_D3D11;
+        case nozzle::backend_type::metal: return NOZZLE_BACKEND_METAL;
+        case nozzle::backend_type::opengl: return NOZZLE_BACKEND_OPENGL;
+        case nozzle::backend_type::unknown:
         default: return NOZZLE_BACKEND_UNKNOWN;
     }
 }
 
-NozzleTextureFormat to_c_format(bbb::nozzle::texture_format fmt) {
+NozzleTextureFormat to_c_format(nozzle::texture_format fmt) {
     switch (fmt) {
-        case bbb::nozzle::texture_format::r8_unorm: return NOZZLE_FORMAT_R8_UNORM;
-        case bbb::nozzle::texture_format::rg8_unorm: return NOZZLE_FORMAT_RG8_UNORM;
-        case bbb::nozzle::texture_format::rgba8_unorm: return NOZZLE_FORMAT_RGBA8_UNORM;
-        case bbb::nozzle::texture_format::bgra8_unorm: return NOZZLE_FORMAT_BGRA8_UNORM;
-        case bbb::nozzle::texture_format::rgba8_srgb: return NOZZLE_FORMAT_RGBA8_SRGB;
-        case bbb::nozzle::texture_format::bgra8_srgb: return NOZZLE_FORMAT_BGRA8_SRGB;
-        case bbb::nozzle::texture_format::r16_unorm: return NOZZLE_FORMAT_R16_UNORM;
-        case bbb::nozzle::texture_format::rg16_unorm: return NOZZLE_FORMAT_RG16_UNORM;
-        case bbb::nozzle::texture_format::rgba16_unorm: return NOZZLE_FORMAT_RGBA16_UNORM;
-        case bbb::nozzle::texture_format::r16_float: return NOZZLE_FORMAT_R16_FLOAT;
-        case bbb::nozzle::texture_format::rg16_float: return NOZZLE_FORMAT_RG16_FLOAT;
-        case bbb::nozzle::texture_format::rgba16_float: return NOZZLE_FORMAT_RGBA16_FLOAT;
-        case bbb::nozzle::texture_format::r32_float: return NOZZLE_FORMAT_R32_FLOAT;
-        case bbb::nozzle::texture_format::rg32_float: return NOZZLE_FORMAT_RG32_FLOAT;
-        case bbb::nozzle::texture_format::rgba32_float: return NOZZLE_FORMAT_RGBA32_FLOAT;
-        case bbb::nozzle::texture_format::r32_uint: return NOZZLE_FORMAT_R32_UINT;
-        case bbb::nozzle::texture_format::rgba32_uint: return NOZZLE_FORMAT_RGBA32_UINT;
-        case bbb::nozzle::texture_format::depth32_float: return NOZZLE_FORMAT_DEPTH32_FLOAT;
-        case bbb::nozzle::texture_format::unknown:
+        case nozzle::texture_format::r8_unorm: return NOZZLE_FORMAT_R8_UNORM;
+        case nozzle::texture_format::rg8_unorm: return NOZZLE_FORMAT_RG8_UNORM;
+        case nozzle::texture_format::rgba8_unorm: return NOZZLE_FORMAT_RGBA8_UNORM;
+        case nozzle::texture_format::bgra8_unorm: return NOZZLE_FORMAT_BGRA8_UNORM;
+        case nozzle::texture_format::rgba8_srgb: return NOZZLE_FORMAT_RGBA8_SRGB;
+        case nozzle::texture_format::bgra8_srgb: return NOZZLE_FORMAT_BGRA8_SRGB;
+        case nozzle::texture_format::r16_unorm: return NOZZLE_FORMAT_R16_UNORM;
+        case nozzle::texture_format::rg16_unorm: return NOZZLE_FORMAT_RG16_UNORM;
+        case nozzle::texture_format::rgba16_unorm: return NOZZLE_FORMAT_RGBA16_UNORM;
+        case nozzle::texture_format::r16_float: return NOZZLE_FORMAT_R16_FLOAT;
+        case nozzle::texture_format::rg16_float: return NOZZLE_FORMAT_RG16_FLOAT;
+        case nozzle::texture_format::rgba16_float: return NOZZLE_FORMAT_RGBA16_FLOAT;
+        case nozzle::texture_format::r32_float: return NOZZLE_FORMAT_R32_FLOAT;
+        case nozzle::texture_format::rg32_float: return NOZZLE_FORMAT_RG32_FLOAT;
+        case nozzle::texture_format::rgba32_float: return NOZZLE_FORMAT_RGBA32_FLOAT;
+        case nozzle::texture_format::r32_uint: return NOZZLE_FORMAT_R32_UINT;
+        case nozzle::texture_format::rgba32_uint: return NOZZLE_FORMAT_RGBA32_UINT;
+        case nozzle::texture_format::depth32_float: return NOZZLE_FORMAT_DEPTH32_FLOAT;
+        case nozzle::texture_format::unknown:
         default: return NOZZLE_FORMAT_UNKNOWN;
     }
 }
 
-bbb::nozzle::texture_format to_cpp_format(NozzleTextureFormat fmt) {
+nozzle::texture_format to_cpp_format(NozzleTextureFormat fmt) {
     switch (fmt) {
-        case NOZZLE_FORMAT_R8_UNORM: return bbb::nozzle::texture_format::r8_unorm;
-        case NOZZLE_FORMAT_RG8_UNORM: return bbb::nozzle::texture_format::rg8_unorm;
-        case NOZZLE_FORMAT_RGBA8_UNORM: return bbb::nozzle::texture_format::rgba8_unorm;
-        case NOZZLE_FORMAT_BGRA8_UNORM: return bbb::nozzle::texture_format::bgra8_unorm;
-        case NOZZLE_FORMAT_RGBA8_SRGB: return bbb::nozzle::texture_format::rgba8_srgb;
-        case NOZZLE_FORMAT_BGRA8_SRGB: return bbb::nozzle::texture_format::bgra8_srgb;
-        case NOZZLE_FORMAT_R16_UNORM: return bbb::nozzle::texture_format::r16_unorm;
-        case NOZZLE_FORMAT_RG16_UNORM: return bbb::nozzle::texture_format::rg16_unorm;
-        case NOZZLE_FORMAT_RGBA16_UNORM: return bbb::nozzle::texture_format::rgba16_unorm;
-        case NOZZLE_FORMAT_R16_FLOAT: return bbb::nozzle::texture_format::r16_float;
-        case NOZZLE_FORMAT_RG16_FLOAT: return bbb::nozzle::texture_format::rg16_float;
-        case NOZZLE_FORMAT_RGBA16_FLOAT: return bbb::nozzle::texture_format::rgba16_float;
-        case NOZZLE_FORMAT_R32_FLOAT: return bbb::nozzle::texture_format::r32_float;
-        case NOZZLE_FORMAT_RG32_FLOAT: return bbb::nozzle::texture_format::rg32_float;
-        case NOZZLE_FORMAT_RGBA32_FLOAT: return bbb::nozzle::texture_format::rgba32_float;
-        case NOZZLE_FORMAT_R32_UINT: return bbb::nozzle::texture_format::r32_uint;
-        case NOZZLE_FORMAT_RGBA32_UINT: return bbb::nozzle::texture_format::rgba32_uint;
-        case NOZZLE_FORMAT_DEPTH32_FLOAT: return bbb::nozzle::texture_format::depth32_float;
-        default: return bbb::nozzle::texture_format::unknown;
+        case NOZZLE_FORMAT_R8_UNORM: return nozzle::texture_format::r8_unorm;
+        case NOZZLE_FORMAT_RG8_UNORM: return nozzle::texture_format::rg8_unorm;
+        case NOZZLE_FORMAT_RGBA8_UNORM: return nozzle::texture_format::rgba8_unorm;
+        case NOZZLE_FORMAT_BGRA8_UNORM: return nozzle::texture_format::bgra8_unorm;
+        case NOZZLE_FORMAT_RGBA8_SRGB: return nozzle::texture_format::rgba8_srgb;
+        case NOZZLE_FORMAT_BGRA8_SRGB: return nozzle::texture_format::bgra8_srgb;
+        case NOZZLE_FORMAT_R16_UNORM: return nozzle::texture_format::r16_unorm;
+        case NOZZLE_FORMAT_RG16_UNORM: return nozzle::texture_format::rg16_unorm;
+        case NOZZLE_FORMAT_RGBA16_UNORM: return nozzle::texture_format::rgba16_unorm;
+        case NOZZLE_FORMAT_R16_FLOAT: return nozzle::texture_format::r16_float;
+        case NOZZLE_FORMAT_RG16_FLOAT: return nozzle::texture_format::rg16_float;
+        case NOZZLE_FORMAT_RGBA16_FLOAT: return nozzle::texture_format::rgba16_float;
+        case NOZZLE_FORMAT_R32_FLOAT: return nozzle::texture_format::r32_float;
+        case NOZZLE_FORMAT_RG32_FLOAT: return nozzle::texture_format::rg32_float;
+        case NOZZLE_FORMAT_RGBA32_FLOAT: return nozzle::texture_format::rgba32_float;
+        case NOZZLE_FORMAT_R32_UINT: return nozzle::texture_format::r32_uint;
+        case NOZZLE_FORMAT_RGBA32_UINT: return nozzle::texture_format::rgba32_uint;
+        case NOZZLE_FORMAT_DEPTH32_FLOAT: return nozzle::texture_format::depth32_float;
+        default: return nozzle::texture_format::unknown;
     }
 }
 
-bbb::nozzle::receive_mode to_cpp_receive_mode(NozzleReceiveMode mode) {
+nozzle::receive_mode to_cpp_receive_mode(NozzleReceiveMode mode) {
     switch (mode) {
         case NOZZLE_RECEIVE_SEQUENTIAL_BEST_EFFORT:
-            return bbb::nozzle::receive_mode::sequential_best_effort;
+            return nozzle::receive_mode::sequential_best_effort;
         case NOZZLE_RECEIVE_LATEST_ONLY:
         default:
-            return bbb::nozzle::receive_mode::latest_only;
+            return nozzle::receive_mode::latest_only;
     }
 }
 
 } // anonymous namespace
 
 struct NozzleSender {
-    std::unique_ptr<bbb::nozzle::sender> obj;
-    bbb::nozzle::sender_info cached_info{};
+    std::unique_ptr<nozzle::sender> obj;
+    nozzle::sender_info cached_info{};
 };
 
 struct NozzleReceiver {
-    std::unique_ptr<bbb::nozzle::receiver> obj;
-    bbb::nozzle::connected_sender_info cached_connected_info{};
+    std::unique_ptr<nozzle::receiver> obj;
+    nozzle::connected_sender_info cached_connected_info{};
 };
 
 struct NozzleFrame {
-    std::unique_ptr<bbb::nozzle::frame> obj;
-    std::unique_ptr<bbb::nozzle::writable_frame> writable;
+    std::unique_ptr<nozzle::frame> obj;
+    std::unique_ptr<nozzle::writable_frame> writable;
     bool is_writable{false};
 };
 
 struct NozzleTexture {
-    std::unique_ptr<bbb::nozzle::texture> obj;
+    std::unique_ptr<nozzle::texture> obj;
 };
 
 struct NozzleDevice {
-    std::unique_ptr<bbb::nozzle::device> obj;
+    std::unique_ptr<nozzle::device> obj;
 };
 
 // ========== Sender API ==========
@@ -144,19 +144,19 @@ NozzleErrorCode nozzle_sender_create(
 ) {
     if (!desc || !out_sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    bbb::nozzle::sender_desc cpp_desc{};
+    nozzle::sender_desc cpp_desc{};
     if (desc->name) cpp_desc.name = desc->name;
     if (desc->application_name) cpp_desc.application_name = desc->application_name;
     cpp_desc.ring_buffer_size = desc->ring_buffer_size;
     cpp_desc.allow_format_fallback = desc->allow_format_fallback != 0;
 
-    auto result = bbb::nozzle::sender::create(cpp_desc);
+    auto result = nozzle::sender::create(cpp_desc);
     if (!result.ok()) return to_c_error(result.error().code);
 
     auto *wrapper = new (std::nothrow) NozzleSender{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<bbb::nozzle::sender>(std::move(result.value()));
+    wrapper->obj = std::make_unique<nozzle::sender>(std::move(result.value()));
     *out_sender = wrapper;
     return NOZZLE_OK;
 }
@@ -185,7 +185,7 @@ NozzleErrorCode nozzle_sender_acquire_writable_frame(
 ) {
     if (!sender || !out_frame) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    bbb::nozzle::texture_desc td{};
+    nozzle::texture_desc td{};
     td.width = width;
     td.height = height;
     td.format = to_cpp_format(format);
@@ -196,7 +196,7 @@ NozzleErrorCode nozzle_sender_acquire_writable_frame(
     auto *wrapper = new (std::nothrow) NozzleFrame{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->writable = std::make_unique<bbb::nozzle::writable_frame>(std::move(result.value()));
+    wrapper->writable = std::make_unique<nozzle::writable_frame>(std::move(result.value()));
     wrapper->is_writable = true;
     *out_frame = wrapper;
     return NOZZLE_OK;
@@ -235,18 +235,18 @@ NozzleErrorCode nozzle_receiver_create(
 ) {
     if (!desc || !out_receiver) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    bbb::nozzle::receiver_desc cpp_desc{};
+    nozzle::receiver_desc cpp_desc{};
     if (desc->name) cpp_desc.name = desc->name;
     if (desc->application_name) cpp_desc.application_name = desc->application_name;
     cpp_desc.receive_mode_val = to_cpp_receive_mode(desc->receive_mode);
 
-    auto result = bbb::nozzle::receiver::create(cpp_desc);
+    auto result = nozzle::receiver::create(cpp_desc);
     if (!result.ok()) return to_c_error(result.error().code);
 
     auto *wrapper = new (std::nothrow) NozzleReceiver{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<bbb::nozzle::receiver>(std::move(result.value()));
+    wrapper->obj = std::make_unique<nozzle::receiver>(std::move(result.value()));
     *out_receiver = wrapper;
     return NOZZLE_OK;
 }
@@ -262,10 +262,10 @@ NozzleErrorCode nozzle_receiver_acquire_frame(
 ) {
     if (!receiver || !out_frame) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto make_frame_wrapper = [](bbb::nozzle::frame &&f) -> NozzleFrame * {
+    auto make_frame_wrapper = [](nozzle::frame &&f) -> NozzleFrame * {
         auto *w = new (std::nothrow) NozzleFrame{};
         if (!w) return nullptr;
-        w->obj = std::make_unique<bbb::nozzle::frame>(std::move(f));
+        w->obj = std::make_unique<nozzle::frame>(std::move(f));
         w->is_writable = false;
         return w;
     };
@@ -273,7 +273,7 @@ NozzleErrorCode nozzle_receiver_acquire_frame(
     NozzleFrame *wrapper = nullptr;
 
     if (desc) {
-        bbb::nozzle::acquire_desc ad{};
+        nozzle::acquire_desc ad{};
         ad.timeout_ms = desc->timeout_ms;
         auto result = receiver->obj->acquire_frame(ad);
         if (!result.ok()) return to_c_error(result.error().code);
@@ -347,7 +347,7 @@ NozzleErrorCode nozzle_enumerate_senders(
 ) {
     if (!out_array) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto senders = bbb::nozzle::enumerate_senders();
+    auto senders = nozzle::enumerate_senders();
     auto count = static_cast<uint32_t>(senders.size());
 
     if (count == 0) {
@@ -408,13 +408,13 @@ NozzleErrorCode nozzle_device_get_default(
 ) {
     if (!out_device) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto result = bbb::nozzle::device::default_device();
+    auto result = nozzle::device::default_device();
     if (!result.ok()) return to_c_error(result.error().code);
 
     auto *wrapper = new (std::nothrow) NozzleDevice{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<bbb::nozzle::device>(std::move(result.value()));
+    wrapper->obj = std::make_unique<nozzle::device>(std::move(result.value()));
     *out_device = wrapper;
     return NOZZLE_OK;
 }
@@ -431,7 +431,7 @@ NozzleErrorCode nozzle_frame_lock_pixels(
 ) {
     if (!frame || !out_pixels || !frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto result = bbb::nozzle::lock_frame_pixels(*frame->obj);
+    auto result = nozzle::lock_frame_pixels(*frame->obj);
     if (!result.ok()) return to_c_error(result.error().code);
 
     const auto &mp = result.value();
@@ -445,7 +445,7 @@ NozzleErrorCode nozzle_frame_lock_pixels(
 
 void nozzle_frame_unlock_pixels(NozzleFrame *frame) {
     if (!frame || !frame->obj) return;
-    bbb::nozzle::unlock_frame_pixels(*frame->obj);
+    nozzle::unlock_frame_pixels(*frame->obj);
 }
 
 NozzleErrorCode nozzle_frame_lock_writable_pixels(
@@ -454,7 +454,7 @@ NozzleErrorCode nozzle_frame_lock_writable_pixels(
 ) {
     if (!frame || !out_pixels || !frame->writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto result = bbb::nozzle::lock_writable_pixels(*frame->writable);
+    auto result = nozzle::lock_writable_pixels(*frame->writable);
     if (!result.ok()) return to_c_error(result.error().code);
 
     const auto &mp = result.value();
@@ -468,7 +468,7 @@ NozzleErrorCode nozzle_frame_lock_writable_pixels(
 
 void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame) {
     if (!frame || !frame->writable) return;
-    bbb::nozzle::unlock_writable_pixels(*frame->writable);
+    nozzle::unlock_writable_pixels(*frame->writable);
 }
 
 // ========== GL Interop ==========
@@ -484,14 +484,14 @@ NozzleErrorCode nozzle_sender_publish_gl_texture(
 #if NOZZLE_HAS_OPENGL
     if (!sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    bbb::nozzle::gl::gl_texture_desc gl_desc{};
+    nozzle::gl::gl_texture_desc gl_desc{};
     gl_desc.name = gl_texture_name;
     gl_desc.target = gl_target;
     gl_desc.width = width;
     gl_desc.height = height;
     gl_desc.format = to_cpp_format(format);
 
-    auto result = bbb::nozzle::gl::publish_gl_texture(*sender->obj, gl_desc);
+    auto result = nozzle::gl::publish_gl_texture(*sender->obj, gl_desc);
     if (!result.ok()) return to_c_error(result.error().code);
     return NOZZLE_OK;
 #else
@@ -510,14 +510,14 @@ NozzleErrorCode nozzle_frame_copy_to_gl_texture(
 #if NOZZLE_HAS_OPENGL
     if (!frame || !frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    bbb::nozzle::gl::gl_texture_desc gl_desc{};
+    nozzle::gl::gl_texture_desc gl_desc{};
     gl_desc.name = gl_texture_name;
     gl_desc.target = gl_target;
     gl_desc.width = width;
     gl_desc.height = height;
     gl_desc.format = to_cpp_format(format);
 
-    auto result = bbb::nozzle::gl::copy_frame_to_gl_texture(*frame->obj, gl_desc);
+    auto result = nozzle::gl::copy_frame_to_gl_texture(*frame->obj, gl_desc);
     if (!result.ok()) return to_c_error(result.error().code);
     return NOZZLE_OK;
 #else

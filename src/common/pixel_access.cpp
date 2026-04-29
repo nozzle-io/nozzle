@@ -1,21 +1,21 @@
 // nozzle - pixel_access.cpp - CPU pixel access for frames
 
-#include <bbb/nozzle/pixel_access.hpp>
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/pixel_access.hpp>
+#include <nozzle/result.hpp>
 
 #if NOZZLE_PLATFORM_MACOS
-#include <bbb/nozzle/backends/metal.hpp>
+#include <nozzle/backends/metal.hpp>
 #include <IOSurface/IOSurface.h>
 #elif NOZZLE_PLATFORM_LINUX
-#include <bbb/nozzle/backends/linux.hpp>
+#include <nozzle/backends/linux.hpp>
 #include <sys/mman.h>
 #include <unistd.h>
 #elif NOZZLE_PLATFORM_WINDOWS
-#include <bbb/nozzle/backends/d3d11.hpp>
+#include <nozzle/backends/d3d11.hpp>
 #include <d3d11.h>
 #endif
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 namespace {
 
@@ -396,4 +396,4 @@ void unlock_writable_pixels(writable_frame &) {}
 
 #endif
 
-} // namespace bbb::nozzle
+} // namespace nozzle

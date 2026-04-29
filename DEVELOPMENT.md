@@ -63,7 +63,7 @@ cmake --build build
 
 ```
 nozzle/
-├── include/bbb/nozzle/           # Public C++ API headers
+├── include/nozzle/           # Public C++ API headers
 │   ├── nozzle.hpp                #     Umbrella include
 │   ├── nozzle_c.h                #     C ABI header
 │   ├── types.hpp                 #     Enums, structs, descriptors
@@ -276,7 +276,7 @@ Located in `tests/integration/`. Tests cross-process communication by forking se
 
 ## Adding a New Backend
 
-1. Create `include/bbb/nozzle/backends/<backend>.hpp` with guard `#if NOZZLE_HAS_<BACKEND>`
+1. Create `include/nozzle/backends/<backend>.hpp` with guard `#if NOZZLE_HAS_<BACKEND>`
 2. Create `src/backends/<backend>/` directory with implementation files
 3. Add `NOZZLE_HAS_<BACKEND>` detection to root `CMakeLists.txt`
 4. Implement required backend operations (texture create/lookup, device management, sync)
@@ -330,4 +330,4 @@ Stale `/nozzle_dir` and `/nozzle_*` shm segments may persist. The library does l
 | `src/common/registry.hpp` | Registry API (register/unregister/lookup senders) |
 | `src/backends/metal/metal_helpers.hpp` | Metal texture construction helpers (detail) |
 | `src/backends/d3d11/d3d11_helpers.hpp` | D3D11 texture/com helpers (detail) |
-| `include/bbb/nozzle/result.hpp` | Result<T> implementation |
+| `include/nozzle/result.hpp` | Result<T> implementation |

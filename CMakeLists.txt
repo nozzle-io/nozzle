@@ -160,13 +160,13 @@ install(TARGETS nozzle
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
-install(DIRECTORY include/bbb
+install(DIRECTORY include/nozzle
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 install(EXPORT nozzleTargets
     FILE nozzleTargets.cmake
-    NAMESPACE bbb::
+    NAMESPACE nozzle::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
 )
 

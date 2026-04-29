@@ -2,13 +2,12 @@
 
 #if NOZZLE_HAS_D3D11
 
-#include <bbb/nozzle/backends/d3d11.hpp>
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/backends/d3d11.hpp>
+#include <nozzle/result.hpp>
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
-namespace bbb {
 namespace nozzle {
 namespace d3d11 {
 
@@ -116,6 +115,5 @@ bool d3d11_supports_format(void *device, uint32_t format, uint32_t usage) {
 
 } // namespace d3d11
 } // namespace nozzle
-} // namespace bbb
 
 #endif

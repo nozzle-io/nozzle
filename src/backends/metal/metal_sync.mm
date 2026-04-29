@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <thread>
 
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
 
 void metal_signal_slot_ready(IOSurfaceRef surface) {
     @autoreleasepool {
@@ -52,24 +52,24 @@ void metal_release_slot(IOSurfaceRef surface) {
     }
 }
 
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal
 
 extern "C" {
 
 void nozzle_metal_signal_slot_ready(void *surface) {
-    bbb::nozzle::metal::metal_signal_slot_ready((IOSurfaceRef)surface);
+    nozzle::metal::metal_signal_slot_ready((IOSurfaceRef)surface);
 }
 
 void nozzle_metal_signal_slot_done(void *surface) {
-    bbb::nozzle::metal::metal_signal_slot_done((IOSurfaceRef)surface);
+    nozzle::metal::metal_signal_slot_done((IOSurfaceRef)surface);
 }
 
 bool nozzle_metal_wait_for_slot(void *surface, uint32_t timeout_ms) {
-    return bbb::nozzle::metal::metal_wait_for_slot((IOSurfaceRef)surface, timeout_ms);
+    return nozzle::metal::metal_wait_for_slot((IOSurfaceRef)surface, timeout_ms);
 }
 
 void nozzle_metal_release_slot(void *surface) {
-    bbb::nozzle::metal::metal_release_slot((IOSurfaceRef)surface);
+    nozzle::metal::metal_release_slot((IOSurfaceRef)surface);
 }
 
 } // extern "C"

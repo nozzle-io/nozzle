@@ -4,7 +4,6 @@
 #include <string>
 #include <vector>
 
-namespace bbb {
 namespace nozzle {
 
 enum class backend_type {
@@ -154,4 +153,3 @@ struct acquire_desc {
 };
 
 } // namespace nozzle
-} // namespace bbb

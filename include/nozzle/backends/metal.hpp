@@ -4,9 +4,9 @@
 #error "Metal backend not available on this platform"
 #endif
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 
 using mtl_device_handle = void *;
 using mtl_texture_handle = void *;
@@ -14,7 +14,7 @@ using surface_handle = void *;
 using pixel_format_value = uint32_t;
 using surface_id = uint32_t;
 
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
 
 struct device_desc {
     mtl_device_handle device{nullptr};
@@ -35,4 +35,4 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc);
 mtl_texture_handle get_texture(const texture &tex);
 surface_handle get_io_surface(const texture &tex);
 
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal

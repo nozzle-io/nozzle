@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <bbb/nozzle/discovery.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/discovery.hpp>
+#include <nozzle/types.hpp>
 
 #include "registry.hpp"
 
@@ -9,21 +9,21 @@
 #include <string>
 #include <vector>
 
-namespace registry = bbb::nozzle::detail::registry;
+namespace registry = nozzle::detail::registry;
 
 static void clear_all_registered_senders() {
-    auto senders = bbb::nozzle::enumerate_senders();
+    auto senders = nozzle::enumerate_senders();
     for (const auto &sender : senders) {
         registry::unregister_sender(sender.id.c_str());
     }
 }
 
 static bool contains_sender(
-    const std::vector<bbb::nozzle::sender_info> &senders,
+    const std::vector<nozzle::sender_info> &senders,
     const std::string &name)
 {
     return std::any_of(senders.begin(), senders.end(),
-        [&](const bbb::nozzle::sender_info &info) {
+        [&](const nozzle::sender_info &info) {
             return info.name == name;
         });
 }
@@ -31,7 +31,7 @@ static bool contains_sender(
 TEST_CASE("Discovery: empty directory", "[discovery]") {
     clear_all_registered_senders();
 
-    auto senders = bbb::nozzle::enumerate_senders();
+    auto senders = nozzle::enumerate_senders();
     REQUIRE(senders.empty());
 }
 
@@ -44,7 +44,7 @@ TEST_CASE("Discovery: find registered sender", "[discovery]") {
     auto reg = reg_result.value();
 
     SECTION("sender appears in enumeration") {
-        auto senders = bbb::nozzle::enumerate_senders();
+        auto senders = nozzle::enumerate_senders();
         REQUIRE_FALSE(senders.empty());
 
         bool found = false;
@@ -62,9 +62,9 @@ TEST_CASE("Discovery: find registered sender", "[discovery]") {
     SECTION("sender disappears after unregister") {
         registry::unregister_sender(reg.uuid);
 
-        auto senders = bbb::nozzle::enumerate_senders();
+        auto senders = nozzle::enumerate_senders();
         bool still_present = std::any_of(senders.begin(), senders.end(),
-            [&](const bbb::nozzle::sender_info &info) {
+            [&](const nozzle::sender_info &info) {
                 return info.id == std::string(reg.uuid);
             });
         REQUIRE_FALSE(still_present);
@@ -86,7 +86,7 @@ TEST_CASE("Discovery: multiple senders", "[discovery]") {
     REQUIRE(r1.ok());
     REQUIRE(r2.ok());
 
-    auto senders = bbb::nozzle::enumerate_senders();
+    auto senders = nozzle::enumerate_senders();
     REQUIRE(senders.size() >= 3);
 
     REQUIRE(contains_sender(senders, "alpha"));
@@ -106,12 +106,12 @@ TEST_CASE("Discovery: enumerate returns correct backend type", "[discovery]") {
     REQUIRE(reg_result.ok());
     auto reg = reg_result.value();
 
-    auto senders = bbb::nozzle::enumerate_senders();
+    auto senders = nozzle::enumerate_senders();
     bool found = false;
     for (const auto &s : senders) {
         if (s.id == std::string(reg.uuid)) {
             found = true;
-            REQUIRE(s.backend == bbb::nozzle::backend_type::d3d11);
+            REQUIRE(s.backend == nozzle::backend_type::d3d11);
             break;
         }
     }

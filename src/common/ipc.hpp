@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/result.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -11,7 +11,6 @@
 #include <atomic>
 #endif
 
-namespace bbb {
 namespace nozzle {
 namespace detail {
 namespace ipc {
@@ -131,4 +130,3 @@ inline void atomic_fence_release() noexcept {
 } // namespace ipc
 } // namespace detail
 } // namespace nozzle
-} // namespace bbb

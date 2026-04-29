@@ -2,7 +2,7 @@
 
 #include "registry.hpp"
 
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/result.hpp>
 
 #include <cstdio>
 #include <cstring>
@@ -11,7 +11,6 @@
 #include "ipc.hpp"
 #include "shared_state.hpp"
 
-namespace bbb {
 namespace nozzle {
 namespace detail {
 namespace registry {
@@ -322,4 +321,3 @@ void close_sender_state(SenderStateView &view) {
 } // namespace registry
 } // namespace detail
 } // namespace nozzle
-} // namespace bbb

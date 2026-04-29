@@ -1,10 +1,10 @@
 // nozzle - texture.cpp - Texture abstraction and format handling
 
-#include <bbb/nozzle/texture.hpp>
+#include <nozzle/texture.hpp>
 
 #include "backends/backend_dispatch.hpp"
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 struct texture::Impl {
 	texture_desc desc{};
@@ -82,4 +82,4 @@ void *get_surface_native(const texture &t) {
 
 } // namespace detail
 
-} // namespace bbb::nozzle
+} // namespace nozzle

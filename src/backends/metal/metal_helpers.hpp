@@ -2,12 +2,12 @@
 
 // Internal helpers for Metal backend — only included from .mm files.
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
 
 struct metal_texture_pair {
     void *mtl_texture{nullptr};  // id<MTLTexture>, owned
@@ -42,9 +42,9 @@ Result<texture> lookup_iosurface_texture(
     uint32_t height,
     uint32_t format);
 
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal
 
-namespace bbb::nozzle::detail {
+namespace nozzle::detail {
 
 device make_device_from_backend(void *backend_ptr);
 
@@ -59,4 +59,4 @@ texture make_texture_from_backend(
 void *get_texture_native(const texture &t);
 void *get_surface_native(const texture &t);
 
-} // namespace bbb::nozzle::detail
+} // namespace nozzle::detail

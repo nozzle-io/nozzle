@@ -4,11 +4,11 @@
 #error "DMA-BUF backend not available on this platform"
 #endif
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 
-namespace bbb::nozzle::dma_buf {
+namespace nozzle::dma_buf {
 
 struct device_desc {
     void *gbm_device{nullptr};
@@ -31,4 +31,4 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc);
 void *get_egl_image(const texture &tex);
 int get_dmabuf_fd(const texture &tex);
 
-} // namespace bbb::nozzle::dma_buf
+} // namespace nozzle::dma_buf

@@ -5,7 +5,6 @@
 #include <d3d11.h>
 #include <cstdint>
 
-namespace bbb {
 namespace nozzle {
 namespace d3d11 {
 
@@ -63,6 +62,5 @@ void release_slot(void *shared_texture, uint32_t slot_index) {
 
 } // namespace d3d11
 } // namespace nozzle
-} // namespace bbb
 
 #endif

@@ -2,12 +2,12 @@
 
 #if NOZZLE_HAS_D3D11
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 
-namespace bbb::nozzle::d3d11 {
+namespace nozzle::d3d11 {
 
 Result<texture> create_shared_texture(
     void *d3d11_device,
@@ -35,9 +35,9 @@ void signal_slot_done(void *shared_texture, uint32_t slot_index);
 bool wait_for_slot(void *shared_texture, uint32_t slot_index, uint32_t timeout_ms);
 void release_slot(void *shared_texture, uint32_t slot_index);
 
-} // namespace bbb::nozzle::d3d11
+} // namespace nozzle::d3d11
 
-namespace bbb::nozzle::detail {
+namespace nozzle::detail {
 
 device make_device_from_backend(void *backend_ptr);
 
@@ -52,6 +52,6 @@ texture make_texture_from_backend(
 void *get_texture_native(const texture &t);
 void *get_surface_native(const texture &t);
 
-} // namespace bbb::nozzle::detail
+} // namespace nozzle::detail
 
 #endif

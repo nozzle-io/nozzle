@@ -1,23 +1,23 @@
 // nozzle - device.cpp - GPU device abstraction and management
 
-#include <bbb/nozzle/device.hpp>
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/device.hpp>
+#include <nozzle/result.hpp>
 
 #if NOZZLE_HAS_METAL
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
     void *get_default_mtl_device();
     bool metal_supports_format(void *device, uint32_t format, uint32_t usage);
     void release_mtl_device(void *device);
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal
 #elif NOZZLE_HAS_D3D11
-namespace bbb::nozzle::d3d11 {
+namespace nozzle::d3d11 {
     void *get_default_d3d11_device();
     bool d3d11_supports_format(void *device, uint32_t format, uint32_t usage);
     void release_d3d11_device(void *device);
-} // namespace bbb::nozzle::d3d11
+} // namespace nozzle::d3d11
 #endif
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 struct device::Impl {
 #if NOZZLE_HAS_METAL
@@ -126,4 +126,4 @@ device make_device_from_backend(void *backend_ptr) {
 
 } // namespace detail
 
-} // namespace bbb::nozzle
+} // namespace nozzle

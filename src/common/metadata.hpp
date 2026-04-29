@@ -1,10 +1,9 @@
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/types.hpp>
 
 #include <cstddef>
 
-namespace bbb {
 namespace nozzle {
 namespace detail {
 
@@ -13,4 +12,3 @@ std::size_t serialize_metadata(const metadata_list &md, char *buf, std::size_t b
 
 } // namespace detail
 } // namespace nozzle
-} // namespace bbb

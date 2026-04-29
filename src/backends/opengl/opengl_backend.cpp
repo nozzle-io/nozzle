@@ -1,32 +1,32 @@
 // nozzle - opengl_backend.cpp - OpenGL interop (macOS: IOSurface blit, Windows: CPU copy)
 
-#include <bbb/nozzle/backends/opengl.hpp>
-#include <bbb/nozzle/sender.hpp>
-#include <bbb/nozzle/frame.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/backends/opengl.hpp>
+#include <nozzle/sender.hpp>
+#include <nozzle/frame.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/result.hpp>
 
 #include <cstring>
 #include <vector>
 
 #if NOZZLE_PLATFORM_MACOS
-#include <bbb/nozzle/backends/metal.hpp>
+#include <nozzle/backends/metal.hpp>
 #define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl.h>
 #include <OpenGL/OpenGL.h>
 #include <IOSurface/IOSurface.h>
 #elif NOZZLE_PLATFORM_WINDOWS
-#include <bbb/nozzle/backends/d3d11.hpp>
+#include <nozzle/backends/d3d11.hpp>
 #include <d3d11.h>
 #include <windows.h>
 #include <GL/gl.h>
 #elif NOZZLE_PLATFORM_LINUX
-#include <bbb/nozzle/backends/linux.hpp>
+#include <nozzle/backends/linux.hpp>
 #include <EGL/egl.h>
 #include <GL/gl.h>
 #endif
 
-namespace bbb::nozzle::gl {
+namespace nozzle::gl {
 
 namespace {
 
@@ -131,7 +131,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
         return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
     }
 
-    bbb::nozzle::texture_desc td{};
+    nozzle::texture_desc td{};
     td.width = gl_desc.width;
     td.height = gl_desc.height;
     td.format = gl_desc.format;
@@ -281,7 +281,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    bbb::nozzle::texture_desc td{};
+    nozzle::texture_desc td{};
     td.width = gl_desc.width;
     td.height = gl_desc.height;
     td.format = gl_desc.format;
@@ -462,7 +462,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    bbb::nozzle::texture_desc td{};
+    nozzle::texture_desc td{};
     td.width = gl_desc.width;
     td.height = gl_desc.height;
     td.format = gl_desc.format;
@@ -511,4 +511,4 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
 
 #endif // NOZZLE_PLATFORM_LINUX
 
-} // namespace bbb::nozzle::gl
+} // namespace nozzle::gl

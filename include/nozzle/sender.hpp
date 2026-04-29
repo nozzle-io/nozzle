@@ -1,12 +1,12 @@
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/frame.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/frame.hpp>
 
 #include <memory>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 class sender {
 public:
@@ -38,4 +38,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace bbb::nozzle
+} // namespace nozzle

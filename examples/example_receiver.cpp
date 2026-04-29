@@ -1,16 +1,16 @@
 // Minimal receiver example — connects to "example_sender" and reads frames
 
-#include <bbb/nozzle/nozzle.hpp>
+#include <nozzle/nozzle.hpp>
 
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
 
 int main() {
-    bbb::nozzle::receiver_desc desc{};
+    nozzle::receiver_desc desc{};
     desc.name = "example_sender";
 
-    auto recv_result = bbb::nozzle::receiver::create(desc);
+    auto recv_result = nozzle::receiver::create(desc);
     if (!recv_result.ok()) {
         std::fprintf(stderr, "Failed to create receiver: %s\n",
                      recv_result.error().message.c_str());
@@ -26,7 +26,7 @@ int main() {
         std::printf("  metadata: %s = %s\n", kv.key.c_str(), kv.value.c_str());
     }
 
-    bbb::nozzle::acquire_desc adesc{};
+    nozzle::acquire_desc adesc{};
     adesc.timeout_ms = 5000;
 
     for (int i = 0; i < 100; ++i) {

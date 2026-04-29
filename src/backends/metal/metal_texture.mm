@@ -3,37 +3,37 @@
 #import <Metal/Metal.h>
 #import <IOSurface/IOSurface.h>
 
-#include <bbb/nozzle/backends/metal.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/backends/metal.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/types.hpp>
 #include "metal_helpers.hpp"
 
 #include <cstdint>
 
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
 
 static constexpr uint32_t kIOSurfaceAlignBytes = 64;
 
 static MTLPixelFormat to_mtl_pixel_format(uint32_t nozzle_format) {
-    switch (static_cast<bbb::nozzle::texture_format>(nozzle_format)) {
-        case bbb::nozzle::texture_format::r8_unorm:         return MTLPixelFormatR8Unorm;
-        case bbb::nozzle::texture_format::rg8_unorm:        return MTLPixelFormatRG8Unorm;
-        case bbb::nozzle::texture_format::rgba8_unorm:      return MTLPixelFormatRGBA8Unorm;
-        case bbb::nozzle::texture_format::bgra8_unorm:      return MTLPixelFormatBGRA8Unorm;
-        case bbb::nozzle::texture_format::rgba8_srgb:       return MTLPixelFormatRGBA8Unorm_sRGB;
-        case bbb::nozzle::texture_format::bgra8_srgb:       return MTLPixelFormatBGRA8Unorm_sRGB;
-        case bbb::nozzle::texture_format::r16_unorm:        return MTLPixelFormatR16Unorm;
-        case bbb::nozzle::texture_format::rg16_unorm:       return MTLPixelFormatRG16Unorm;
-        case bbb::nozzle::texture_format::rgba16_unorm:     return MTLPixelFormatRGBA16Unorm;
-        case bbb::nozzle::texture_format::r16_float:        return MTLPixelFormatR16Float;
-        case bbb::nozzle::texture_format::rg16_float:       return MTLPixelFormatRG16Float;
-        case bbb::nozzle::texture_format::rgba16_float:     return MTLPixelFormatRGBA16Float;
-        case bbb::nozzle::texture_format::r32_float:        return MTLPixelFormatR32Float;
-        case bbb::nozzle::texture_format::rg32_float:       return MTLPixelFormatRG32Float;
-        case bbb::nozzle::texture_format::rgba32_float:     return MTLPixelFormatRGBA32Float;
-        case bbb::nozzle::texture_format::r32_uint:         return MTLPixelFormatR32Uint;
-        case bbb::nozzle::texture_format::rgba32_uint:      return MTLPixelFormatRGBA32Uint;
-        case bbb::nozzle::texture_format::depth32_float:    return MTLPixelFormatDepth32Float;
+    switch (static_cast<nozzle::texture_format>(nozzle_format)) {
+        case nozzle::texture_format::r8_unorm:         return MTLPixelFormatR8Unorm;
+        case nozzle::texture_format::rg8_unorm:        return MTLPixelFormatRG8Unorm;
+        case nozzle::texture_format::rgba8_unorm:      return MTLPixelFormatRGBA8Unorm;
+        case nozzle::texture_format::bgra8_unorm:      return MTLPixelFormatBGRA8Unorm;
+        case nozzle::texture_format::rgba8_srgb:       return MTLPixelFormatRGBA8Unorm_sRGB;
+        case nozzle::texture_format::bgra8_srgb:       return MTLPixelFormatBGRA8Unorm_sRGB;
+        case nozzle::texture_format::r16_unorm:        return MTLPixelFormatR16Unorm;
+        case nozzle::texture_format::rg16_unorm:       return MTLPixelFormatRG16Unorm;
+        case nozzle::texture_format::rgba16_unorm:     return MTLPixelFormatRGBA16Unorm;
+        case nozzle::texture_format::r16_float:        return MTLPixelFormatR16Float;
+        case nozzle::texture_format::rg16_float:       return MTLPixelFormatRG16Float;
+        case nozzle::texture_format::rgba16_float:     return MTLPixelFormatRGBA16Float;
+        case nozzle::texture_format::r32_float:        return MTLPixelFormatR32Float;
+        case nozzle::texture_format::rg32_float:       return MTLPixelFormatRG32Float;
+        case nozzle::texture_format::rgba32_float:     return MTLPixelFormatRGBA32Float;
+        case nozzle::texture_format::r32_uint:         return MTLPixelFormatR32Uint;
+        case nozzle::texture_format::rgba32_uint:      return MTLPixelFormatRGBA32Uint;
+        case nozzle::texture_format::depth32_float:    return MTLPixelFormatDepth32Float;
         default:                                             return MTLPixelFormatInvalid;
     }
 }
@@ -268,11 +268,11 @@ surface_handle get_io_surface(const texture &tex) {
     return detail::get_surface_native(tex);
 }
 
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal
 
 // lookup_iosurface_texture: create a Metal texture from an existing IOSurface ID
 // (used by receiver to access sender's textures cross-process)
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
 
 Result<texture> lookup_iosurface_texture(
     uint32_t iosurface_id,
@@ -330,4 +330,4 @@ Result<texture> lookup_iosurface_texture(
     }
 }
 
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal

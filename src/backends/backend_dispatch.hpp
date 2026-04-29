@@ -2,11 +2,11 @@
 
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/texture.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/texture.hpp>
 
-namespace bbb::nozzle {
+namespace nozzle {
 namespace detail {
 namespace backend {
 
@@ -21,7 +21,7 @@ auto get_backend_type() -> backend_type;
 
 } // namespace backend
 } // namespace detail
-} // namespace bbb::nozzle
+} // namespace nozzle
 
 #if NOZZLE_HAS_METAL
     #include "metal/metal_backend_dispatch.hpp"

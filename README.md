@@ -49,10 +49,10 @@ cmake --build build
 ### C++ API
 
 ```cpp
-#include <bbb/nozzle/nozzle.hpp>
+#include <nozzle/nozzle.hpp>
 
 // Sender
-auto sender = bbb::nozzle::sender::create({
+auto sender = nozzle::sender::create({
     .name = "mySender",
     .application_name = "MyApp",
     .ring_buffer_size = 3
@@ -61,13 +61,13 @@ auto sender = bbb::nozzle::sender::create({
 // Acquire writable frame, draw into it, commit
 auto frame = sender.acquire_writable_frame({
     .width = 1920, .height = 1080,
-    .format = bbb::nozzle::texture_format::rgba8_unorm
+    .format = nozzle::texture_format::rgba8_unorm
 }).value();
 // ... write GPU data ...
 sender.commit_frame(frame);
 
 // Receiver
-auto receiver = bbb::nozzle::receiver::create({
+auto receiver = nozzle::receiver::create({
     .name = "mySender",
     .application_name = "MyViewer"
 }).value();
@@ -80,7 +80,7 @@ auto info = frame.info();
 ### C API
 
 ```c
-#include <bbb/nozzle/nozzle_c.h>
+#include <nozzle/nozzle_c.h>
 
 NozzleSender *sender;
 NozzleSenderDesc desc = {0};
@@ -124,8 +124,8 @@ Copy-based path for OpenGL integration. No direct GPU interop (WGL_NV_DX_interop
 ## Repository Layout
 
 ```
-include/bbb/nozzle/          Public C++ headers
-include/bbb/nozzle/backends/ Backend-specific headers (metal.hpp, d3d11.hpp, opengl.hpp)
+include/nozzle/          Public C++ headers
+include/nozzle/backends/ Backend-specific headers (metal.hpp, d3d11.hpp, opengl.hpp)
 src/common/                  Shared implementation (registry, sender, receiver, frame, etc.)
 src/c_api/                   C ABI wrapper
 src/backends/metal/          macOS Metal backend (.mm)
@@ -147,7 +147,7 @@ examples/                    Minimal sender/receiver examples
 
 | Decision | Resolution |
 |----------|------------|
-| Namespace | `bbb::nozzle` |
+| Namespace | `nozzle` |
 | Naming | All snake_case in library, `Nozzle` prefix for C API |
 | Error handling | `Result<T>` — no exceptions |
 | Thread safety | Object-level (same sender/receiver callable from multiple threads) |

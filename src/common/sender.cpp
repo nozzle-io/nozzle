@@ -1,13 +1,13 @@
 // nozzle - sender.cpp - Texture sender with registry, ring buffer, and backend integration
 
-#include <bbb/nozzle/sender.hpp>
+#include <nozzle/sender.hpp>
 
 #include <array>
 #include <cstring>
 #include <mutex>
 
-#include <bbb/nozzle/device.hpp>
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/device.hpp>
+#include <nozzle/result.hpp>
 
 #include <plog/Log.h>
 
@@ -18,7 +18,7 @@
 #include "registry.hpp"
 #include "shared_state.hpp"
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 struct sender::Impl {
 	detail::registry::Registration registration_{};
@@ -368,4 +368,4 @@ bool sender::valid() const {
 	return impl_ && impl_->valid_;
 }
 
-} // namespace bbb::nozzle
+} // namespace nozzle

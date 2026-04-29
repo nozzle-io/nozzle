@@ -2,13 +2,12 @@
 
 #if NOZZLE_HAS_D3D11
 
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/texture.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/texture.hpp>
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
-namespace bbb {
 namespace nozzle {
 namespace d3d11 {
 
@@ -146,6 +145,5 @@ void release_d3d11_texture_resources(void *texture_ptr, void *shared_handle_ptr)
 
 } // namespace d3d11
 } // namespace nozzle
-} // namespace bbb
 
 #endif

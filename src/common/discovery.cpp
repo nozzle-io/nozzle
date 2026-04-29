@@ -1,7 +1,7 @@
 // nozzle - discovery.cpp - Sender discovery for receivers
 
-#include <bbb/nozzle/discovery.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/discovery.hpp>
+#include <nozzle/types.hpp>
 
 #include "ipc.hpp"
 #include "shared_state.hpp"
@@ -9,7 +9,6 @@
 #include <cstring>
 #include <vector>
 
-namespace bbb {
 namespace nozzle {
 
 std::vector<sender_info> enumerate_senders() {
@@ -67,4 +66,3 @@ std::vector<sender_info> enumerate_senders() {
 }
 
 } // namespace nozzle
-} // namespace bbb

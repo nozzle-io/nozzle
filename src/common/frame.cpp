@@ -1,11 +1,11 @@
 // nozzle - frame.cpp - Frame and writable_frame implementation
 
-#include <bbb/nozzle/frame.hpp>
-#include <bbb/nozzle/result.hpp>
+#include <nozzle/frame.hpp>
+#include <nozzle/result.hpp>
 
 #include "frame_helpers.hpp"
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 frame::frame() = default;
 frame::~frame() = default;
@@ -97,4 +97,4 @@ uint32_t get_writable_frame_slot(const writable_frame &f) {
 
 } // namespace detail
 
-} // namespace bbb::nozzle
+} // namespace nozzle

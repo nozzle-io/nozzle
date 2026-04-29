@@ -3,15 +3,15 @@
 #import <Metal/Metal.h>
 #import <IOSurface/IOSurface.h>
 
-#include <bbb/nozzle/backends/metal.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/backends/metal.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/types.hpp>
 #include "metal_helpers.hpp"
 
 #include <mutex>
 #include <unordered_map>
 
-namespace bbb::nozzle::metal {
+namespace nozzle::metal {
 
 void *get_default_mtl_device() {
     @autoreleasepool {
@@ -147,4 +147,4 @@ Result<device> wrap_device(const device_desc &desc) {
     }
 }
 
-} // namespace bbb::nozzle::metal
+} // namespace nozzle::metal

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/frame.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/frame.hpp>
+#include <nozzle/device.hpp>
 
 #include <memory>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 class receiver {
 public:
@@ -36,4 +36,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace bbb::nozzle
+} // namespace nozzle

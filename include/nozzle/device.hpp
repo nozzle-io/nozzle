@@ -1,11 +1,11 @@
 #pragma once
 
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/types.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/types.hpp>
 
 #include <memory>
 
-namespace bbb::nozzle {
+namespace nozzle {
 
 class device;
 
@@ -36,4 +36,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace bbb::nozzle
+} // namespace nozzle

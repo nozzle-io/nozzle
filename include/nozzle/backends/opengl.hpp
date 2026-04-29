@@ -4,12 +4,12 @@
 #error "OpenGL interop not available — enable NOZZLE_BUILD_OPENGL in CMake"
 #endif
 
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/sender.hpp>
-#include <bbb/nozzle/frame.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/sender.hpp>
+#include <nozzle/frame.hpp>
 
-namespace bbb::nozzle::gl {
+namespace nozzle::gl {
 
 struct gl_texture_desc {
     uint32_t name{0};           // GLuint
@@ -29,4 +29,4 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc);
 // Requires active GL context on calling thread.
 Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &gl_desc);
 
-} // namespace bbb::nozzle::gl
+} // namespace nozzle::gl

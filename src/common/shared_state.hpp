@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-namespace bbb {
 namespace nozzle {
 namespace detail {
 
@@ -61,4 +60,3 @@ struct SenderSharedState {
 
 } // namespace detail
 } // namespace nozzle
-} // namespace bbb

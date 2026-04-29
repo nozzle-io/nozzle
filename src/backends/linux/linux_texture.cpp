@@ -3,10 +3,10 @@
 #include "linux_helpers.hpp"
 #include "linux_fd_transfer.hpp"
 
-#include <bbb/nozzle/backends/linux.hpp>
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/types.hpp>
-#include <bbb/nozzle/texture.hpp>
+#include <nozzle/backends/linux.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/types.hpp>
+#include <nozzle/texture.hpp>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -21,7 +21,7 @@
 #include <string>
 #include <xf86drm.h>
 
-namespace bbb::nozzle::detail::linux_backend {
+namespace nozzle::detail::linux_backend {
 
 namespace {
 
@@ -320,9 +320,9 @@ void destroy_dmabuf_allocation(dmabuf_allocation &alloc) {
     alloc.modifier = 0;
 }
 
-} // namespace bbb::nozzle::detail::linux_backend
+} // namespace nozzle::detail::linux_backend
 
-namespace bbb::nozzle::detail::linux_backend {
+namespace nozzle::detail::linux_backend {
 
 Result<texture> create_dmabuf_texture(
     void *device,
@@ -477,9 +477,9 @@ Result<texture> lookup_dmabuf_texture_with_fds(
     return make_texture_from_backend(native_texture, native_surface, width, height, format);
 }
 
-} // namespace bbb::nozzle::detail::linux_backend
+} // namespace nozzle::detail::linux_backend
 
-namespace bbb::nozzle::detail::linux_backend {
+namespace nozzle::detail::linux_backend {
 
 bool send_fds(int socket_fd, const int *fds, size_t count) {
     if (socket_fd < 0 || !fds || count == 0) {
@@ -777,9 +777,9 @@ int dmabuf_texture_cache::get_fd(uint32_t slot_index) const {
     return entries_[slot_index].fd;
 }
 
-} // namespace bbb::nozzle::detail::linux_backend
+} // namespace nozzle::detail::linux_backend
 
-namespace bbb::nozzle::dma_buf {
+namespace nozzle::dma_buf {
 
 Result<device> wrap_device(const device_desc &desc) {
     if (!desc.gbm_device) {
@@ -817,4 +817,4 @@ int get_dmabuf_fd(const texture &tex) {
     return static_cast<int>(reinterpret_cast<intptr_t>(surface));
 }
 
-} // namespace bbb::nozzle::dma_buf
+} // namespace nozzle::dma_buf

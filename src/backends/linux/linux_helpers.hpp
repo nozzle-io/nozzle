@@ -2,16 +2,16 @@
 
 #if NOZZLE_HAS_DMA_BUF
 
-#include <bbb/nozzle/result.hpp>
-#include <bbb/nozzle/texture.hpp>
-#include <bbb/nozzle/device.hpp>
+#include <nozzle/result.hpp>
+#include <nozzle/texture.hpp>
+#include <nozzle/device.hpp>
 #include <cstdint>
 
 struct gbm_bo;
 struct gbm_device;
 struct _EGLDisplay;
 
-namespace bbb::nozzle::detail::linux_backend {
+namespace nozzle::detail::linux_backend {
 class dmabuf_texture_cache;
 
 struct dmabuf_allocation {
@@ -93,9 +93,9 @@ Result<texture> lookup_dmabuf_texture_with_fds(
     dmabuf_texture_cache &cache
 );
 
-} // namespace bbb::nozzle::detail::linux_backend
+} // namespace nozzle::detail::linux_backend
 
-namespace bbb::nozzle::detail {
+namespace nozzle::detail {
 
 device make_device_from_backend(void *backend_ptr);
 
@@ -110,6 +110,6 @@ texture make_texture_from_backend(
 void *get_texture_native(const texture &t);
 void *get_surface_native(const texture &t);
 
-} // namespace bbb::nozzle::detail
+} // namespace nozzle::detail
 
 #endif
