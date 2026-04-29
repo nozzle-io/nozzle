@@ -29,7 +29,30 @@ void *g_egl_display{nullptr};
 void *g_gbm_device{nullptr};
 int g_drm_fd{-1};
 
-static constexpr uint64_t DRM_FORMAT_MOD_LINEAR = 0;
+#ifndef fourcc_code
+#define fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | \
+    ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
+#endif
+
+#ifndef DRM_FORMAT_MOD_LINEAR
+#define DRM_FORMAT_MOD_LINEAR 0
+#endif
+
+#ifndef DRM_FORMAT_R32
+#define DRM_FORMAT_R32 fourcc_code('R', '3', '2', ' ')
+#endif
+
+#ifndef DRM_FORMAT_RG3232
+#define DRM_FORMAT_RG3232 fourcc_code('R', 'G', '3', '2')
+#endif
+
+#ifndef DRM_FORMAT_RGBA16161616
+#define DRM_FORMAT_RGBA16161616 fourcc_code('R', 'A', '6', '4')
+#endif
+
+#ifndef DRM_FORMAT_RGBA32323232
+#define DRM_FORMAT_RGBA32323232 fourcc_code('R', 'A', '1', '2')
+#endif
 
 struct egl_ext_procs {
     PFNEGLCREATEIMAGEKHRPROC create_image{nullptr};
@@ -172,8 +195,9 @@ Result<dmabuf_allocation> allocate_dmabuf(
         flags |= GBM_BO_USE_RENDERING;
     }
 
+    uint64_t linear_mod = DRM_FORMAT_MOD_LINEAR;
     auto *bo = gbm_bo_create_with_modifiers(dev, width, height, fourcc,
-        &DRM_FORMAT_MOD_LINEAR, 1);
+        &linear_mod, 1);
     if (!bo) {
         bo = gbm_bo_create(dev, width, height, fourcc, flags);
     }
@@ -191,9 +215,6 @@ Result<dmabuf_allocation> allocate_dmabuf(
 
     uint32_t stride = gbm_bo_get_stride(bo);
     uint64_t modifier = DRM_FORMAT_MOD_LINEAR;
-    if (gbm_bo_get_modifier) {
-        modifier = gbm_bo_get_modifier(bo);
-    }
 
     dmabuf_allocation alloc{};
     alloc.fd = fd;
