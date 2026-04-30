@@ -32,7 +32,7 @@ An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible wi
 | nozzle.swift (Swift, SPM) | Done (macOS) |
 | nozzle.rs (Rust, cargo) | Done (macOS, Windows, Linux) |
 | ofxNozzle (openFrameworks addon) | Done (macOS, Windows, Linux) |
-| nozzle.max (Max/MSP externals) | Done (macOS, Windows) |
+| jit.nozzle (Max/MSP externals) | Done (macOS, Windows) |
 | nozzle-TOP (TouchDesigner plugins) | Done (macOS, Windows) |
 | obs-nozzle (OBS Studio plugin) | Done (macOS, Windows, Linux) |
 | blender-nozzle (Blender addon) | Done (macOS, Windows, Linux) |
@@ -106,7 +106,7 @@ nozzle_sender_commit_frame(sender, frame);
 ## Architecture
 
 ```
-Layer 4: Integration wrappers (ofxNozzle, nozzle.max, py.nozzle, etc.)
+Layer 4: Integration wrappers (ofxNozzle, jit.nozzle, py.nozzle, etc.)
 Layer 3: OpenGL interop (copy-based GL↔backend)
 Layer 2: Backend-native API (Metal/IOSurface, D3D11, DMA-BUF)
 Layer 1: Common API (sender, receiver, frame, texture, device, discovery)
