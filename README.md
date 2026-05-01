@@ -1,5 +1,8 @@
 # nozzle
 
+> This codebase is currently in its AI-slob prototyping phase: the code runs on momentum, vibes, and plausible intent.
+> Proper debugging will be introduced once demand graduates from hypothetical to measurable.
+
 Cross-platform C/C++17 static library for **local inter-process GPU texture sharing**.
 
 An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible with either in v0.1.
@@ -172,3 +175,7 @@ Nozzle draws significant inspiration from [Syphon](https://syphon.info/) and [Sp
 ## License
 
 MIT
+
+Third-party dependencies:
+
+- [plog](https://github.com/SergiusTheBest/plog) — MIT
