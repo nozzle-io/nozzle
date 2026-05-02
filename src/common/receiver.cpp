@@ -293,9 +293,15 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         auto tex_result = create_texture_from_slot(state, slot);
         if (!tex_result.ok()) {
 #if NOZZLE_DEBUG
-            std::fprintf(stderr, "nozzle: lookup failed slot=%u resource_id=%llu frame=%llu backend=%u\n",
-                         slot, (unsigned long long)state->slots[slot].shared_resource_id,
-                         (unsigned long long)frame, state->backend);
+            {
+                std::FILE *dbg = std::fopen("/tmp/nozzle_receiver_debug.log", "a");
+                if (dbg) {
+                    std::fprintf(dbg, "lookup failed slot=%u resource_id=%llu frame=%llu backend=%u\n",
+                                 slot, (unsigned long long)state->slots[slot].shared_resource_id,
+                                 (unsigned long long)frame, state->backend);
+                    std::fclose(dbg);
+                }
+            }
 #endif
             return tex_result.error();
         }
