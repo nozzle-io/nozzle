@@ -283,6 +283,7 @@ Result<texture> lookup_iosurface_texture(
     @autoreleasepool {
         IOSurfaceRef surface = IOSurfaceLookup(iosurface_id);
         if (!surface) {
+            std::fprintf(stderr, "nozzle: IOSurfaceLookup(%u) returned NULL\n", iosurface_id);
             return Error{
                 ErrorCode::ResourceCreationFailed,
                 "Failed to lookup IOSurface by ID"
