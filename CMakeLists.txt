@@ -189,6 +189,10 @@ install(FILES
 
 # --- Examples ---
 option(NOZZLE_BUILD_EXAMPLES "Build nozzle examples" ON)
+option(NOZZLE_DEBUG "Enable debug logging" OFF)
+if(NOZZLE_DEBUG)
+    add_compile_definitions(NOZZLE_DEBUG=1)
+endif()
 if(NOZZLE_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
