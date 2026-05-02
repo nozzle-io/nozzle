@@ -204,6 +204,16 @@ Result<frame> receiver::acquire_frame() {
 }
 
 Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
+#if NOZZLE_DEBUG
+    {
+        static int call_count = 0;
+        std::FILE *dbg = std::fopen("/tmp/nozzle_receiver_debug.log", "a");
+        if (dbg) {
+            std::fprintf(dbg, "[%d] acquire_frame connected=%d\n", ++call_count, impl_ ? (int)impl_->connected_ : -1);
+            std::fclose(dbg);
+        }
+    }
+#endif
     if (!impl_ || !impl_->connected_) {
         if (impl_) {
             auto setup = establish_connection(impl_->sender_name_);
