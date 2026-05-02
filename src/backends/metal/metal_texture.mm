@@ -169,6 +169,7 @@ Result<metal_texture_pair> create_iosurface_texture(
         uint32_t bytes_per_row = align_up(width * bytes_per_element, kIOSurfaceAlignBytes);
 
         NSDictionary *surface_props = @{
+            (id)kIOSurfaceIsGlobal:     @(YES),
             (id)kIOSurfaceWidth:        @(width),
             (id)kIOSurfaceHeight:       @(height),
             (id)kIOSurfacePixelFormat:  @(iosurface_pf),
@@ -283,7 +284,6 @@ Result<texture> lookup_iosurface_texture(
     @autoreleasepool {
         IOSurfaceRef surface = IOSurfaceLookup(iosurface_id);
         if (!surface) {
-            std::fprintf(stderr, "nozzle: IOSurfaceLookup(%u) returned NULL\n", iosurface_id);
             return Error{
                 ErrorCode::ResourceCreationFailed,
                 "Failed to lookup IOSurface by ID"
