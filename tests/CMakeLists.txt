@@ -15,16 +15,29 @@ set(UNIT_TEST_SOURCES
     unit/test_main.cpp
     unit/test_registry.cpp
     unit/test_discovery.cpp
+    unit/test_channel_swizzle.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/channel_swizzle.cpp
 )
+
+if(APPLE)
+    list(APPEND UNIT_TEST_SOURCES
+        ${CMAKE_SOURCE_DIR}/src/common/channel_swizzle_vimage.cpp
+    )
+endif()
 
 add_executable(nozzle_tests ${UNIT_TEST_SOURCES})
 
 target_link_libraries(nozzle_tests PRIVATE
     Catch2::Catch2WithMain
 )
+
+if(APPLE)
+    find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
+    target_link_libraries(nozzle_tests PRIVATE ${ACCELERATE_FRAMEWORK})
+endif()
 
 target_include_directories(nozzle_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

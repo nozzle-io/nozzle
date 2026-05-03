@@ -74,6 +74,11 @@ Result<void> swizzle_channels(
 		return Error{ErrorCode::UnsupportedFormat, "unsupported texture format for swizzle"};
 	}
 
+	uint32_t min_row_bytes = width * bpp;
+	if (src_row_bytes < min_row_bytes || dst_row_bytes < min_row_bytes) {
+		return Error{ErrorCode::InvalidArgument, "row_bytes too small for width and format"};
+	}
+
 #if NOZZLE_PLATFORM_MACOS
 	auto vimage_result = detail::try_swizzle_vimage(
 		src, dst, width, height, src_row_bytes, dst_row_bytes, bpp, permute);

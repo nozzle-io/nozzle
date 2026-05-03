@@ -10,9 +10,12 @@ struct channel_permute {
 	uint8_t map[4]; // source byte position index for each destination byte position
 };
 
+// ARGB↔BGRA: full byte reversal is its own inverse — applying twice yields identity
 constexpr channel_permute permute_argb_to_bgra{{3, 2, 1, 0}};
-constexpr channel_permute permute_argb_to_rgba{{1, 2, 3, 0}};
 constexpr channel_permute permute_bgra_to_argb{{3, 2, 1, 0}};
+
+// ARGB↔RGBA: channel rotation pair — inverse of each other
+constexpr channel_permute permute_argb_to_rgba{{1, 2, 3, 0}};
 constexpr channel_permute permute_rgba_to_argb{{3, 0, 1, 2}};
 
 // out-of-place 4-channel pixel swizzle
