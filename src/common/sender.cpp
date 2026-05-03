@@ -262,16 +262,16 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 				"device has no native handle"};
 		}
 
-		texture_format actual_format = tdesc.format;
+		texture_format attempt_format = tdesc.format;
 		auto tex_result = detail::backend::create_ring_texture(
 			impl_->native_device_,
 			tdesc.width,
 			tdesc.height,
-			static_cast<uint32_t>(actual_format)
+			static_cast<uint32_t>(attempt_format)
 		);
 
 		if (!tex_result.ok() && impl_->allow_format_fallback_) {
-			texture_format fallback = get_next_fallback(actual_format);
+			texture_format fallback = get_next_fallback(attempt_format);
 			while (fallback != texture_format::unknown) {
 				tex_result = detail::backend::create_ring_texture(
 					impl_->native_device_,
@@ -283,7 +283,6 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 					LOG_WARNING << "format fallback: "
 						<< static_cast<int>(tdesc.format)
 						<< " -> " << static_cast<int>(fallback);
-					actual_format = fallback;
 					break;
 				}
 				fallback = get_next_fallback(fallback);
@@ -314,14 +313,14 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 	impl_->slot_in_use_[slot] = true;
 
-	texture_format actual_format = impl_->ring_textures_[slot].desc().format;
+	texture_format reused_format = impl_->ring_textures_[slot].desc().format;
 
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
-	impl_->state->format = static_cast<uint32_t>(actual_format);
+	impl_->state->format = static_cast<uint32_t>(reused_format);
 	impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
 
-	texture_desc actual_desc{tdesc.width, tdesc.height, actual_format, tdesc.swizzle, tdesc.usage};
+	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.swizzle, tdesc.usage};
 
 	return detail::make_writable_frame(
 		std::move(impl_->ring_textures_[slot]),
@@ -441,18 +440,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		}
 	}
 
-	texture_desc td{};
-	td.width = width;
-	td.height = height;
-	td.format = format;
-
-	auto frame_result = detail::make_writable_frame(
-		texture{}, td, 0);
-
 	{
-		texture_desc tdesc{width, height, format};
-		bool needs_create = true;
-
 		uint32_t ring_size = impl_->state->ring_size;
 		if (ring_size < 1) ring_size = 1;
 		int32_t free_slot = -1;
@@ -467,7 +455,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		}
 		uint32_t slot = static_cast<uint32_t>(free_slot);
 
-		needs_create = !impl_->ring_textures_[slot].valid() ||
+		bool needs_create = !impl_->ring_textures_[slot].valid() ||
 			impl_->ring_textures_[slot].desc().width != width ||
 			impl_->ring_textures_[slot].desc().height != height ||
 			impl_->ring_textures_[slot].desc().format != format;
@@ -477,6 +465,13 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				impl_->native_device_, width, height, static_cast<uint32_t>(format));
 			if (!tex_result.ok()) return tex_result.error();
 			impl_->ring_textures_[slot] = std::move(tex_result.value());
+		}
+
+		texture_format ring_actual = impl_->ring_textures_[slot].desc().format;
+		if (ring_actual != format) {
+			impl_->ring_textures_[slot] = texture{};
+			return Error{ErrorCode::UnsupportedFormat,
+				"GPU blit requires exact format match between source and ring texture"};
 		}
 
 		void *dst_native = detail::backend::get_native_texture(impl_->ring_textures_[slot]);
@@ -489,10 +484,9 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		if (!blit_result.ok()) return blit_result.error();
 
 		impl_->slot_in_use_[slot] = true;
-		texture_format actual_fmt = impl_->ring_textures_[slot].desc().format;
 		impl_->state->width = width;
 		impl_->state->height = height;
-		impl_->state->format = static_cast<uint32_t>(actual_fmt);
+		impl_->state->format = static_cast<uint32_t>(ring_actual);
 		impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);

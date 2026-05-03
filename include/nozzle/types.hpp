@@ -20,8 +20,8 @@ enum class texture_format {
     rg8_unorm,
     rgba8_unorm,
     bgra8_unorm,
-    rgba8_srgb,
-    bgra8_srgb,
+    rgba8_srgb,   // v0.1: unsupported on Metal/IOSurface (IOSurface FourCC cannot encode sRGB semantics)
+    bgra8_srgb,   // v0.1: unsupported on Metal/IOSurface (IOSurface FourCC cannot encode sRGB semantics)
     r16_unorm,
     rg16_unorm,
     rgba16_unorm,
