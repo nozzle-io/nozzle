@@ -2,6 +2,7 @@
 
 #include "ipc.hpp"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 
