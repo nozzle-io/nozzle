@@ -136,10 +136,19 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
         return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
     }
 
+    // CGL only accepts BGRA for 8-bit IOSurface textures (RGBA → error 10008).
+    // Force bgra8_unorm for the writable frame regardless of source format.
+    bool needs_rb_swap = false;
+    texture_format publish_format = gl_desc.format;
+    if (gl_desc.format == texture_format::rgba8_unorm) {
+        publish_format = texture_format::bgra8_unorm;
+        needs_rb_swap = true;
+    }
+
     nozzle::texture_desc td{};
     td.width = gl_desc.width;
     td.height = gl_desc.height;
-    td.format = gl_desc.format;
+    td.format = publish_format;
     td.swizzle = channel_swizzle::identity;
 
     auto frame_result = snd.acquire_writable_frame(td);
@@ -156,17 +165,20 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     scoped_texture io_tex;
     glBindTexture(GL_TEXTURE_2D, io_tex.name);
 
-    CGLError cgl_err = CGLTexImageIOSurface2D(
-        CGLGetCurrentContext(),
-        GL_TEXTURE_2D,
-        gl_fmt.internal_format,
-        static_cast<GLsizei>(gl_desc.width),
-        static_cast<GLsizei>(gl_desc.height),
-        gl_fmt.format,
-        gl_fmt.type,
-        surface,
-        0
-    );
+    CGLError cgl_err;
+    if (publish_format == texture_format::bgra8_unorm) {
+        cgl_err = CGLTexImageIOSurface2D(
+            CGLGetCurrentContext(), GL_TEXTURE_2D, GL_RGBA8,
+            static_cast<GLsizei>(gl_desc.width),
+            static_cast<GLsizei>(gl_desc.height),
+            GL_BGRA, GL_UNSIGNED_BYTE, surface, 0);
+    } else {
+        cgl_err = CGLTexImageIOSurface2D(
+            CGLGetCurrentContext(), GL_TEXTURE_2D, gl_fmt.internal_format,
+            static_cast<GLsizei>(gl_desc.width),
+            static_cast<GLsizei>(gl_desc.height),
+            gl_fmt.format, gl_fmt.type, surface, 0);
+    }
     if (cgl_err != kCGLNoError) {
         return Error{ErrorCode::BackendError, "CGLTexImageIOSurface2D failed"};
     }
@@ -191,7 +203,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glFlush();
 
-    if (gl_desc.format == texture_format::rgba8_unorm) {
+    if (needs_rb_swap) {
         glFinish();
 
         auto *mtl_tex = metal::get_texture(wframe.get_texture());
