@@ -14,6 +14,10 @@
 #include <nozzle/backends/opengl.hpp>
 #endif
 
+#if NOZZLE_HAS_METAL
+#include <nozzle/backends/metal.hpp>
+#endif
+
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -523,6 +527,74 @@ NozzleErrorCode nozzle_frame_copy_to_gl_texture(
 #else
     return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
 #endif
+}
+
+// ========== Native Texture Interop (GPU) ==========
+
+NozzleErrorCode nozzle_sender_publish_native_texture(
+    NozzleSender *sender,
+    void *native_texture,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+) {
+    if (!sender || !native_texture) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    auto result = sender->obj->publish_native_texture(
+        native_texture, width, height, to_cpp_format(format));
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_frame_copy_to_native_texture(
+    NozzleFrame *frame,
+    void *native_texture,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+) {
+    if (!frame || !frame->obj || !native_texture) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    auto result = frame->obj->copy_to_native_texture(
+        native_texture, width, height, to_cpp_format(format));
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+}
+
+// ========== Texture Wrap ==========
+
+NozzleErrorCode nozzle_texture_wrap(
+    const NozzleTextureWrapDesc *desc,
+    NozzleTexture **out_texture
+) {
+    if (!desc || !out_texture || !desc->native_texture) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+#if NOZZLE_HAS_METAL
+    if (desc->backend == NOZZLE_BACKEND_METAL) {
+        void *surface = nozzle::metal::get_io_surface_from_native_texture(desc->native_texture);
+        nozzle::metal::texture_wrap_desc wrap_desc{};
+        wrap_desc.texture = desc->native_texture;
+        wrap_desc.io_surface = surface;
+        wrap_desc.width = desc->width;
+        wrap_desc.height = desc->height;
+        wrap_desc.format = static_cast<uint32_t>(to_cpp_format(desc->format));
+
+        auto result = nozzle::metal::wrap_texture(wrap_desc);
+        if (!result.ok()) return to_c_error(result.error().code);
+
+        auto *wrapper = new (std::nothrow) NozzleTexture{};
+        if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+        wrapper->obj = std::make_unique<nozzle::texture>(std::move(result.value()));
+        *out_texture = wrapper;
+        return NOZZLE_OK;
+    }
+#endif
+
+    return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+}
+
+void nozzle_texture_destroy(NozzleTexture *texture) {
+    delete texture;
 }
 
 } // extern "C"

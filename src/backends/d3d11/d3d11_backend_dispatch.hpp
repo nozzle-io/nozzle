@@ -43,6 +43,22 @@ inline auto get_backend_type() -> backend_type {
     return backend_type::d3d11;
 }
 
+inline auto get_native_texture(const texture &tex) -> void * {
+    return get_texture_native(tex);
+}
+
+inline auto is_native_texture_shared(void * /*native_texture*/) -> bool {
+    return false;
+}
+
+inline auto get_native_surface_from_texture(void * /*native_texture*/) -> void * {
+    return nullptr;
+}
+
+inline auto blit_textures(void * /*device*/, void *src, void *dst, uint32_t /*width*/, uint32_t /*height*/) -> Result<void> {
+    return d3d11::blit_to_texture(src, dst);
+}
+
 } // namespace backend
 } // namespace detail
 } // namespace nozzle

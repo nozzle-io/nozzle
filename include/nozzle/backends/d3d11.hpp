@@ -27,7 +27,7 @@ Result<device> wrap_device(const DeviceDesc &desc);
 
 struct TextureWrapDesc {
     ID3D11Texture2D *texture{nullptr};
-    uint32_t dxgi_format{0}; // DXGI_FORMAT as uint32_t
+    uint32_t dxgi_format{0};
     uint32_t width{0};
     uint32_t height{0};
 };

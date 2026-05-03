@@ -32,10 +32,10 @@ public:
     const texture &get_texture() const;
     bool valid() const;
 
-    // Clone to owned texture (GPU copy)
     Result<texture> clone_to_owned_texture(device &dev) const;
 
-    // Explicit release (also happens on destruction)
+    Result<void> copy_to_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format format) const;
+
     void release();
 
 private:

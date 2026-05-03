@@ -4,6 +4,7 @@
 #include <nozzle/result.hpp>
 
 #include "frame_helpers.hpp"
+#include "backends/backend_dispatch.hpp"
 
 namespace nozzle {
 
@@ -40,6 +41,23 @@ void frame::release() {
         impl_->valid_ = false;
         impl_->tex_ = texture{};
     }
+}
+
+Result<void> frame::copy_to_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format format) const {
+    if (!native_texture) {
+        return Error{ErrorCode::InvalidArgument, "native_texture is null"};
+    }
+    if (!impl_ || !impl_->valid_) {
+        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
+    }
+
+    void *src_native = detail::backend::get_native_texture(impl_->tex_);
+    if (!src_native) {
+        return Error{ErrorCode::BackendError, "frame texture has no native handle"};
+    }
+
+    auto *dev_ptr = detail::backend::get_default_device();
+    return detail::backend::blit_textures(dev_ptr, src_native, native_texture, width, height);
 }
 
 writable_frame::writable_frame() noexcept = default;

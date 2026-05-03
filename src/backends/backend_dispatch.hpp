@@ -18,6 +18,11 @@ void release_texture_resources(void *native_texture, void *native_surface);
 auto lookup_texture(void *device, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format) -> Result<texture>;
 auto wrap_backend_texture(void *backend_texture, void *backend_surface, uint32_t width, uint32_t height, uint32_t pixel_format) -> texture;
 auto get_backend_type() -> backend_type;
+auto get_native_texture(const texture &tex) -> void *;
+
+auto is_native_texture_shared(void *native_texture) -> bool;
+auto get_native_surface_from_texture(void *native_texture) -> void *;
+auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void>;
 
 } // namespace backend
 } // namespace detail

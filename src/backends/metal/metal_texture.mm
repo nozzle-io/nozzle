@@ -4,6 +4,8 @@
 #import <IOSurface/IOSurface.h>
 
 #include <nozzle/backends/metal.hpp>
+#include <nozzle/sender.hpp>
+#include <nozzle/frame.hpp>
 #include <nozzle/result.hpp>
 #include <nozzle/types.hpp>
 #include "metal_helpers.hpp"
@@ -329,6 +331,75 @@ Result<texture> lookup_iosurface_texture(
             pixel_format
         );
     }
+}
+
+bool is_iosurface_backed(void *mtl_texture_ptr) {
+    @autoreleasepool {
+        id<MTLTexture> tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, mtl_texture_ptr);
+        if (!tex) return false;
+        return tex.iosurface != nil;
+    }
+}
+
+void *get_io_surface_from_texture(void *mtl_texture_ptr) {
+    @autoreleasepool {
+        id<MTLTexture> tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, mtl_texture_ptr);
+        if (!tex) return nullptr;
+        IOSurfaceRef surface = tex.iosurface;
+        if (surface) {
+            CFRetain(surface);
+            return (void *)surface;
+        }
+        return nullptr;
+    }
+}
+
+Result<void> blit_to_texture(void *mtl_device_ptr, void *src_ptr, void *dst_ptr, uint32_t width, uint32_t height) {
+    @autoreleasepool {
+        id<MTLDevice> device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);
+        id<MTLTexture> src = NOZZLE_BRIDGE_GET(id<MTLTexture>, src_ptr);
+        id<MTLTexture> dst = NOZZLE_BRIDGE_GET(id<MTLTexture>, dst_ptr);
+
+        if (!device || !src || !dst) {
+            return Error{ErrorCode::InvalidArgument, "blit_to_texture: null argument"};
+        }
+
+        id<MTLCommandQueue> queue = device.newCommandQueue;
+        if (!queue) {
+            return Error{ErrorCode::BackendError, "failed to create command queue for blit"};
+        }
+
+        id<MTLCommandBuffer> cmd = queue.commandBuffer;
+        id<MTLBlitCommandEncoder> blit = cmd.blitCommandEncoder;
+
+        [blit copyFromTexture:src
+                 sourceSlice:0
+                 sourceLevel:0
+                sourceOrigin:MTLOriginMake(0, 0, 0)
+                  sourceSize:MTLSizeMake(width, height, 1)
+                   toTexture:dst
+            destinationSlice:0
+            destinationLevel:0
+           destinationOrigin:MTLOriginMake(0, 0, 0)];
+
+        [blit endEncoding];
+        [cmd commit];
+        [cmd waitUntilCompleted];
+
+        return {};
+    }
+}
+
+Result<void> blit_from_texture(void *mtl_device_ptr, void *src_ptr, void *dst_ptr, uint32_t width, uint32_t height) {
+    return blit_to_texture(mtl_device_ptr, src_ptr, dst_ptr, width, height);
+}
+
+surface_handle get_io_surface_from_native_texture(mtl_texture_handle native_texture_ptr) {
+    return get_io_surface_from_texture(native_texture_ptr);
+}
+
+bool is_native_texture_iosurface_backed(mtl_texture_handle native_texture_ptr) {
+    return is_iosurface_backed(native_texture_ptr);
 }
 
 } // namespace nozzle::metal

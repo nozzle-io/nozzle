@@ -35,6 +35,9 @@ void signal_slot_done(void *shared_texture, uint32_t slot_index);
 bool wait_for_slot(void *shared_texture, uint32_t slot_index, uint32_t timeout_ms);
 void release_slot(void *shared_texture, uint32_t slot_index);
 
+Result<void> blit_to_texture(void *src_texture, void *dst_texture);
+Result<void> blit_from_texture(void *src_texture, void *dst_texture);
+
 } // namespace nozzle::d3d11
 
 namespace nozzle::detail {

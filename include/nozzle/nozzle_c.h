@@ -208,6 +208,41 @@ NozzleErrorCode nozzle_device_get_default(
 
 void nozzle_device_destroy(NozzleDevice *device);
 
+// ========== Native Texture Interop (GPU) ==========
+
+NozzleErrorCode nozzle_sender_publish_native_texture(
+    NozzleSender *sender,
+    void *native_texture,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+);
+
+NozzleErrorCode nozzle_frame_copy_to_native_texture(
+    NozzleFrame *frame,
+    void *native_texture,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format
+);
+
+// ========== Texture Wrap ==========
+
+typedef struct NozzleTextureWrapDesc {
+    void *native_texture;       // MTLTexture* (macOS) or ID3D11Texture2D* (Windows)
+    uint32_t width;
+    uint32_t height;
+    NozzleTextureFormat format;
+    NozzleBackendType backend;
+} NozzleTextureWrapDesc;
+
+NozzleErrorCode nozzle_texture_wrap(
+    const NozzleTextureWrapDesc *desc,
+    NozzleTexture **out_texture
+);
+
+void nozzle_texture_destroy(NozzleTexture *texture);
+
 // ========== Pixel Access (CPU) ==========
 
 typedef struct NozzleMappedPixels {

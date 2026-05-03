@@ -368,4 +368,109 @@ bool sender::valid() const {
 	return impl_ && impl_->valid_;
 }
 
+Result<void> sender::publish_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format format) {
+	if (!impl_ || !impl_->valid_) {
+		return Error{ErrorCode::BackendError, "sender is not valid"};
+	}
+	if (!native_texture) {
+		return Error{ErrorCode::InvalidArgument, "native_texture is null"};
+	}
+	if (width == 0 || height == 0) {
+		return Error{ErrorCode::InvalidArgument, "dimensions must be non-zero"};
+	}
+
+	std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+	if (detail::backend::is_native_texture_shared(native_texture)) {
+		void *surface = detail::backend::get_native_surface_from_texture(native_texture);
+		if (surface) {
+			auto wrapped = detail::backend::wrap_backend_texture(
+				native_texture, surface, width, height, static_cast<uint32_t>(format));
+			auto resource_id = detail::backend::get_shared_resource_id(wrapped);
+			if (resource_id != 0) {
+				uint32_t ring_size = impl_->state->ring_size;
+				if (ring_size < 1) ring_size = 1;
+				uint32_t slot = impl_->next_slot_;
+				impl_->next_slot_ = (impl_->next_slot_ + 1) % ring_size;
+				uint64_t frame_number = ++impl_->frame_counter_;
+				impl_->state->slots[slot].frame_number = frame_number;
+				impl_->state->slots[slot].shared_resource_id = resource_id;
+				impl_->state->width = width;
+				impl_->state->height = height;
+				detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+				detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+				return {};
+			}
+		}
+	}
+
+	texture_desc td{};
+	td.width = width;
+	td.height = height;
+	td.format = format;
+
+	auto frame_result = detail::make_writable_frame(
+		texture{}, td, 0);
+
+	{
+		texture_desc tdesc{width, height, format};
+		bool needs_create = true;
+
+		uint32_t ring_size = impl_->state->ring_size;
+		if (ring_size < 1) ring_size = 1;
+		int32_t free_slot = -1;
+		for (uint32_t i = 0; i < ring_size; ++i) {
+			if (!impl_->slot_in_use_[i]) {
+				free_slot = static_cast<int32_t>(i);
+				break;
+			}
+		}
+		if (free_slot < 0) {
+			return Error{ErrorCode::Timeout, "all ring buffer slots are in use"};
+		}
+		uint32_t slot = static_cast<uint32_t>(free_slot);
+
+		needs_create = !impl_->ring_textures_[slot].valid() ||
+			impl_->ring_textures_[slot].desc().width != width ||
+			impl_->ring_textures_[slot].desc().height != height ||
+			impl_->ring_textures_[slot].desc().format != format;
+
+		if (needs_create) {
+			auto tex_result = detail::backend::create_ring_texture(
+				impl_->native_device_, width, height, static_cast<uint32_t>(format));
+			if (!tex_result.ok()) return tex_result.error();
+			impl_->ring_textures_[slot] = std::move(tex_result.value());
+		}
+
+		void *dst_native = detail::backend::get_native_texture(impl_->ring_textures_[slot]);
+		if (!dst_native) {
+			return Error{ErrorCode::BackendError, "no native handle on ring texture"};
+		}
+
+		auto blit_result = detail::backend::blit_textures(
+			impl_->native_device_, native_texture, dst_native, width, height);
+		if (!blit_result.ok()) return blit_result.error();
+
+		impl_->slot_in_use_[slot] = true;
+		impl_->state->width = width;
+		impl_->state->height = height;
+		impl_->state->format = static_cast<uint32_t>(format);
+
+		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
+		if (resource_id == 0) {
+			impl_->slot_in_use_[slot] = false;
+			return Error{ErrorCode::BackendError, "ring texture has no shared resource"};
+		}
+
+		uint64_t frame_number = ++impl_->frame_counter_;
+		impl_->state->slots[slot].frame_number = frame_number;
+		impl_->state->slots[slot].shared_resource_id = resource_id;
+		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+		impl_->slot_in_use_[slot] = false;
+	}
+
+	return {};
+}
+
 } // namespace nozzle

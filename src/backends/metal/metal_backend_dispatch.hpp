@@ -49,6 +49,22 @@ inline auto get_backend_type() -> backend_type {
     return backend_type::metal;
 }
 
+inline auto get_native_texture(const texture &tex) -> void * {
+    return get_texture_native(tex);
+}
+
+inline auto is_native_texture_shared(void *native_texture) -> bool {
+    return metal::is_iosurface_backed(native_texture);
+}
+
+inline auto get_native_surface_from_texture(void *native_texture) -> void * {
+    return metal::get_io_surface_from_texture(native_texture);
+}
+
+inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void> {
+    return metal::blit_to_texture(device, src, dst, width, height);
+}
+
 } // namespace backend
 } // namespace detail
 } // namespace nozzle

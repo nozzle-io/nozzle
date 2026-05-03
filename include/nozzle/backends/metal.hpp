@@ -35,4 +35,7 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc);
 mtl_texture_handle get_texture(const texture &tex);
 surface_handle get_io_surface(const texture &tex);
 
+surface_handle get_io_surface_from_native_texture(mtl_texture_handle native_texture);
+bool is_native_texture_iosurface_backed(mtl_texture_handle native_texture);
+
 } // namespace nozzle::metal

@@ -143,6 +143,38 @@ void release_d3d11_texture_resources(void *texture_ptr, void *shared_handle_ptr)
     }
 }
 
+Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
+    if (!src_texture_ptr || !dst_texture_ptr) {
+        return Error{ErrorCode::InvalidArgument, "blit_to_texture: null texture"};
+    }
+
+    auto *src = static_cast<ID3D11Texture2D *>(src_texture_ptr);
+    auto *dst = static_cast<ID3D11Texture2D *>(dst_texture_ptr);
+
+    ID3D11Device *device = nullptr;
+    src->GetDevice(&device);
+    if (!device) {
+        return Error{ErrorCode::BackendError, "failed to get D3D11 device from source texture"};
+    }
+
+    ID3D11DeviceContext *ctx = nullptr;
+    device->GetImmediateContext(&ctx);
+    device->Release();
+
+    if (!ctx) {
+        return Error{ErrorCode::BackendError, "failed to get D3D11 device context"};
+    }
+
+    ctx->CopySubresourceRegion(dst, 0, 0, 0, 0, src, 0, nullptr);
+    ctx->Release();
+
+    return {};
+}
+
+Result<void> blit_from_texture(void *src_texture_ptr, void *dst_texture_ptr) {
+    return blit_to_texture(src_texture_ptr, dst_texture_ptr);
+}
+
 } // namespace d3d11
 } // namespace nozzle
 
