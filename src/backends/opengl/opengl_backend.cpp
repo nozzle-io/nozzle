@@ -138,11 +138,11 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
 
     // CGL only accepts BGRA for 8-bit IOSurface textures (RGBA → error 10008).
     // Force bgra8_unorm for the writable frame regardless of source format.
-    bool needs_rb_swap = false;
+    // Since CGL binding always uses GL_BGRA, GL packs colors as BGRA into the
+    // BGRA IOSurface — bytes are already correct after blit. No swap needed.
     texture_format publish_format = gl_desc.format;
     if (gl_desc.format == texture_format::rgba8_unorm) {
         publish_format = texture_format::bgra8_unorm;
-        needs_rb_swap = true;
     }
 
     nozzle::texture_desc td{};
@@ -202,17 +202,6 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glFlush();
-
-    if (needs_rb_swap) {
-        glFinish();
-
-        auto *mtl_tex = metal::get_texture(wframe.get_texture());
-        if (!mtl_tex) {
-            return Error{ErrorCode::BackendError, "no Metal texture in writable frame"};
-        }
-        auto swap_result = metal::swap_rb_channels(mtl_tex, gl_desc.width, gl_desc.height);
-        if (!swap_result) { return swap_result.error(); }
-    }
 
     auto commit_result = snd.commit_frame(wframe);
     if (!commit_result) { return commit_result.error(); }
