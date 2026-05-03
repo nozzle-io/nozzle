@@ -163,18 +163,18 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     IOSurfaceRef surface = static_cast<IOSurfaceRef>(surface_ptr);
 
     scoped_texture io_tex;
-    glBindTexture(GL_TEXTURE_2D, io_tex.name);
+    glBindTexture(GL_TEXTURE_RECTANGLE_ARB, io_tex.name);
 
     CGLError cgl_err;
     if (publish_format == texture_format::bgra8_unorm) {
         cgl_err = CGLTexImageIOSurface2D(
-            CGLGetCurrentContext(), GL_TEXTURE_2D, GL_RGBA8,
+            CGLGetCurrentContext(), GL_TEXTURE_RECTANGLE_ARB, GL_RGBA8,
             static_cast<GLsizei>(gl_desc.width),
             static_cast<GLsizei>(gl_desc.height),
             GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0);
     } else {
         cgl_err = CGLTexImageIOSurface2D(
-            CGLGetCurrentContext(), GL_TEXTURE_2D, gl_fmt.internal_format,
+            CGLGetCurrentContext(), GL_TEXTURE_RECTANGLE_ARB, gl_fmt.internal_format,
             static_cast<GLsizei>(gl_desc.width),
             static_cast<GLsizei>(gl_desc.height),
             gl_fmt.format, gl_fmt.type, surface, 0);
@@ -191,7 +191,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos.draw_fbo);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                           GL_TEXTURE_2D, io_tex.name, 0);
+                           GL_TEXTURE_RECTANGLE_ARB, io_tex.name, 0);
 
     glBlitFramebuffer(
         0, 0, static_cast<GLint>(gl_desc.width), static_cast<GLint>(gl_desc.height),
@@ -244,11 +244,11 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
     IOSurfaceRef surface = static_cast<IOSurfaceRef>(surface_ptr);
 
     scoped_texture io_tex;
-    glBindTexture(GL_TEXTURE_2D, io_tex.name);
+    glBindTexture(GL_TEXTURE_RECTANGLE_ARB, io_tex.name);
 
     CGLError cgl_err = CGLTexImageIOSurface2D(
         CGLGetCurrentContext(),
-        GL_TEXTURE_2D,
+        GL_TEXTURE_RECTANGLE_ARB,
         gl_fmt.internal_format,
         static_cast<GLsizei>(gl_desc.width),
         static_cast<GLsizei>(gl_desc.height),
@@ -265,7 +265,7 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbos.read_fbo);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                           GL_TEXTURE_2D, io_tex.name, 0);
+                           GL_TEXTURE_RECTANGLE_ARB, io_tex.name, 0);
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos.draw_fbo);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
