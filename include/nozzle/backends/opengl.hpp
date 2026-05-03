@@ -17,6 +17,7 @@ struct gl_texture_desc {
     uint32_t width{0};
     uint32_t height{0};
     texture_format format{texture_format::rgba8_unorm};
+    texture_origin origin{texture_origin::bottom_left};
 };
 
 // Publish GL texture to sender's shared texture.

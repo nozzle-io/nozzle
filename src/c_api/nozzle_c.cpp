@@ -112,6 +112,22 @@ nozzle::receive_mode to_cpp_receive_mode(NozzleReceiveMode mode) {
     }
 }
 
+NozzleTextureOrigin to_c_origin(nozzle::texture_origin origin) {
+    switch (origin) {
+        case nozzle::texture_origin::top_left: return NOZZLE_ORIGIN_TOP_LEFT;
+        case nozzle::texture_origin::bottom_left: return NOZZLE_ORIGIN_BOTTOM_LEFT;
+    }
+    return NOZZLE_ORIGIN_TOP_LEFT;
+}
+
+nozzle::texture_origin to_cpp_origin(NozzleTextureOrigin origin) {
+    switch (origin) {
+        case NOZZLE_ORIGIN_TOP_LEFT: return nozzle::texture_origin::top_left;
+        case NOZZLE_ORIGIN_BOTTOM_LEFT: return nozzle::texture_origin::bottom_left;
+    }
+    return nozzle::texture_origin::top_left;
+}
+
 } // anonymous namespace
 
 struct NozzleSender {
@@ -429,21 +445,23 @@ void nozzle_device_destroy(NozzleDevice *device) {
 
 // ========== Pixel Access (CPU) ==========
 
-NozzleErrorCode nozzle_frame_lock_pixels(
+NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 ) {
     if (!frame || !out_pixels || !frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto result = nozzle::lock_frame_pixels(*frame->obj);
+    auto result = nozzle::lock_frame_pixels_with_origin(*frame->obj, to_cpp_origin(desired_origin));
     if (!result.ok()) return to_c_error(result.error().code);
 
     const auto &mp = result.value();
     out_pixels->data = mp.data;
-    out_pixels->row_bytes = mp.row_bytes;
+    out_pixels->row_stride_bytes = mp.row_stride_bytes;
     out_pixels->width = mp.width;
     out_pixels->height = mp.height;
     out_pixels->format = to_c_format(mp.format);
+    out_pixels->origin = to_c_origin(mp.origin);
     return NOZZLE_OK;
 }
 
@@ -452,21 +470,23 @@ void nozzle_frame_unlock_pixels(NozzleFrame *frame) {
     nozzle::unlock_frame_pixels(*frame->obj);
 }
 
-NozzleErrorCode nozzle_frame_lock_writable_pixels(
+NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 ) {
     if (!frame || !out_pixels || !frame->writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto result = nozzle::lock_writable_pixels(*frame->writable);
+    auto result = nozzle::lock_writable_pixels_with_origin(*frame->writable, to_cpp_origin(desired_origin));
     if (!result.ok()) return to_c_error(result.error().code);
 
     const auto &mp = result.value();
     out_pixels->data = mp.data;
-    out_pixels->row_bytes = mp.row_bytes;
+    out_pixels->row_stride_bytes = mp.row_stride_bytes;
     out_pixels->width = mp.width;
     out_pixels->height = mp.height;
     out_pixels->format = to_c_format(mp.format);
+    out_pixels->origin = to_c_origin(mp.origin);
     return NOZZLE_OK;
 }
 
@@ -494,6 +514,7 @@ NozzleErrorCode nozzle_sender_publish_gl_texture(
     gl_desc.width = width;
     gl_desc.height = height;
     gl_desc.format = to_cpp_format(format);
+    gl_desc.origin = nozzle::texture_origin::bottom_left;
 
     auto result = nozzle::gl::publish_gl_texture(*sender->obj, gl_desc);
     if (!result.ok()) return to_c_error(result.error().code);
@@ -520,6 +541,7 @@ NozzleErrorCode nozzle_frame_copy_to_gl_texture(
     gl_desc.width = width;
     gl_desc.height = height;
     gl_desc.format = to_cpp_format(format);
+    gl_desc.origin = nozzle::texture_origin::bottom_left;
 
     auto result = nozzle::gl::copy_frame_to_gl_texture(*frame->obj, gl_desc);
     if (!result.ok()) return to_c_error(result.error().code);

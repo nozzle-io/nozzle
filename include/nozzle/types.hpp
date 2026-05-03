@@ -67,6 +67,11 @@ enum class channel_swizzle : uint8_t {
     swap_rb = 1,
 };
 
+enum class texture_origin : uint8_t {
+    top_left,      // Metal, CoreGraphics, Jitter matrix, IOSurface canonical
+    bottom_left,   // OpenGL, TD CPUMem
+};
+
 enum class texture_usage : uint32_t {
     none = 0,
     shader_read = 1 << 0,

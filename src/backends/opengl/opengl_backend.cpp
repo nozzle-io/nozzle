@@ -241,6 +241,32 @@ struct scoped_texture {
 
 #if NOZZLE_PLATFORM_MACOS
 
+namespace {
+
+void blit_publish_to_canonical_macos_cgl_iosurface(
+    texture_origin src_origin, GLint w, GLint h) {
+    if (src_origin == texture_origin::top_left) {
+        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    } else {
+        glBlitFramebuffer(0, 0, w, h, 0, h, w, 0,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+}
+
+void blit_canonical_to_dest_macos_cgl_iosurface(
+    texture_origin dst_origin, GLint w, GLint h) {
+    if (dst_origin == texture_origin::top_left) {
+        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    } else {
+        glBlitFramebuffer(0, h, w, 0, 0, 0, w, h,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+}
+
+} // anonymous namespace
+
 Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     if (gl_desc.name == 0) {
         return Error{ErrorCode::InvalidArgument, "GL texture name is 0"};
@@ -317,9 +343,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            GL_TEXTURE_RECTANGLE_ARB, io_tex.name, 0);
 
-    glBlitFramebuffer(0, 0, src_w, src_h,
-                      0, src_h, src_w, 0,
-                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    blit_publish_to_canonical_macos_cgl_iosurface(gl_desc.origin, src_w, src_h);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -382,11 +406,8 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            gl_desc.target, gl_desc.name, 0);
 
-    glBlitFramebuffer(
-        0, static_cast<GLint>(gl_desc.height), static_cast<GLint>(gl_desc.width), 0,
-        0, 0, static_cast<GLint>(gl_desc.width), static_cast<GLint>(gl_desc.height),
-        GL_COLOR_BUFFER_BIT, GL_NEAREST
-    );
+    blit_canonical_to_dest_macos_cgl_iosurface(gl_desc.origin,
+        static_cast<GLint>(gl_desc.width), static_cast<GLint>(gl_desc.height));
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);

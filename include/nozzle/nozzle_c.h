@@ -76,6 +76,11 @@ typedef enum NozzleFrameStatus {
     NOZZLE_FRAME_ERROR,
 } NozzleFrameStatus;
 
+typedef enum NozzleTextureOrigin {
+    NOZZLE_ORIGIN_TOP_LEFT = 0,
+    NOZZLE_ORIGIN_BOTTOM_LEFT,
+} NozzleTextureOrigin;
+
 // ========== Descriptor Structs ==========
 
 typedef struct NozzleSenderDesc {
@@ -247,21 +252,24 @@ void nozzle_texture_destroy(NozzleTexture *texture);
 
 typedef struct NozzleMappedPixels {
     void *data;
-    uint32_t row_bytes;
+    int64_t row_stride_bytes;
     uint32_t width;
     uint32_t height;
     NozzleTextureFormat format;
+    NozzleTextureOrigin origin;
 } NozzleMappedPixels;
 
-NozzleErrorCode nozzle_frame_lock_pixels(
+NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 );
 
 void nozzle_frame_unlock_pixels(NozzleFrame *frame);
 
-NozzleErrorCode nozzle_frame_lock_writable_pixels(
+NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 );
 

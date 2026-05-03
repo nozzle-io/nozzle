@@ -47,7 +47,7 @@ uint32_t bytes_per_pixel(texture_format fmt) {
 
 #if NOZZLE_PLATFORM_MACOS
 
-Result<mapped_pixels> lock_frame_pixels(const frame &frm) {
+Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "frame is not valid"};
     }
@@ -65,13 +65,18 @@ Result<mapped_pixels> lock_frame_pixels(const frame &frm) {
     }
 
     auto info = frm.info();
-    return mapped_pixels{
-        IOSurfaceGetBaseAddress(surface),
-        static_cast<uint32_t>(IOSurfaceGetBytesPerRow(surface)),
-        info.width,
-        info.height,
-        info.format
-    };
+    uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
+    int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
+
+    if (desired_origin == texture_origin::top_left) {
+        return mapped_pixels{base, row_bytes, info.width, info.height, info.format, texture_origin::top_left};
+    } else {
+        return mapped_pixels{
+            base + static_cast<int64_t>(info.height - 1) * row_bytes,
+            -row_bytes,
+            info.width, info.height, info.format, texture_origin::bottom_left
+        };
+    }
 }
 
 void unlock_frame_pixels(const frame &frm) {
@@ -84,7 +89,7 @@ void unlock_frame_pixels(const frame &frm) {
     IOSurfaceUnlock(static_cast<IOSurfaceRef>(surface_ptr), kIOSurfaceLockReadOnly, nullptr);
 }
 
-Result<mapped_pixels> lock_writable_pixels(writable_frame &frm) {
+Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
     }
@@ -102,13 +107,18 @@ Result<mapped_pixels> lock_writable_pixels(writable_frame &frm) {
     }
 
     auto desc = frm.desc();
-    return mapped_pixels{
-        IOSurfaceGetBaseAddress(surface),
-        static_cast<uint32_t>(IOSurfaceGetBytesPerRow(surface)),
-        desc.width,
-        desc.height,
-        desc.format
-    };
+    uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
+    int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
+
+    if (desired_origin == texture_origin::top_left) {
+        return mapped_pixels{base, row_bytes, desc.width, desc.height, desc.format, texture_origin::top_left};
+    } else {
+        return mapped_pixels{
+            base + static_cast<int64_t>(desc.height - 1) * row_bytes,
+            -row_bytes,
+            desc.width, desc.height, desc.format, texture_origin::bottom_left
+        };
+    }
 }
 
 void unlock_writable_pixels(writable_frame &frm) {
@@ -135,7 +145,7 @@ thread_local linux_lock_state tl_write_state;
 
 } // anonymous namespace
 
-Result<mapped_pixels> lock_frame_pixels(const frame &frm) {
+Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "frame is not valid"};
     }
@@ -162,13 +172,18 @@ Result<mapped_pixels> lock_frame_pixels(const frame &frm) {
 
     tl_read_state = linux_lock_state{ptr, map_size};
 
-    return mapped_pixels{
-        ptr,
-        static_cast<uint32_t>(row_bytes),
-        info.width,
-        info.height,
-        info.format
-    };
+    auto *base = static_cast<uint8_t *>(ptr);
+    int64_t stride = static_cast<int64_t>(row_bytes);
+
+    if (desired_origin == texture_origin::top_left) {
+        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left};
+    } else {
+        return mapped_pixels{
+            base + static_cast<int64_t>(info.height - 1) * stride,
+            -stride,
+            info.width, info.height, info.format, texture_origin::bottom_left
+        };
+    }
 }
 
 void unlock_frame_pixels(const frame &) {
@@ -178,7 +193,7 @@ void unlock_frame_pixels(const frame &) {
     }
 }
 
-Result<mapped_pixels> lock_writable_pixels(writable_frame &frm) {
+Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
     }
@@ -205,13 +220,18 @@ Result<mapped_pixels> lock_writable_pixels(writable_frame &frm) {
 
     tl_write_state = linux_lock_state{ptr, map_size};
 
-    return mapped_pixels{
-        ptr,
-        static_cast<uint32_t>(row_bytes),
-        desc.width,
-        desc.height,
-        desc.format
-    };
+    auto *base = static_cast<uint8_t *>(ptr);
+    int64_t stride = static_cast<int64_t>(row_bytes);
+
+    if (desired_origin == texture_origin::top_left) {
+        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left};
+    } else {
+        return mapped_pixels{
+            base + static_cast<int64_t>(desc.height - 1) * stride,
+            -stride,
+            desc.width, desc.height, desc.format, texture_origin::bottom_left
+        };
+    }
 }
 
 void unlock_writable_pixels(writable_frame &) {
@@ -243,7 +263,7 @@ thread_local windows_write_state tl_write_state;
 
 } // anonymous namespace
 
-Result<mapped_pixels> lock_frame_pixels(const frame &frm) {
+Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "frame is not valid"};
     }
@@ -292,13 +312,18 @@ Result<mapped_pixels> lock_frame_pixels(const frame &frm) {
     tl_read_state = windows_read_state{staging, ctx, device};
 
     auto info = frm.info();
-    return mapped_pixels{
-        mapped.pData,
-        static_cast<uint32_t>(mapped.RowPitch),
-        info.width,
-        info.height,
-        info.format
-    };
+    auto *base = static_cast<uint8_t *>(mapped.pData);
+    int64_t stride = static_cast<int64_t>(mapped.RowPitch);
+
+    if (desired_origin == texture_origin::top_left) {
+        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left};
+    } else {
+        return mapped_pixels{
+            base + static_cast<int64_t>(info.height - 1) * stride,
+            -stride,
+            info.width, info.height, info.format, texture_origin::bottom_left
+        };
+    }
 }
 
 void unlock_frame_pixels(const frame &) {
@@ -311,7 +336,7 @@ void unlock_frame_pixels(const frame &) {
     }
 }
 
-Result<mapped_pixels> lock_writable_pixels(writable_frame &frm) {
+Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
     }
@@ -358,13 +383,18 @@ Result<mapped_pixels> lock_writable_pixels(writable_frame &frm) {
     tl_write_state = windows_write_state{d3d_tex, staging, ctx, device};
 
     auto desc = frm.desc();
-    return mapped_pixels{
-        mapped.pData,
-        static_cast<uint32_t>(mapped.RowPitch),
-        desc.width,
-        desc.height,
-        desc.format
-    };
+    auto *base = static_cast<uint8_t *>(mapped.pData);
+    int64_t stride = static_cast<int64_t>(mapped.RowPitch);
+
+    if (desired_origin == texture_origin::top_left) {
+        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left};
+    } else {
+        return mapped_pixels{
+            base + static_cast<int64_t>(desc.height - 1) * stride,
+            -stride,
+            desc.width, desc.height, desc.format, texture_origin::bottom_left
+        };
+    }
 }
 
 void unlock_writable_pixels(writable_frame &) {
@@ -382,13 +412,13 @@ void unlock_writable_pixels(writable_frame &) {
 
 #else
 
-Result<mapped_pixels> lock_frame_pixels(const frame &) {
+Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &, texture_origin) {
     return Error{ErrorCode::UnsupportedBackend, "pixel access not implemented for this platform"};
 }
 
 void unlock_frame_pixels(const frame &) {}
 
-Result<mapped_pixels> lock_writable_pixels(writable_frame &) {
+Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &, texture_origin) {
     return Error{ErrorCode::UnsupportedBackend, "pixel access not implemented for this platform"};
 }
 
