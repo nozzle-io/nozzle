@@ -151,7 +151,14 @@ Result<metal_texture_pair> create_iosurface_texture(
             return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
         }
 
-        auto mtl_format = to_mtl_pixel_format(pixel_format);
+        auto nozzle_fmt = static_cast<texture_format>(pixel_format);
+        if (nozzle_fmt == texture_format::rgba8_unorm) {
+            nozzle_fmt = texture_format::bgra8_unorm;
+        } else if (nozzle_fmt == texture_format::rgba8_srgb) {
+            nozzle_fmt = texture_format::bgra8_srgb;
+        }
+
+        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
         if (mtl_format == MTLPixelFormatInvalid) {
             return Error{
                 ErrorCode::UnsupportedFormat,
@@ -308,7 +315,14 @@ Result<texture> lookup_iosurface_texture(
             return Error{ErrorCode::BackendError, "No default Metal device"};
         }
 
-        auto mtl_format = to_mtl_pixel_format(pixel_format);
+        auto nozzle_fmt = static_cast<texture_format>(pixel_format);
+        if (nozzle_fmt == texture_format::rgba8_unorm) {
+            nozzle_fmt = texture_format::bgra8_unorm;
+        } else if (nozzle_fmt == texture_format::rgba8_srgb) {
+            nozzle_fmt = texture_format::bgra8_srgb;
+        }
+
+        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
         if (mtl_format == MTLPixelFormatInvalid) {
             CFRelease(surface);
             return Error{ErrorCode::UnsupportedFormat, "Unsupported nozzle pixel format"};
