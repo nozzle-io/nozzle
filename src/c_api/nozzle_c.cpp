@@ -630,6 +630,15 @@ NozzleErrorCode nozzle_swizzle_channels(
     NozzleTextureFormat format,
     const uint8_t permute_map[4]
 ) {
+    if (!permute_map) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+    for (int i = 0; i < 4; ++i) {
+        if (permute_map[i] > 3) {
+            return NOZZLE_ERROR_INVALID_ARGUMENT;
+        }
+    }
+
     nozzle::channel_permute permute{};
     std::memcpy(permute.map, permute_map, 4);
 

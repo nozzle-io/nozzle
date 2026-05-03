@@ -7,7 +7,7 @@
 namespace nozzle {
 
 struct channel_permute {
-	uint8_t map[4]; // source byte position index for each destination byte position
+	uint8_t map[4]; // source channel index for each destination channel, in memory channel order
 };
 
 // ARGB↔BGRA: full byte reversal is its own inverse — applying twice yields identity
