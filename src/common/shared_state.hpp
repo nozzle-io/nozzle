@@ -42,11 +42,12 @@ struct SenderSharedState {
     char application_name[64]{};
     char uuid[37]{};
     uint8_t backend{0};
+    uint8_t channel_swizzle{0};
+    uint8_t _pad0{0};
     uint32_t width{0};
     uint32_t height{0};
     uint32_t format{0};
     uint32_t ring_size{0};
-    uint8_t channel_swizzle{0};
 
     alignas(64) uint64_t committed_frame{0};
     alignas(64) uint32_t committed_slot{0};
