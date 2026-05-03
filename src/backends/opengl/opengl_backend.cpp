@@ -30,6 +30,10 @@ namespace nozzle::gl {
 
 namespace {
 
+#ifndef GL_RGBA8
+#define GL_RGBA8 0x8058
+#endif
+
 #ifndef GL_RGBA16F
 #define GL_RGBA16F 0x881A
 #endif
