@@ -226,7 +226,7 @@ Result<metal_texture_pair> create_iosurface_texture(
 
         OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
         texture_format observed = from_io_surface_pixel_format(actual_fourcc);
-        result.pixel_format = static_cast<uint32_t>(observed != texture_format::unknown ? observed : static_cast<texture_format>(pixel_format));
+        result.pixel_format = static_cast<uint32_t>(observed != texture_format::unknown ? observed : nozzle_fmt);
 
         return result;
     }
