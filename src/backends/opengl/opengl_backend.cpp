@@ -195,7 +195,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
 
     glBlitFramebuffer(
         0, 0, static_cast<GLint>(gl_desc.width), static_cast<GLint>(gl_desc.height),
-        0, 0, static_cast<GLint>(gl_desc.width), static_cast<GLint>(gl_desc.height),
+        0, static_cast<GLint>(gl_desc.height), static_cast<GLint>(gl_desc.width), 0,
         GL_COLOR_BUFFER_BIT, GL_NEAREST
     );
 
