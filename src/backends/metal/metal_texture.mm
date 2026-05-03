@@ -212,7 +212,10 @@ Result<metal_texture_pair> create_iosurface_texture(
         result.io_surface_id = IOSurfaceGetID(surface);
         result.width = width;
         result.height = height;
-        result.pixel_format = pixel_format;
+
+        OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
+        texture_format observed = from_io_surface_pixel_format(actual_fourcc);
+        result.pixel_format = static_cast<uint32_t>(observed != texture_format::unknown ? observed : static_cast<texture_format>(pixel_format));
 
         return result;
     }
@@ -247,10 +250,15 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
         void *tex_ptr = NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, mtl_tex);
 
         void *surface_ptr = nullptr;
+        uint32_t actual_fmt = desc.format;
         if (desc.io_surface) {
             IOSurfaceRef surface = (IOSurfaceRef)desc.io_surface;
             CFRetain(surface);
             surface_ptr = (void *)surface;
+            texture_format observed = from_io_surface_pixel_format(IOSurfaceGetPixelFormat(surface));
+            if (observed != texture_format::unknown) {
+                actual_fmt = static_cast<uint32_t>(observed);
+            }
         }
 
         return detail::make_texture_from_backend(
@@ -258,7 +266,7 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
             surface_ptr,
             desc.width,
             desc.height,
-            desc.format,
+            actual_fmt,
             static_cast<uint8_t>(desc.swizzle)
         );
     }
@@ -348,12 +356,18 @@ Result<texture> lookup_iosurface_texture(
             }
         }
 
+        OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
+        texture_format observed = from_io_surface_pixel_format(actual_fourcc);
+        uint32_t actual_fmt = (observed != texture_format::unknown)
+            ? static_cast<uint32_t>(observed)
+            : pixel_format;
+
         return detail::make_texture_from_backend(
             NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, final_texture),
             (void *)surface,
             width,
             height,
-            pixel_format
+            actual_fmt
         );
     }
 }

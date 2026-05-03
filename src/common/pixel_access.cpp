@@ -68,13 +68,19 @@ Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_or
     uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
     int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
 
+    OSType surface_fmt = IOSurfaceGetPixelFormat(surface);
+    texture_format actual_fmt = metal::from_io_surface_pixel_format(surface_fmt);
+    if (actual_fmt == texture_format::unknown) {
+        actual_fmt = info.format;
+    }
+
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, row_bytes, info.width, info.height, info.format, texture_origin::top_left};
+        return mapped_pixels{base, row_bytes, info.width, info.height, actual_fmt, texture_origin::top_left};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(info.height - 1) * row_bytes,
             -row_bytes,
-            info.width, info.height, info.format, texture_origin::bottom_left
+            info.width, info.height, actual_fmt, texture_origin::bottom_left
         };
     }
 }

@@ -148,7 +148,31 @@ texture_format get_next_fallback(texture_format fmt) {
     }
 }
 
-} // namespace nozzle
+bool is_same_cpu_layout(texture_format a, texture_format b) {
+    auto layout_group = [](texture_format f) -> int {
+        switch (f) {
+            case texture_format::r8_unorm: return 1;
+            case texture_format::rg8_unorm: return 2;
+            case texture_format::rgba8_unorm:
+            case texture_format::bgra8_unorm: return 3;
+            case texture_format::rgba8_srgb:
+            case texture_format::bgra8_srgb: return 4;
+            case texture_format::r16_unorm:
+            case texture_format::r16_float: return 5;
+            case texture_format::rg16_unorm:
+            case texture_format::rg16_float: return 6;
+            case texture_format::rgba16_unorm:
+            case texture_format::rgba16_float: return 7;
+            case texture_format::r32_float: return 8;
+            case texture_format::rg32_float: return 9;
+            case texture_format::rgba32_float: return 10;
+            default: return 0;
+        }
+    };
+    return layout_group(a) == layout_group(b) && layout_group(a) != 0;
+}
+
+} // namespace
 
 Result<void> sender::publish_external_texture(const texture &tex) {
 	if (!impl_ || !impl_->valid_) {
@@ -230,7 +254,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	bool needs_create = !impl_->ring_textures_[slot].valid() ||
 		impl_->ring_textures_[slot].desc().width != tdesc.width ||
 		impl_->ring_textures_[slot].desc().height != tdesc.height ||
-		impl_->ring_textures_[slot].desc().format != tdesc.format;
+		!is_same_cpu_layout(impl_->ring_textures_[slot].desc().format, tdesc.format);
 
 	if (needs_create) {
 		if (!impl_->native_device_) {
@@ -272,12 +296,13 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 		impl_->ring_textures_[slot] = std::move(tex_result.value());
 
-		texture_desc actual_desc{tdesc.width, tdesc.height, actual_format, tdesc.swizzle, tdesc.usage};
+		texture_format observed_format = impl_->ring_textures_[slot].desc().format;
+		texture_desc actual_desc{tdesc.width, tdesc.height, observed_format, tdesc.swizzle, tdesc.usage};
 		impl_->slot_in_use_[slot] = true;
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
-		impl_->state->format = static_cast<uint32_t>(actual_format);
+		impl_->state->format = static_cast<uint32_t>(observed_format);
 		impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
 
 		return detail::make_writable_frame(
@@ -407,6 +432,8 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				impl_->state->slots[slot].shared_resource_id = resource_id;
 				impl_->state->width = width;
 				impl_->state->height = height;
+				impl_->state->format = static_cast<uint32_t>(wrapped.desc().format);
+				impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 				detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 				detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 				return {};
@@ -443,7 +470,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		needs_create = !impl_->ring_textures_[slot].valid() ||
 			impl_->ring_textures_[slot].desc().width != width ||
 			impl_->ring_textures_[slot].desc().height != height ||
-			impl_->ring_textures_[slot].desc().format != format;
+			!is_same_cpu_layout(impl_->ring_textures_[slot].desc().format, format);
 
 		if (needs_create) {
 			auto tex_result = detail::backend::create_ring_texture(
