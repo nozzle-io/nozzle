@@ -427,4 +427,22 @@ bool is_native_texture_iosurface_backed(mtl_texture_handle native_texture_ptr) {
     return is_iosurface_backed(native_texture_ptr);
 }
 
+texture_format from_io_surface_pixel_format(uint32_t ostype) {
+    switch (ostype) {
+        case 'L008': return texture_format::r8_unorm;
+        case '2C08': return texture_format::rg8_unorm;
+        case 'BGRA': return texture_format::bgra8_unorm;
+        case 'RGBA': return texture_format::rgba8_unorm;
+        case 'L016': return texture_format::r16_unorm;
+        case '2C16': return texture_format::rg16_unorm;
+        case 'L00h': return texture_format::r16_float;
+        case '2C0h': return texture_format::rg16_float;
+        case 'RGhA': return texture_format::rgba16_float;
+        case 'L00f': return texture_format::r32_float;
+        case '2C0f': return texture_format::rg32_float;
+        case 'RGfA': return texture_format::rgba32_float;
+        default:     return texture_format::unknown;
+    }
+}
+
 } // namespace nozzle::metal
