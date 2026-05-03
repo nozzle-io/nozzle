@@ -28,6 +28,7 @@ struct texture_wrap_desc {
     pixel_format_value format{0};
     uint32_t width{0};
     uint32_t height{0};
+    channel_swizzle swizzle{channel_swizzle::identity};
 };
 
 Result<texture> wrap_texture(const texture_wrap_desc &desc);

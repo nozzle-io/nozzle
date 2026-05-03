@@ -258,7 +258,8 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
             surface_ptr,
             desc.width,
             desc.height,
-            desc.format
+            desc.format,
+            static_cast<uint8_t>(desc.swizzle)
         );
     }
 }

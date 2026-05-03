@@ -53,7 +53,8 @@ texture make_texture_from_backend(
     void *backend_surface,
     uint32_t width,
     uint32_t height,
-    uint32_t pixel_format
+    uint32_t pixel_format,
+    uint8_t channel_swizzle_val
 ) {
     texture t;
     t.impl_ = std::make_unique<texture::Impl>();
@@ -62,6 +63,7 @@ texture make_texture_from_backend(
     t.impl_->desc.width = width;
     t.impl_->desc.height = height;
     t.impl_->desc.format = static_cast<texture_format>(pixel_format);
+    t.impl_->desc.swizzle = static_cast<channel_swizzle>(channel_swizzle_val);
     t.impl_->valid = (backend_texture != nullptr);
     return t;
 }
