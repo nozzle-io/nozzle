@@ -7,6 +7,14 @@ Cross-platform C/C++17 static library for **local inter-process GPU texture shar
 
 An alternative to Syphon (macOS) and Spout (Windows). Not protocol-compatible with either in v0.1.
 
+## Disclaimer / Notice
+
+This library is currently a work in progress and contains many incomplete features and unverified implementations.
+Although it may appear usable at first glance, it may not function correctly.
+
+Please use it with the understanding that no guarantees are made regarding its behavior, and perform debugging, validation, and review as needed.
+If you encounter problems, please do not become angry; instead, contributions in the form of Issues or Pull Requests would be greatly appreciated.
+
 ## Features
 
 - Named sender/receiver model with discovery
