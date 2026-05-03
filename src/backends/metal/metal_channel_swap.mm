@@ -33,6 +33,7 @@ static NSString *const kSwapRBKernel = @""
 static id<MTLComputePipelineState> s_pipeline = nil;
 static id<MTLCommandQueue> s_queue = nil;
 static id<MTLTexture> s_tmp_texture = nil;
+static id<MTLDevice> s_device = nil;
 static uint32_t s_tmp_width = 0;
 static uint32_t s_tmp_height = 0;
 static uint32_t s_tmp_format = 0;
@@ -95,6 +96,12 @@ Result<void> swap_rb_channels(void *mtl_texture_ptr, uint32_t width, uint32_t he
         if (!device) {
             return Error{ErrorCode::BackendError, "No Metal device for source texture"};
         }
+
+        if (s_device && s_device != device) {
+            return Error{ErrorCode::BackendError,
+                "swap_rb_channels: multiple Metal devices not supported"};
+        }
+        s_device = device;
 
         if (!ensure_pipeline(device)) {
             return Error{ErrorCode::BackendError, "Failed to initialize swap_rb pipeline"};
