@@ -31,7 +31,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
     d3d11::release_d3d11_texture_resources(native_texture, native_surface);
 }
 
-inline auto lookup_texture(void *device, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format) -> Result<texture> {
+inline auto lookup_texture(void *device, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t) -> Result<texture> {
     return d3d11::lookup_shared_texture(device, shared_id, width, height, format);
 }
 

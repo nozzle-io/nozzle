@@ -40,7 +40,8 @@ Result<texture> lookup_iosurface_texture(
     uint32_t iosurface_id,
     uint32_t width,
     uint32_t height,
-    uint32_t format);
+    uint32_t format,
+    uint8_t channel_swizzle = 0);
 
 bool is_iosurface_backed(void *mtl_texture);
 void *get_io_surface_from_texture(void *mtl_texture);

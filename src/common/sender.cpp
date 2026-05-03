@@ -270,12 +270,13 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 		impl_->ring_textures_[slot] = std::move(tex_result.value());
 
-		texture_desc actual_desc{tdesc.width, tdesc.height, actual_format, tdesc.usage};
+		texture_desc actual_desc{tdesc.width, tdesc.height, actual_format, tdesc.swizzle, tdesc.usage};
 		impl_->slot_in_use_[slot] = true;
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
 		impl_->state->format = static_cast<uint32_t>(actual_format);
+		impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
 
 		return detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
@@ -289,6 +290,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
 	impl_->state->format = static_cast<uint32_t>(tdesc.format);
+	impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
 
 	return detail::make_writable_frame(
 		std::move(impl_->ring_textures_[slot]),

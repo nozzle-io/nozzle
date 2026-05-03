@@ -36,9 +36,9 @@ inline void release_texture_resources(void *native_texture, void *native_surface
     metal::release_mtl_texture_resources(native_texture, native_surface);
 }
 
-inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format) -> Result<texture> {
+inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t channel_swizzle) -> Result<texture> {
     return metal::lookup_iosurface_texture(
-        static_cast<uint32_t>(shared_id), width, height, format);
+        static_cast<uint32_t>(shared_id), width, height, format, channel_swizzle);
 }
 
 inline auto wrap_backend_texture(void *backend_texture, void *backend_surface, uint32_t width, uint32_t height, uint32_t pixel_format) -> texture {

@@ -15,7 +15,7 @@ auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t
 auto get_shared_resource_id(const texture &tex) -> uint64_t;
 auto get_native_surface(const texture &tex) -> void *;
 void release_texture_resources(void *native_texture, void *native_surface);
-auto lookup_texture(void *device, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format) -> Result<texture>;
+auto lookup_texture(void *device, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t channel_swizzle) -> Result<texture>;
 auto wrap_backend_texture(void *backend_texture, void *backend_surface, uint32_t width, uint32_t height, uint32_t pixel_format) -> texture;
 auto get_backend_type() -> backend_type;
 auto get_native_texture(const texture &tex) -> void *;

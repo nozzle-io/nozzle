@@ -46,6 +46,7 @@ struct SenderSharedState {
     uint32_t height{0};
     uint32_t format{0};
     uint32_t ring_size{0};
+    uint8_t channel_swizzle{0};
 
     alignas(64) uint64_t committed_frame{0};
     alignas(64) uint32_t committed_slot{0};

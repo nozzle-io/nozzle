@@ -139,6 +139,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     td.width = gl_desc.width;
     td.height = gl_desc.height;
     td.format = gl_desc.format;
+    td.swizzle = channel_swizzle::swap_rb;
 
     auto frame_result = snd.acquire_writable_frame(td);
     if (!frame_result) { return frame_result.error(); }

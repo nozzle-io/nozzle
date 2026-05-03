@@ -62,6 +62,11 @@ enum class frame_status {
     error,
 };
 
+enum class channel_swizzle : uint8_t {
+    identity = 0,
+    swap_rb = 1,
+};
+
 enum class texture_usage : uint32_t {
     none = 0,
     shader_read = 1 << 0,
@@ -93,6 +98,7 @@ struct texture_desc {
     uint32_t width{0};
     uint32_t height{0};
     texture_format format{texture_format::unknown};
+    channel_swizzle swizzle{channel_swizzle::identity};
     texture_usage usage{texture_usage::shader_read | texture_usage::shared};
 };
 

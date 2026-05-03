@@ -142,7 +142,8 @@ Result<texture> create_texture_from_slot(
         state->slots[slot].shared_resource_id,
         state->width,
         state->height,
-        state->format);
+        state->format,
+        state->channel_swizzle);
 }
 
 } // anonymous namespace

@@ -281,7 +281,8 @@ Result<texture> lookup_iosurface_texture(
     uint32_t iosurface_id,
     uint32_t width,
     uint32_t height,
-    uint32_t pixel_format
+    uint32_t pixel_format,
+    uint8_t channel_swizzle_val
 ) {
     @autoreleasepool {
         IOSurfaceRef surface = IOSurfaceLookup(iosurface_id);
@@ -312,10 +313,10 @@ Result<texture> lookup_iosurface_texture(
         tex_desc.usage = MTLTextureUsageShaderRead;
         tex_desc.resourceOptions = MTLResourceStorageModeShared;
 
-        id<MTLTexture> texture = [device newTextureWithDescriptor:tex_desc
-                                                         iosurface:surface
-                                                               plane:0];
-        if (!texture) {
+        id<MTLTexture> base_texture = [device newTextureWithDescriptor:tex_desc
+                                                              iosurface:surface
+                                                                    plane:0];
+        if (!base_texture) {
             CFRelease(surface);
             return Error{
                 ErrorCode::ResourceCreationFailed,
@@ -323,8 +324,31 @@ Result<texture> lookup_iosurface_texture(
             };
         }
 
+        id<MTLTexture> final_texture = base_texture;
+
+        if (static_cast<nozzle::channel_swizzle>(channel_swizzle_val) == nozzle::channel_swizzle::swap_rb) {
+            MTLTextureSwizzleChannels swizzle = {
+                .red   = MTLTextureSwizzleBlue,
+                .green = MTLTextureSwizzleGreen,
+                .blue  = MTLTextureSwizzleRed,
+                .alpha = MTLTextureSwizzleAlpha
+            };
+            final_texture = [base_texture newTextureViewWithPixelFormat:mtl_format
+                                                            textureType:base_texture.textureType
+                                                                 levels:NSMakeRange(0, base_texture.mipmapLevelCount)
+                                                                 slices:NSMakeRange(0, base_texture.arrayLength)
+                                                                swizzle:swizzle];
+            if (!final_texture) {
+                CFRelease(surface);
+                return Error{
+                    ErrorCode::ResourceCreationFailed,
+                    "Failed to create swizzled texture view"
+                };
+            }
+        }
+
         return detail::make_texture_from_backend(
-            NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, texture),
+            NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, final_texture),
             (void *)surface,
             width,
             height,
