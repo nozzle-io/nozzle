@@ -289,14 +289,18 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 	impl_->slot_in_use_[slot] = true;
 
+	texture_format actual_format = impl_->ring_textures_[slot].desc().format;
+
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
-	impl_->state->format = static_cast<uint32_t>(tdesc.format);
+	impl_->state->format = static_cast<uint32_t>(actual_format);
 	impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
+
+	texture_desc actual_desc{tdesc.width, tdesc.height, actual_format, tdesc.swizzle, tdesc.usage};
 
 	return detail::make_writable_frame(
 		std::move(impl_->ring_textures_[slot]),
-		tdesc,
+		actual_desc,
 		slot
 	);
 }
@@ -458,9 +462,10 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		if (!blit_result.ok()) return blit_result.error();
 
 		impl_->slot_in_use_[slot] = true;
+		texture_format actual_fmt = impl_->ring_textures_[slot].desc().format;
 		impl_->state->width = width;
 		impl_->state->height = height;
-		impl_->state->format = static_cast<uint32_t>(format);
+		impl_->state->format = static_cast<uint32_t>(actual_fmt);
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
 		if (resource_id == 0) {
