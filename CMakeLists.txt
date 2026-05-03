@@ -89,6 +89,7 @@ if(APPLE)
     target_sources(nozzle PRIVATE
         src/backends/metal/metal_backend.mm
         src/backends/metal/metal_texture.mm
+        src/backends/metal/metal_channel_swap.mm
         src/backends/metal/metal_sync.mm
     )
     find_library(METAL_FRAMEWORK Metal REQUIRED)

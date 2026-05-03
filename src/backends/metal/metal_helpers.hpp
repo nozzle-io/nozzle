@@ -49,6 +49,8 @@ void *get_io_surface_from_texture(void *mtl_texture);
 Result<void> blit_to_texture(void *native_device, void *src_texture, void *dst_texture, uint32_t width, uint32_t height);
 Result<void> blit_from_texture(void *native_device, void *src_texture, void *dst_texture, uint32_t width, uint32_t height);
 
+Result<void> swap_rb_channels(void *mtl_texture_ptr, uint32_t width, uint32_t height);
+
 } // namespace nozzle::metal
 
 namespace nozzle::detail {

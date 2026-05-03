@@ -180,13 +180,14 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	impl_->state->slots[slot].shared_resource_id = resource_id;
 
 	const auto &tex_desc = tex.desc();
+	impl_->state->channel_swizzle = static_cast<uint8_t>(tex_desc.swizzle);
+
 	if (impl_->state->width != tex_desc.width ||
 		impl_->state->height != tex_desc.height ||
 		impl_->state->format != static_cast<uint32_t>(tex_desc.format)) {
 		impl_->state->width = tex_desc.width;
 		impl_->state->height = tex_desc.height;
 		impl_->state->format = static_cast<uint32_t>(tex_desc.format);
-		impl_->state->channel_swizzle = static_cast<uint8_t>(tex_desc.swizzle);
 	}
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);

@@ -11,6 +11,7 @@
 
 #if NOZZLE_PLATFORM_MACOS
 #include <nozzle/backends/metal.hpp>
+#include "../metal/metal_helpers.hpp"
 #define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl.h>
 #include <OpenGL/OpenGL.h>
@@ -139,7 +140,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     td.width = gl_desc.width;
     td.height = gl_desc.height;
     td.format = gl_desc.format;
-    td.swizzle = channel_swizzle::swap_rb;
+    td.swizzle = channel_swizzle::identity;
 
     auto frame_result = snd.acquire_writable_frame(td);
     if (!frame_result) { return frame_result.error(); }
@@ -189,6 +190,17 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glFlush();
+
+    if (gl_desc.format == texture_format::rgba8_unorm) {
+        glFinish();
+
+        auto *mtl_tex = metal::get_texture(wframe.get_texture());
+        if (!mtl_tex) {
+            return Error{ErrorCode::BackendError, "no Metal texture in writable frame"};
+        }
+        auto swap_result = metal::swap_rb_channels(mtl_tex, gl_desc.width, gl_desc.height);
+        if (!swap_result) { return swap_result.error(); }
+    }
 
     auto commit_result = snd.commit_frame(wframe);
     if (!commit_result) { return commit_result.error(); }
