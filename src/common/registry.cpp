@@ -141,8 +141,8 @@ void cleanup_stale_entries() {
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid == 1 && !ipc::is_pid_alive(entries[i].pid)) {
-            entries[i].valid = 0;
+        if (entries[i].valid == entry_valid_flag::valid && !ipc::is_pid_alive(entries[i].pid)) {
+            entries[i].valid = entry_valid_flag::invalid;
         }
     }
 
@@ -181,19 +181,19 @@ Result<Registration> register_sender(
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid == 1 && !ipc::is_pid_alive(entries[i].pid)) {
-            entries[i].valid = 0;
+        if (entries[i].valid == entry_valid_flag::valid && !ipc::is_pid_alive(entries[i].pid)) {
+            entries[i].valid = entry_valid_flag::invalid;
         }
     }
 
-    int slot_index = -1;
+    int slot_index = kSlotNotFound;
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid == 0) {
+        if (entries[i].valid == entry_valid_flag::invalid) {
             slot_index = static_cast<int>(i);
             break;
         }
     }
-    if (slot_index < 0) {
+    if (slot_index == kSlotNotFound) {
         return Error{ErrorCode::ResourceCreationFailed, "no available sender slots"};
     }
 
@@ -205,22 +205,22 @@ Result<Registration> register_sender(
     std::memcpy(entry.shm_name, reg.shm_name, sizeof(entry.shm_name));
     entry.backend = backend;
     entry.pid = ipc::current_pid();
-    entry.valid = 1;
+    entry.valid = entry_valid_flag::valid;
 
     ipc::atomic_store_relaxed(&header->change_counter,
         ipc::atomic_load_relaxed(&header->change_counter) + 1);
 
     auto sender_shm = ipc::shm_create(reg.shm_name, sizeof(SenderSharedState));
     if (!sender_shm.ok()) {
-        entry.valid = 0;
+        entry.valid = entry_valid_flag::invalid;
         return Error{ErrorCode::ResourceCreationFailed, "shm_create failed for sender state"};
     }
 
     auto sender_map = ipc::shm_map(sender_shm.value(), sizeof(SenderSharedState), false);
     if (!sender_map.ok()) {
         ipc::shm_close(sender_shm.value());
-        ipc::shm_unlink(reg.shm_name);
-        entry.valid = 0;
+    ipc::shm_unlink(reg.shm_name);
+    entry.valid = entry_valid_flag::invalid;
         return Error{ErrorCode::ResourceCreationFailed, "shm_map failed for sender state"};
     }
 
@@ -235,7 +235,7 @@ Result<Registration> register_sender(
     state->width = width;
     state->height = height;
     state->format = format;
-    state->ring_size = ring_size < 1 ? 1 : (ring_size > kMaxRingSlots ? kMaxRingSlots : ring_size);
+    state->ring_size = ring_size < kMinimumRingSize ? kMinimumRingSize : (ring_size > kMaxRingSlots ? kMaxRingSlots : ring_size);
 
     ipc::shm_unmap(sender_map.value(), sizeof(SenderSharedState));
     ipc::shm_close(sender_shm.value());
@@ -260,9 +260,9 @@ Result<void> unregister_sender(const char *uuid) {
     bool found = false;
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid == 1 && std::strncmp(entries[i].uuid, uuid, 36) == 0) {
+        if (entries[i].valid == entry_valid_flag::valid && std::strncmp(entries[i].uuid, uuid, 36) == 0) {
             std::memcpy(shm_name, entries[i].shm_name, sizeof(shm_name));
-            entries[i].valid = 0;
+            entries[i].valid = entry_valid_flag::invalid;
             found = true;
             break;
         }

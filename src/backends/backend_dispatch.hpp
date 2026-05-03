@@ -6,6 +6,8 @@
 #include <nozzle/result.hpp>
 #include <nozzle/texture.hpp>
 
+#include "common/shared_state.hpp"
+
 namespace nozzle {
 namespace detail {
 namespace backend {

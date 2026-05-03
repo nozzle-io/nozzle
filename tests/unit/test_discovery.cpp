@@ -39,7 +39,8 @@ TEST_CASE("Discovery: find registered sender", "[discovery]") {
     clear_all_registered_senders();
 
     auto reg_result = registry::register_sender(
-        "discoverable_sender", "test_app", 0, 640, 480, 1, 3);
+        "discoverable_sender", "test_app", 0, 640, 480,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 3);
     REQUIRE(reg_result.ok());
     auto reg = reg_result.value();
 
@@ -78,9 +79,12 @@ TEST_CASE("Discovery: find registered sender", "[discovery]") {
 TEST_CASE("Discovery: multiple senders", "[discovery]") {
     clear_all_registered_senders();
 
-    auto r0 = registry::register_sender("alpha", "app_a", 0, 320, 240, 1, 2);
-    auto r1 = registry::register_sender("beta", "app_b", 0, 640, 480, 2, 3);
-    auto r2 = registry::register_sender("gamma", "app_c", 0, 1280, 720, 3, 4);
+    auto r0 = registry::register_sender("alpha", "app_a", 0, 320, 240,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 2);
+    auto r1 = registry::register_sender("beta", "app_b", 0, 640, 480,
+        static_cast<uint32_t>(nozzle::texture_format::rg8_unorm), 3);
+    auto r2 = registry::register_sender("gamma", "app_c", 0, 1280, 720,
+        static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm), 4);
 
     REQUIRE(r0.ok());
     REQUIRE(r1.ok());
@@ -102,7 +106,8 @@ TEST_CASE("Discovery: enumerate returns correct backend type", "[discovery]") {
     clear_all_registered_senders();
 
     auto reg_result = registry::register_sender(
-        "backend_test", "app", 1, 100, 100, 1, 2);
+        "backend_test", "app", 1, 100, 100,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 2);
     REQUIRE(reg_result.ok());
     auto reg = reg_result.value();
 

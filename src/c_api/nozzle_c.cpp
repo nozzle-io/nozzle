@@ -49,6 +49,7 @@ NozzleBackendType to_c_backend_type(nozzle::backend_type bt) {
         case nozzle::backend_type::d3d11: return NOZZLE_BACKEND_D3D11;
         case nozzle::backend_type::metal: return NOZZLE_BACKEND_METAL;
         case nozzle::backend_type::opengl: return NOZZLE_BACKEND_OPENGL;
+        case nozzle::backend_type::dma_buf: return NOZZLE_BACKEND_DMA_BUF;
         case nozzle::backend_type::unknown:
         default: return NOZZLE_BACKEND_UNKNOWN;
     }
@@ -127,6 +128,27 @@ nozzle::texture_origin to_cpp_origin(NozzleTextureOrigin origin) {
         case NOZZLE_ORIGIN_BOTTOM_LEFT: return nozzle::texture_origin::bottom_left;
     }
     return nozzle::texture_origin::top_left;
+}
+
+NozzleFormatSource to_c_format_source(nozzle::format_source src) {
+    switch (src) {
+        case nozzle::format_source::requested: return NOZZLE_FORMAT_SOURCE_REQUESTED;
+        case nozzle::format_source::caller_hint: return NOZZLE_FORMAT_SOURCE_CALLER_HINT;
+        case nozzle::format_source::native_observed: return NOZZLE_FORMAT_SOURCE_NATIVE_OBSERVED;
+        case nozzle::format_source::registry_metadata: return NOZZLE_FORMAT_SOURCE_UNKNOWN;
+    }
+    return NOZZLE_FORMAT_SOURCE_UNKNOWN;
+}
+
+NozzleNativeFormatKind to_c_native_kind(nozzle::native_format_kind kind) {
+    switch (kind) {
+        case nozzle::native_format_kind::mtl_pixel_format: return NOZZLE_NATIVE_KIND_MTL_PIXEL_FORMAT;
+        case nozzle::native_format_kind::dxgi_format: return NOZZLE_NATIVE_KIND_DXGI_FORMAT;
+        case nozzle::native_format_kind::drm_fourcc: return NOZZLE_NATIVE_KIND_DRM_FOURCC;
+        case nozzle::native_format_kind::gl_internal_format: return NOZZLE_NATIVE_KIND_GL_INTERNAL_FORMAT;
+        case nozzle::native_format_kind::unknown:
+        default: return NOZZLE_NATIVE_KIND_UNKNOWN;
+    }
 }
 
 } // anonymous namespace
@@ -445,6 +467,40 @@ void nozzle_device_destroy(NozzleDevice *device) {
 }
 
 // ========== Pixel Access (CPU) ==========
+
+NozzleErrorCode nozzle_frame_get_resolved_format(
+    NozzleFrame *frame,
+    NozzleResolvedTextureFormat *out_resolved
+) {
+    if (!frame || !out_resolved) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const nozzle::resolved_texture_format *resolved = nullptr;
+    nozzle::resolved_texture_format tmp;
+
+    if (frame->is_writable) {
+        if (!frame->writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
+        tmp = frame->writable->get_texture().resolved();
+        resolved = &tmp;
+    } else {
+        if (!frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
+        tmp = frame->obj->get_texture().resolved();
+        resolved = &tmp;
+    }
+
+    std::memset(out_resolved, 0, sizeof(NozzleResolvedTextureFormat));
+    out_resolved->storage_format = to_c_format(resolved->storage_format);
+    out_resolved->semantic_format = to_c_format(resolved->semantic_format);
+    out_resolved->format_source = to_c_format_source(resolved->source);
+    out_resolved->native_backend = to_c_backend_type(resolved->native.backend);
+    out_resolved->native_kind = to_c_native_kind(resolved->native.kind);
+    out_resolved->native_value = resolved->native.value;
+    out_resolved->channel_order = static_cast<uint32_t>(resolved->cpu_layout.order);
+    out_resolved->component_type = static_cast<uint32_t>(resolved->cpu_layout.component);
+    out_resolved->component_bits = resolved->cpu_layout.component_bits;
+    out_resolved->channel_count = resolved->cpu_layout.channel_count;
+    out_resolved->bytes_per_pixel = resolved->cpu_layout.bytes_per_pixel;
+    return NOZZLE_OK;
+}
 
 NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleFrame *frame,

@@ -60,10 +60,10 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
     bool found_entry = false;
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid != 1) {
+        if (entries[i].valid != detail::entry_valid_flag::valid) {
             continue;
         }
-        if (entries[i].pid == 0) {
+        if (entries[i].pid == detail::kInvalidPid) {
             continue;
         }
         if (!detail::ipc::is_pid_alive(entries[i].pid)) {
@@ -122,6 +122,7 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.info.width = state->width;
     setup.info.height = state->height;
     setup.info.format = static_cast<texture_format>(state->format);
+    setup.info.semantic_format = static_cast<texture_format>(state->semantic_format);
     setup.info.frame_counter = detail::ipc::atomic_load_relaxed(&state->committed_frame);
     detail::ipc::atomic_fence_acquire();
     setup.info.last_update_time_ns = detail::ipc::monotonic_ns();
@@ -259,7 +260,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         detail::ipc::atomic_fence_acquire();
         uint32_t slot = detail::ipc::atomic_load_relaxed(&state->committed_slot);
 
-        if (frame == 0) {
+        if (frame == detail::kInitialFrameNumber) {
             if (desc.timeout_ms > 0) {
                 if (detail::ipc::monotonic_ns() >= deadline) {
                     return Error{ErrorCode::Timeout, "timeout waiting for first frame"};
@@ -297,6 +298,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         info.width = state->width;
         info.height = state->height;
         info.format = static_cast<texture_format>(state->format);
+        info.semantic_format = static_cast<texture_format>(state->semantic_format);
         info.transfer_mode_val = transfer_mode::zero_copy_shared_texture;
         info.sync_mode_val = sync_mode::none;
         info.dropped_frame_count = dropped;

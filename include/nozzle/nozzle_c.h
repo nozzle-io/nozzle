@@ -39,6 +39,7 @@ typedef enum NozzleBackendType {
     NOZZLE_BACKEND_D3D11,
     NOZZLE_BACKEND_METAL,
     NOZZLE_BACKEND_OPENGL,
+    NOZZLE_BACKEND_DMA_BUF,
 } NozzleBackendType;
 
 typedef enum NozzleTextureFormat {
@@ -80,6 +81,21 @@ typedef enum NozzleTextureOrigin {
     NOZZLE_ORIGIN_TOP_LEFT = 0,
     NOZZLE_ORIGIN_BOTTOM_LEFT,
 } NozzleTextureOrigin;
+
+typedef enum NozzleFormatSource {
+    NOZZLE_FORMAT_SOURCE_UNKNOWN = 0,
+    NOZZLE_FORMAT_SOURCE_REQUESTED,
+    NOZZLE_FORMAT_SOURCE_CALLER_HINT,
+    NOZZLE_FORMAT_SOURCE_NATIVE_OBSERVED,
+} NozzleFormatSource;
+
+typedef enum NozzleNativeFormatKind {
+    NOZZLE_NATIVE_KIND_UNKNOWN = 0,
+    NOZZLE_NATIVE_KIND_MTL_PIXEL_FORMAT,
+    NOZZLE_NATIVE_KIND_DXGI_FORMAT,
+    NOZZLE_NATIVE_KIND_DRM_FOURCC,
+    NOZZLE_NATIVE_KIND_GL_INTERNAL_FORMAT,
+} NozzleNativeFormatKind;
 
 // ========== Descriptor Structs ==========
 
@@ -247,6 +263,27 @@ NozzleErrorCode nozzle_texture_wrap(
 );
 
 void nozzle_texture_destroy(NozzleTexture *texture);
+
+// ========== Resolved Format (Read-Only) ==========
+
+typedef struct NozzleResolvedTextureFormat {
+    NozzleTextureFormat storage_format;
+    NozzleTextureFormat semantic_format;
+    NozzleFormatSource format_source;
+    NozzleBackendType native_backend;
+    NozzleNativeFormatKind native_kind;
+    uint32_t native_value;
+    uint32_t channel_order;
+    uint32_t component_type;
+    uint8_t component_bits;
+    uint8_t channel_count;
+    uint8_t bytes_per_pixel;
+} NozzleResolvedTextureFormat;
+
+NozzleErrorCode nozzle_frame_get_resolved_format(
+    NozzleFrame *frame,
+    NozzleResolvedTextureFormat *out_resolved
+);
 
 // ========== Pixel Access (CPU) ==========
 

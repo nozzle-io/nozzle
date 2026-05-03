@@ -365,7 +365,12 @@ Result<texture> create_dmabuf_texture(
     alloc.gbm_bo = nullptr;
     alloc.fd = -1;
 
-    return make_texture_from_backend(native_texture, native_surface, width, height, format);
+    native_format_desc native{};
+    native.backend = backend_type::dma_buf;
+    native.kind = native_format_kind::drm_fourcc;
+    native.value = fourcc;
+
+    return make_texture_from_backend(native_texture, native_surface, width, height, format, 0, &native);
 }
 
 Result<texture> import_dmabuf_texture(
@@ -395,7 +400,12 @@ Result<texture> import_dmabuf_texture(
     void *native_texture = egl_image;
     void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
 
-    return make_texture_from_backend(native_texture, native_surface, width, height, 0);
+    native_format_desc native{};
+    native.backend = backend_type::dma_buf;
+    native.kind = native_format_kind::drm_fourcc;
+    native.value = fourcc;
+
+    return make_texture_from_backend(native_texture, native_surface, width, height, 0, 0, &native);
 }
 
 Result<texture> lookup_dmabuf_texture(
@@ -474,7 +484,12 @@ Result<texture> lookup_dmabuf_texture_with_fds(
     void *native_texture = egl_image;
     void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
 
-    return make_texture_from_backend(native_texture, native_surface, width, height, format);
+    native_format_desc native{};
+    native.backend = backend_type::dma_buf;
+    native.kind = native_format_kind::drm_fourcc;
+    native.value = fourcc;
+
+    return make_texture_from_backend(native_texture, native_surface, width, height, format, 0, &native);
 }
 
 } // namespace nozzle::detail::linux_backend

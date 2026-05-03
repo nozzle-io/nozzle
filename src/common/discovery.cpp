@@ -40,11 +40,11 @@ std::vector<sender_info> enumerate_senders() {
         static_cast<const uint8_t *>(mapped) + sizeof(detail::DirectoryHeader));
 
     for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid != 1) {
+        if (entries[i].valid != detail::entry_valid_flag::valid) {
             continue;
         }
 
-        if (entries[i].pid == 0) {
+        if (entries[i].pid == detail::kInvalidPid) {
             continue;
         }
 

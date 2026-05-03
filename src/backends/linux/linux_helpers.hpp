@@ -105,7 +105,8 @@ texture make_texture_from_backend(
     uint32_t width,
     uint32_t height,
     uint32_t pixel_format,
-    uint8_t channel_swizzle
+    uint8_t channel_swizzle,
+    const native_format_desc *native_desc
 );
 
 void *get_texture_native(const texture &t);

@@ -15,7 +15,9 @@ struct metal_texture_pair {
     uint32_t io_surface_id{0};
     uint32_t width{0};
     uint32_t height{0};
-    uint32_t pixel_format{0};    // MTLPixelFormat as uint32_t
+    uint32_t pixel_format{0};    // observed nozzle format as uint32_t
+    uint32_t fourcc{0};          // IOSurface FourCC (actual observed)
+    uint32_t mtl_pixel_format{0}; // MTLPixelFormat used for creation
 };
 
 Result<metal_texture_pair> create_iosurface_texture(
@@ -63,7 +65,8 @@ texture make_texture_from_backend(
     uint32_t width,
     uint32_t height,
     uint32_t pixel_format,
-    uint8_t channel_swizzle
+    uint8_t channel_swizzle,
+    const native_format_desc *native_desc
 );
 
 void *get_texture_native(const texture &t);

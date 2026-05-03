@@ -186,14 +186,14 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	uint64_t resource_id = detail::backend::get_shared_resource_id(tex);
-	if (resource_id == 0) {
+	if (resource_id == detail::kInvalidSharedResourceId) {
 		return Error{ErrorCode::BackendError,
 			"failed to get shared resource ID from texture"};
 	}
 
 	uint32_t ring_size = impl_->state->ring_size;
-	if (ring_size < 1) {
-		ring_size = 1;
+	if (ring_size < detail::kMinimumRingSize) {
+		ring_size = detail::kMinimumRingSize;
 	}
 
 	uint32_t slot = impl_->next_slot_;
@@ -206,12 +206,13 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	const auto &tex_desc = tex.desc();
 	impl_->state->channel_swizzle = static_cast<uint8_t>(tex_desc.swizzle);
 
-	if (impl_->state->width != tex_desc.width ||
+	if (		impl_->state->width != tex_desc.width ||
 		impl_->state->height != tex_desc.height ||
 		impl_->state->format != static_cast<uint32_t>(tex_desc.format)) {
 		impl_->state->width = tex_desc.width;
 		impl_->state->height = tex_desc.height;
 		impl_->state->format = static_cast<uint32_t>(tex_desc.format);
+		impl_->state->semantic_format = static_cast<uint32_t>(tex_desc.semantic_format);
 	}
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
@@ -233,18 +234,18 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	uint32_t ring_size = impl_->state->ring_size;
-	if (ring_size < 1) {
-		ring_size = 1;
+	if (ring_size < detail::kMinimumRingSize) {
+		ring_size = detail::kMinimumRingSize;
 	}
 
-	int32_t free_slot = -1;
+	int32_t free_slot = detail::kSlotNotFound;
 	for (uint32_t i = 0; i < ring_size; ++i) {
 		if (!impl_->slot_in_use_[i]) {
 			free_slot = static_cast<int32_t>(i);
 			break;
 		}
 	}
-	if (free_slot < 0) {
+	if (free_slot == detail::kSlotNotFound) {
 		return Error{ErrorCode::Timeout,
 			"all ring buffer slots are in use"};
 	}
@@ -296,12 +297,13 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		impl_->ring_textures_[slot] = std::move(tex_result.value());
 
 		texture_format observed_format = impl_->ring_textures_[slot].desc().format;
-		texture_desc actual_desc{tdesc.width, tdesc.height, observed_format, tdesc.swizzle, tdesc.usage};
+		texture_desc actual_desc{tdesc.width, tdesc.height, observed_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 		impl_->slot_in_use_[slot] = true;
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
 		impl_->state->format = static_cast<uint32_t>(observed_format);
+		impl_->state->semantic_format = static_cast<uint32_t>(tdesc.semantic_format);
 		impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
 
 		return detail::make_writable_frame(
@@ -318,9 +320,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
 	impl_->state->format = static_cast<uint32_t>(reused_format);
+	impl_->state->semantic_format = static_cast<uint32_t>(tdesc.semantic_format);
 	impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
 
-	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.swizzle, tdesc.usage};
+	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 
 	return detail::make_writable_frame(
 		std::move(impl_->ring_textures_[slot]),
@@ -342,8 +345,8 @@ Result<void> sender::commit_frame(writable_frame &f) {
 
 	uint32_t slot = detail::get_writable_frame_slot(f);
 	uint32_t ring_size = impl_->state->ring_size;
-	if (ring_size < 1) {
-		ring_size = 1;
+	if (ring_size < detail::kMinimumRingSize) {
+		ring_size = detail::kMinimumRingSize;
 	}
 	if (slot >= ring_size) {
 		return Error{ErrorCode::InvalidArgument,
@@ -351,7 +354,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	}
 
 	uint64_t resource_id = detail::backend::get_shared_resource_id(f.get_texture());
-	if (resource_id == 0) {
+	if (resource_id == detail::kInvalidSharedResourceId) {
 		f = writable_frame{};
 		impl_->slot_in_use_[slot] = false;
 		return Error{ErrorCode::BackendError,
@@ -421,9 +424,9 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 			auto wrapped = detail::backend::wrap_backend_texture(
 				native_texture, surface, width, height, static_cast<uint32_t>(format));
 			auto resource_id = detail::backend::get_shared_resource_id(wrapped);
-			if (resource_id != 0) {
+			if (resource_id != detail::kInvalidSharedResourceId) {
 				uint32_t ring_size = impl_->state->ring_size;
-				if (ring_size < 1) ring_size = 1;
+				if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
 				uint32_t slot = impl_->next_slot_;
 				impl_->next_slot_ = (impl_->next_slot_ + 1) % ring_size;
 				uint64_t frame_number = ++impl_->frame_counter_;
@@ -432,6 +435,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				impl_->state->width = width;
 				impl_->state->height = height;
 				impl_->state->format = static_cast<uint32_t>(wrapped.desc().format);
+				impl_->state->semantic_format = static_cast<uint32_t>(texture_format::unknown);
 				impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 				detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 				detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
@@ -442,15 +446,15 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 
 	{
 		uint32_t ring_size = impl_->state->ring_size;
-		if (ring_size < 1) ring_size = 1;
-		int32_t free_slot = -1;
+		if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
+		int32_t free_slot = detail::kSlotNotFound;
 		for (uint32_t i = 0; i < ring_size; ++i) {
 			if (!impl_->slot_in_use_[i]) {
 				free_slot = static_cast<int32_t>(i);
 				break;
 			}
 		}
-		if (free_slot < 0) {
+		if (free_slot == detail::kSlotNotFound) {
 			return Error{ErrorCode::Timeout, "all ring buffer slots are in use"};
 		}
 		uint32_t slot = static_cast<uint32_t>(free_slot);
@@ -487,10 +491,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		impl_->state->width = width;
 		impl_->state->height = height;
 		impl_->state->format = static_cast<uint32_t>(ring_actual);
+		impl_->state->semantic_format = static_cast<uint32_t>(texture_format::unknown);
 		impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
-		if (resource_id == 0) {
+		if (resource_id == detail::kInvalidSharedResourceId) {
 			impl_->slot_in_use_[slot] = false;
 			return Error{ErrorCode::BackendError, "ring texture has no shared resource"};
 		}

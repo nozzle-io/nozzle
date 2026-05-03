@@ -19,12 +19,16 @@ inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, u
         return pair_result.error();
     }
     auto &pair = pair_result.value();
-    return make_texture_from_backend(pair.mtl_texture, pair.io_surface, pair.width, pair.height, pair.pixel_format);
+    native_format_desc native{};
+    native.backend = backend_type::metal;
+    native.kind = native_format_kind::mtl_pixel_format;
+    native.value = pair.mtl_pixel_format;
+    return make_texture_from_backend(pair.mtl_texture, pair.io_surface, pair.width, pair.height, pair.pixel_format, 0, &native);
 }
 
 inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
     void *surface = get_surface_native(tex);
-    if (!surface) return 0;
+    if (!surface) return detail::kInvalidSharedResourceId;
     return static_cast<uint64_t>(metal::get_iosurface_id(surface));
 }
 

@@ -9,7 +9,7 @@ namespace nozzle {
 class texture;
 
 namespace detail {
-    texture make_texture_from_backend(void *, void *, uint32_t, uint32_t, uint32_t, uint8_t = 0);
+    texture make_texture_from_backend(void *, void *, uint32_t, uint32_t, uint32_t, uint8_t = 0, const native_format_desc * = nullptr);
     void *get_texture_native(const texture &);
     void *get_surface_native(const texture &);
 }
@@ -25,11 +25,12 @@ public:
     texture &operator=(texture &&) noexcept;
 
     const texture_desc &desc() const;
+    const resolved_texture_format &resolved() const;
     texture_layout layout() const;
     bool valid() const;
 
 private:
-    friend texture detail::make_texture_from_backend(void *, void *, uint32_t, uint32_t, uint32_t, uint8_t);
+    friend texture detail::make_texture_from_backend(void *, void *, uint32_t, uint32_t, uint32_t, uint8_t, const native_format_desc *);
     friend void *detail::get_texture_native(const texture &);
     friend void *detail::get_surface_native(const texture &);
     struct Impl;

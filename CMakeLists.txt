@@ -82,6 +82,7 @@ target_sources(nozzle PRIVATE
     src/common/metadata.cpp
     src/common/pixel_access.cpp
     src/common/channel_swizzle.cpp
+    src/common/format_resolve.cpp
     src/c_api/nozzle_c.cpp
 )
 

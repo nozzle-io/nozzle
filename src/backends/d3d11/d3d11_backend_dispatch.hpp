@@ -19,7 +19,7 @@ inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, u
 
 inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
     void *handle = d3d11::get_shared_handle(tex);
-    if (!handle) return 0;
+    if (!handle) return detail::kInvalidSharedResourceId;
     return reinterpret_cast<uint64_t>(handle);
 }
 

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "registry.hpp"
+#include "shared_state.hpp"
 
 #include <nozzle/discovery.hpp>
 #include <nozzle/types.hpp>
@@ -10,6 +11,7 @@
 #include <vector>
 
 namespace registry = nozzle::detail::registry;
+namespace nd = nozzle::detail;
 
 static void clear_all_registered_senders() {
     auto senders = nozzle::enumerate_senders();
@@ -22,7 +24,8 @@ TEST_CASE("Registry: register and unregister sender", "[registry]") {
     clear_all_registered_senders();
 
     auto result = registry::register_sender(
-        "test_sender", "test_app", 0, 1920, 1080, 1, 3);
+        "test_sender", "test_app", 0, 1920, 1080,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 3);
     REQUIRE(result.ok());
 
     auto reg = result.value();
@@ -41,7 +44,7 @@ TEST_CASE("Registry: register and unregister sender", "[registry]") {
         REQUIRE(view.state != nullptr);
         REQUIRE(view.state->width == 1920);
         REQUIRE(view.state->height == 1080);
-        REQUIRE(view.state->format == 1);
+        REQUIRE(view.state->format == static_cast<uint32_t>(nozzle::texture_format::r8_unorm));
         REQUIRE(view.state->ring_size == 3);
         REQUIRE(std::strcmp(view.state->name, "test_sender") == 0);
         REQUIRE(std::strcmp(view.state->application_name, "test_app") == 0);
@@ -63,9 +66,12 @@ TEST_CASE("Registry: register and unregister sender", "[registry]") {
 TEST_CASE("Registry: register multiple senders", "[registry]") {
     clear_all_registered_senders();
 
-    auto r0 = registry::register_sender("sender_alpha", "app", 0, 640, 480, 1, 2);
-    auto r1 = registry::register_sender("sender_beta", "app", 0, 1280, 720, 2, 3);
-    auto r2 = registry::register_sender("sender_gamma", "app", 0, 1920, 1080, 3, 4);
+    auto r0 = registry::register_sender("sender_alpha", "app", 0, 640, 480,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 2);
+    auto r1 = registry::register_sender("sender_beta", "app", 0, 1280, 720,
+        static_cast<uint32_t>(nozzle::texture_format::rg8_unorm), 3);
+    auto r2 = registry::register_sender("sender_gamma", "app", 0, 1920, 1080,
+        static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm), 4);
 
     REQUIRE(r0.ok());
     REQUIRE(r1.ok());
@@ -97,7 +103,8 @@ TEST_CASE("Registry: open sender state", "[registry]") {
     clear_all_registered_senders();
 
     auto result = registry::register_sender(
-        "state_test", "app", 0, 800, 600, 7, 5);
+        "state_test", "app", 0, 800, 600,
+        static_cast<uint32_t>(nozzle::texture_format::rgba16_float), 5);
     REQUIRE(result.ok());
     auto reg = result.value();
 
@@ -110,7 +117,7 @@ TEST_CASE("Registry: open sender state", "[registry]") {
     REQUIRE(view.state->version == nozzle::detail::kSharedMemVersion);
     REQUIRE(view.state->width == 800);
     REQUIRE(view.state->height == 600);
-    REQUIRE(view.state->format == 7);
+    REQUIRE(view.state->format == static_cast<uint32_t>(nozzle::texture_format::rgba16_float));
     REQUIRE(view.state->ring_size == 5);
 
     registry::close_sender_state(view);
@@ -127,10 +134,12 @@ TEST_CASE("Registry: open non-existent sender state", "[registry]") {
 }
 
 TEST_CASE("Registry: register with null arguments", "[registry]") {
-    auto r1 = registry::register_sender(nullptr, "app", 0, 100, 100, 1, 2);
+    auto r1 = registry::register_sender(nullptr, "app", 0, 100, 100,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 2);
     REQUIRE(!r1.ok());
 
-    auto r2 = registry::register_sender("name", nullptr, 0, 100, 100, 1, 2);
+    auto r2 = registry::register_sender("name", nullptr, 0, 100, 100,
+        static_cast<uint32_t>(nozzle::texture_format::r8_unorm), 2);
     REQUIRE(!r2.ok());
 }
 

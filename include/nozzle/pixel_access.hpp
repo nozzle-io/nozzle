@@ -9,11 +9,13 @@ namespace nozzle {
 
 struct mapped_pixels {
     void *data{nullptr};
-    std::ptrdiff_t row_stride_bytes{0};  // positive = downward, negative = upward
+    std::ptrdiff_t row_stride_bytes{0};
     uint32_t width{0};
     uint32_t height{0};
     texture_format format{texture_format::unknown};
     texture_origin origin{texture_origin::top_left};
+    cpu_layout_desc cpu_layout{};
+    format_source source{format_source::requested};
 };
 
 Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin);

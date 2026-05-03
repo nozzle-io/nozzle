@@ -227,6 +227,8 @@ Result<metal_texture_pair> create_iosurface_texture(
         OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
         texture_format observed = from_io_surface_pixel_format(actual_fourcc);
         result.pixel_format = static_cast<uint32_t>(observed != texture_format::unknown ? observed : nozzle_fmt);
+        result.fourcc = static_cast<uint32_t>(actual_fourcc);
+        result.mtl_pixel_format = static_cast<uint32_t>(mtl_format);
 
         return result;
     }
@@ -262,6 +264,10 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
 
         void *surface_ptr = nullptr;
         uint32_t actual_fmt = desc.format;
+        native_format_desc native{};
+        native.backend = backend_type::metal;
+        native.kind = native_format_kind::mtl_pixel_format;
+        native.value = static_cast<uint32_t>(mtl_tex.pixelFormat);
         if (desc.io_surface) {
             IOSurfaceRef surface = (IOSurfaceRef)desc.io_surface;
             CFRetain(surface);
@@ -278,7 +284,8 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
             desc.width,
             desc.height,
             actual_fmt,
-            static_cast<uint8_t>(desc.swizzle)
+            static_cast<uint8_t>(desc.swizzle),
+            &native
         );
     }
 }
@@ -374,12 +381,19 @@ Result<texture> lookup_iosurface_texture(
             }
         }
 
+        native_format_desc native{};
+        native.backend = backend_type::metal;
+        native.kind = native_format_kind::mtl_pixel_format;
+        native.value = static_cast<uint32_t>(mtl_format);
+
         return detail::make_texture_from_backend(
             NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, final_texture),
             (void *)surface,
             width,
             height,
-            static_cast<uint32_t>(observed_fmt)
+            static_cast<uint32_t>(observed_fmt),
+            0,
+            &native
         );
     }
 }

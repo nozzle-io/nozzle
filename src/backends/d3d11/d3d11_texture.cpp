@@ -5,6 +5,8 @@
 #include <nozzle/result.hpp>
 #include <nozzle/texture.hpp>
 
+#include "common/shared_state.hpp"
+
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
@@ -90,12 +92,19 @@ Result<texture> create_shared_texture(
         return Error{ErrorCode::SharedHandleFailed, "Failed to get shared handle"};
     }
 
+    native_format_desc native{};
+    native.backend = backend_type::d3d11;
+    native.kind = native_format_kind::dxgi_format;
+    native.value = static_cast<uint32_t>(dxgi_fmt);
+
     return detail::make_texture_from_backend(
         reinterpret_cast<void *>(texture),
         reinterpret_cast<void *>(shared_handle),
         width,
         height,
-        format
+        format,
+        0,
+        &native
     );
 }
 
@@ -109,7 +118,7 @@ Result<texture> lookup_shared_texture(
     if (!d3d11_device) {
         return Error{ErrorCode::InvalidArgument, "D3D11 device is null"};
     }
-    if (shared_handle_val == 0) {
+    if (shared_handle_val == detail::kInvalidSharedResourceId) {
         return Error{ErrorCode::InvalidArgument, "shared handle is zero"};
     }
 
@@ -125,12 +134,22 @@ Result<texture> lookup_shared_texture(
             "Failed to open shared D3D11 texture"};
     }
 
+    D3D11_TEXTURE2D_DESC tex_desc{};
+    texture->GetDesc(&tex_desc);
+
+    native_format_desc native{};
+    native.backend = backend_type::d3d11;
+    native.kind = native_format_kind::dxgi_format;
+    native.value = static_cast<uint32_t>(tex_desc.Format);
+
     return detail::make_texture_from_backend(
         reinterpret_cast<void *>(texture),
         reinterpret_cast<void *>(shared_handle),
         width,
         height,
-        format
+        format,
+        0,
+        &native
     );
 }
 

@@ -104,21 +104,21 @@ inline auto create_ring_texture(
 inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
     void *surface = detail::get_surface_native(tex);
     if (!surface) {
-        return 0;
+        return detail::kInvalidSharedResourceId;
     }
     int fd = static_cast<int>(reinterpret_cast<intptr_t>(surface));
 
     auto *state = g_sender_state.load(std::memory_order_relaxed);
     if (state) {
         std::lock_guard<std::mutex> lock(state->mutex_);
-        for (uint32_t i = 0; i < 8; ++i) {
+        for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
             if (state->slot_fds_[i] == fd) {
                 return static_cast<uint64_t>(i);
             }
         }
     }
 
-    return 0;
+    return detail::kInvalidSharedResourceId;
 }
 
 inline auto get_native_surface(const texture &tex) -> void * {
@@ -165,7 +165,11 @@ inline auto lookup_texture(
         }
 
         void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
-        return make_texture_from_backend(egl_image, native_surface, width, height, format);
+        native_format_desc native{};
+        native.backend = backend_type::dma_buf;
+        native.kind = native_format_kind::drm_fourcc;
+        native.value = fourcc;
+        return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native);
     }
 
     return Error{ErrorCode::BackendError,
@@ -176,7 +180,12 @@ inline auto wrap_backend_texture(
     void *backend_texture, void *backend_surface,
     uint32_t width, uint32_t height, uint32_t pixel_format
 ) -> texture {
-    return make_texture_from_backend(backend_texture, backend_surface, width, height, pixel_format);
+    uint32_t fourcc = linux_backend::drm_format_from_nozzle(pixel_format);
+    native_format_desc native{};
+    native.backend = backend_type::dma_buf;
+    native.kind = native_format_kind::drm_fourcc;
+    native.value = fourcc;
+    return make_texture_from_backend(backend_texture, backend_surface, width, height, pixel_format, 0, &native);
 }
 
 inline auto get_backend_type() -> backend_type {

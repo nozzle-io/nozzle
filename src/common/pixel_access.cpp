@@ -2,6 +2,7 @@
 
 #include <nozzle/pixel_access.hpp>
 #include <nozzle/result.hpp>
+#include <nozzle/format_resolve.hpp>
 
 #if NOZZLE_PLATFORM_MACOS
 #include <nozzle/backends/metal.hpp>
@@ -23,20 +24,20 @@ uint32_t bytes_per_pixel(texture_format fmt) {
     switch (fmt) {
     case texture_format::r8_unorm: return 1;
     case texture_format::rg8_unorm: return 2;
+    case texture_format::r16_unorm:
+    case texture_format::r16_float: return 2;
     case texture_format::rgba8_unorm:
     case texture_format::bgra8_unorm:
     case texture_format::rgba8_srgb:
     case texture_format::bgra8_srgb:
-    case texture_format::r16_unorm:
-    case texture_format::r16_float: return 4;
+    case texture_format::r32_float:
+    case texture_format::r32_uint: return 4;
     case texture_format::rg16_unorm:
     case texture_format::rg16_float: return 4;
+    case texture_format::rg32_float: return 8;
     case texture_format::rgba16_unorm:
     case texture_format::rgba16_float: return 8;
-    case texture_format::r32_float: return 4;
-    case texture_format::rg32_float: return 8;
-    case texture_format::rgba32_float: return 16;
-    case texture_format::r32_uint: return 4;
+    case texture_format::rgba32_float:
     case texture_format::rgba32_uint: return 16;
     case texture_format::depth32_float: return 4;
     default: return 0;
@@ -74,13 +75,16 @@ Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_or
         actual_fmt = info.format;
     }
 
+    auto resolved = tex.resolved();
+
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, row_bytes, info.width, info.height, actual_fmt, texture_origin::top_left};
+        return mapped_pixels{base, row_bytes, info.width, info.height, actual_fmt, texture_origin::top_left, resolved.cpu_layout, resolved.source};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(info.height - 1) * row_bytes,
             -row_bytes,
-            info.width, info.height, actual_fmt, texture_origin::bottom_left
+            info.width, info.height, actual_fmt, texture_origin::bottom_left,
+            resolved.cpu_layout, resolved.source
         };
     }
 }
@@ -122,13 +126,16 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
         actual_fmt = desc.format;
     }
 
+    auto resolved = tex.resolved();
+
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, row_bytes, desc.width, desc.height, actual_fmt, texture_origin::top_left};
+        return mapped_pixels{base, row_bytes, desc.width, desc.height, actual_fmt, texture_origin::top_left, resolved.cpu_layout, resolved.source};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(desc.height - 1) * row_bytes,
             -row_bytes,
-            desc.width, desc.height, actual_fmt, texture_origin::bottom_left
+            desc.width, desc.height, actual_fmt, texture_origin::bottom_left,
+            resolved.cpu_layout, resolved.source
         };
     }
 }
@@ -186,14 +193,16 @@ Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_or
 
     auto *base = static_cast<uint8_t *>(ptr);
     int64_t stride = static_cast<int64_t>(row_bytes);
+    auto resolved = tex.resolved();
 
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left};
+        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(info.height - 1) * stride,
             -stride,
-            info.width, info.height, info.format, texture_origin::bottom_left
+            info.width, info.height, info.format, texture_origin::bottom_left,
+            resolved.cpu_layout, resolved.source
         };
     }
 }
@@ -234,14 +243,16 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
 
     auto *base = static_cast<uint8_t *>(ptr);
     int64_t stride = static_cast<int64_t>(row_bytes);
+    auto resolved = tex.resolved();
 
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left};
+        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(desc.height - 1) * stride,
             -stride,
-            desc.width, desc.height, desc.format, texture_origin::bottom_left
+            desc.width, desc.height, desc.format, texture_origin::bottom_left,
+            resolved.cpu_layout, resolved.source
         };
     }
 }
@@ -326,14 +337,16 @@ Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_or
     auto info = frm.info();
     auto *base = static_cast<uint8_t *>(mapped.pData);
     int64_t stride = static_cast<int64_t>(mapped.RowPitch);
+    auto resolved = tex.resolved();
 
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left};
+        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(info.height - 1) * stride,
             -stride,
-            info.width, info.height, info.format, texture_origin::bottom_left
+            info.width, info.height, info.format, texture_origin::bottom_left,
+            resolved.cpu_layout, resolved.source
         };
     }
 }
@@ -397,14 +410,16 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     auto desc = frm.desc();
     auto *base = static_cast<uint8_t *>(mapped.pData);
     int64_t stride = static_cast<int64_t>(mapped.RowPitch);
+    auto resolved = tex.resolved();
 
     if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left};
+        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
     } else {
         return mapped_pixels{
             base + static_cast<int64_t>(desc.height - 1) * stride,
             -stride,
-            desc.width, desc.height, desc.format, texture_origin::bottom_left
+            desc.width, desc.height, desc.format, texture_origin::bottom_left,
+            resolved.cpu_layout, resolved.source
         };
     }
 }
