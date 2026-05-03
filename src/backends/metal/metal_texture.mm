@@ -152,10 +152,14 @@ Result<metal_texture_pair> create_iosurface_texture(
         }
 
         auto nozzle_fmt = static_cast<texture_format>(pixel_format);
+        if (nozzle_fmt == texture_format::rgba8_srgb || nozzle_fmt == texture_format::bgra8_srgb) {
+            return Error{
+                ErrorCode::UnsupportedFormat,
+                "sRGB formats are not supported for IOSurface-backed textures in v0.1"
+            };
+        }
         if (nozzle_fmt == texture_format::rgba8_unorm) {
             nozzle_fmt = texture_format::bgra8_unorm;
-        } else if (nozzle_fmt == texture_format::rgba8_srgb) {
-            nozzle_fmt = texture_format::bgra8_srgb;
         }
 
         auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
@@ -315,14 +319,14 @@ Result<texture> lookup_iosurface_texture(
             return Error{ErrorCode::BackendError, "No default Metal device"};
         }
 
-        auto nozzle_fmt = static_cast<texture_format>(pixel_format);
-        if (nozzle_fmt == texture_format::rgba8_unorm) {
-            nozzle_fmt = texture_format::bgra8_unorm;
-        } else if (nozzle_fmt == texture_format::rgba8_srgb) {
-            nozzle_fmt = texture_format::bgra8_srgb;
+        OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
+        texture_format observed_fmt = from_io_surface_pixel_format(surface_fourcc);
+        if (observed_fmt == texture_format::unknown) {
+            CFRelease(surface);
+            return Error{ErrorCode::UnsupportedFormat, "Unknown IOSurface pixel format"};
         }
 
-        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
+        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(observed_fmt));
         if (mtl_format == MTLPixelFormatInvalid) {
             CFRelease(surface);
             return Error{ErrorCode::UnsupportedFormat, "Unsupported nozzle pixel format"};
@@ -370,18 +374,12 @@ Result<texture> lookup_iosurface_texture(
             }
         }
 
-        OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
-        texture_format observed = from_io_surface_pixel_format(actual_fourcc);
-        uint32_t actual_fmt = (observed != texture_format::unknown)
-            ? static_cast<uint32_t>(observed)
-            : pixel_format;
-
         return detail::make_texture_from_backend(
             NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, final_texture),
             (void *)surface,
             width,
             height,
-            actual_fmt
+            static_cast<uint32_t>(observed_fmt)
         );
     }
 }

@@ -157,15 +157,15 @@ bool is_same_cpu_layout(texture_format a, texture_format b) {
             case texture_format::bgra8_unorm: return 3;
             case texture_format::rgba8_srgb:
             case texture_format::bgra8_srgb: return 4;
-            case texture_format::r16_unorm:
-            case texture_format::r16_float: return 5;
-            case texture_format::rg16_unorm:
-            case texture_format::rg16_float: return 6;
-            case texture_format::rgba16_unorm:
-            case texture_format::rgba16_float: return 7;
-            case texture_format::r32_float: return 8;
-            case texture_format::rg32_float: return 9;
-            case texture_format::rgba32_float: return 10;
+            case texture_format::r16_unorm: return 5;
+            case texture_format::r16_float: return 6;
+            case texture_format::rg16_unorm: return 7;
+            case texture_format::rg16_float: return 8;
+            case texture_format::rgba16_unorm: return 9;
+            case texture_format::rgba16_float: return 10;
+            case texture_format::r32_float: return 11;
+            case texture_format::rg32_float: return 12;
+            case texture_format::rgba32_float: return 13;
             default: return 0;
         }
     };
@@ -470,7 +470,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		needs_create = !impl_->ring_textures_[slot].valid() ||
 			impl_->ring_textures_[slot].desc().width != width ||
 			impl_->ring_textures_[slot].desc().height != height ||
-			!is_same_cpu_layout(impl_->ring_textures_[slot].desc().format, format);
+			impl_->ring_textures_[slot].desc().format != format;
 
 		if (needs_create) {
 			auto tex_result = detail::backend::create_ring_texture(
@@ -493,6 +493,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		impl_->state->width = width;
 		impl_->state->height = height;
 		impl_->state->format = static_cast<uint32_t>(actual_fmt);
+		impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
 		if (resource_id == 0) {
