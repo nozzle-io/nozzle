@@ -81,6 +81,7 @@ target_sources(nozzle PRIVATE
     src/common/discovery.cpp
     src/common/metadata.cpp
     src/common/pixel_access.cpp
+    src/common/channel_swizzle.cpp
     src/c_api/nozzle_c.cpp
 )
 
@@ -91,14 +92,17 @@ if(APPLE)
         src/backends/metal/metal_texture.mm
         src/backends/metal/metal_channel_swap.mm
         src/backends/metal/metal_sync.mm
+        src/common/channel_swizzle_vimage.cpp
     )
     find_library(METAL_FRAMEWORK Metal REQUIRED)
     find_library(IOSURFACE_FRAMEWORK IOSurface REQUIRED)
     find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
     target_link_libraries(nozzle PRIVATE
         ${METAL_FRAMEWORK}
         ${IOSURFACE_FRAMEWORK}
         ${FOUNDATION_FRAMEWORK}
+        ${ACCELERATE_FRAMEWORK}
         objc
     )
     enable_language(OBJCXX)

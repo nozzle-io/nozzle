@@ -295,6 +295,17 @@ NozzleErrorCode nozzle_frame_copy_to_gl_texture(
     NozzleTextureFormat format
 );
 
+NozzleErrorCode nozzle_swizzle_channels(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    NozzleTextureFormat format,
+    const uint8_t permute_map[4]
+);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

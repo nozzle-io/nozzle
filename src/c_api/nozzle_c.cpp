@@ -9,6 +9,7 @@
 #include <nozzle/device.hpp>
 #include <nozzle/discovery.hpp>
 #include <nozzle/pixel_access.hpp>
+#include <nozzle/channel_swizzle.hpp>
 
 #if NOZZLE_HAS_OPENGL
 #include <nozzle/backends/opengl.hpp>
@@ -617,6 +618,29 @@ NozzleErrorCode nozzle_texture_wrap(
 
 void nozzle_texture_destroy(NozzleTexture *texture) {
     delete texture;
+}
+
+NozzleErrorCode nozzle_swizzle_channels(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    NozzleTextureFormat format,
+    const uint8_t permute_map[4]
+) {
+    nozzle::channel_permute permute{};
+    std::memcpy(permute.map, permute_map, 4);
+
+    auto result = nozzle::swizzle_channels(
+        src, dst,
+        width, height,
+        src_row_bytes, dst_row_bytes,
+        to_cpp_format(format),
+        permute);
+
+    return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
 }
 
 } // extern "C"
