@@ -171,7 +171,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
             CGLGetCurrentContext(), GL_TEXTURE_2D, GL_RGBA8,
             static_cast<GLsizei>(gl_desc.width),
             static_cast<GLsizei>(gl_desc.height),
-            GL_BGRA, GL_UNSIGNED_BYTE, surface, 0);
+            GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0);
     } else {
         cgl_err = CGLTexImageIOSurface2D(
             CGLGetCurrentContext(), GL_TEXTURE_2D, gl_fmt.internal_format,
