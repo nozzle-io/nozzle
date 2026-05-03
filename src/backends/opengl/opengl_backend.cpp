@@ -51,6 +51,10 @@ namespace {
 #define GL_RG 0x8227
 #endif
 
+#ifndef GL_RGBA32F
+#define GL_RGBA32F 0x8814
+#endif
+
 struct gl_format_mapping {
     uint32_t internal_format;
     uint32_t format;
@@ -67,6 +71,9 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
             return true;
         case texture_format::rgba16_float:
             out = {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT};
+            return true;
+        case texture_format::rgba32_float:
+            out = {GL_RGBA32F, GL_RGBA, GL_FLOAT};
             return true;
         default:
             return false;
