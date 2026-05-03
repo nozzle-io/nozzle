@@ -181,9 +181,11 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 
 	const auto &tex_desc = tex.desc();
 	if (impl_->state->width != tex_desc.width ||
-		impl_->state->height != tex_desc.height) {
+		impl_->state->height != tex_desc.height ||
+		impl_->state->format != static_cast<uint32_t>(tex_desc.format)) {
 		impl_->state->width = tex_desc.width;
 		impl_->state->height = tex_desc.height;
+		impl_->state->format = static_cast<uint32_t>(tex_desc.format);
 	}
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
