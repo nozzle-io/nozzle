@@ -51,8 +51,76 @@ namespace {
 #define GL_RG 0x8227
 #endif
 
+#ifndef GL_RED
+#define GL_RED 0x1903
+#endif
+
 #ifndef GL_RGBA32F
 #define GL_RGBA32F 0x8814
+#endif
+
+#ifndef GL_R8
+#define GL_R8 0x8229
+#endif
+
+#ifndef GL_RG8
+#define GL_RG8 0x822B
+#endif
+
+#ifndef GL_R16F
+#define GL_R16F 0x822D
+#endif
+
+#ifndef GL_RG16F
+#define GL_RG16F 0x822F
+#endif
+
+#ifndef GL_R32F
+#define GL_R32F 0x822E
+#endif
+
+#ifndef GL_RG32F
+#define GL_RG32F 0x8230
+#endif
+
+#ifndef GL_SRGB8_ALPHA8
+#define GL_SRGB8_ALPHA8 0x8C43
+#endif
+
+#ifndef GL_R16
+#define GL_R16 0x822A
+#endif
+
+#ifndef GL_RG16
+#define GL_RG16 0x822C
+#endif
+
+#ifndef GL_RGBA16
+#define GL_RGBA16 0x805B
+#endif
+
+#ifndef GL_R32UI
+#define GL_R32UI 0x8236
+#endif
+
+#ifndef GL_RGBA32UI
+#define GL_RGBA32UI 0x8C70
+#endif
+
+#ifndef GL_RED_INTEGER
+#define GL_RED_INTEGER 0x8D94
+#endif
+
+#ifndef GL_RGBA_INTEGER
+#define GL_RGBA_INTEGER 0x8D99
+#endif
+
+#ifndef GL_UNSIGNED_SHORT
+#define GL_UNSIGNED_SHORT 0x1403
+#endif
+
+#ifndef GL_UNSIGNED_INT
+#define GL_UNSIGNED_INT 0x1405
 #endif
 
 struct gl_format_mapping {
@@ -63,17 +131,56 @@ struct gl_format_mapping {
 
 bool map_format(texture_format fmt, gl_format_mapping &out) {
     switch (fmt) {
+        case texture_format::r8_unorm:
+            out = {GL_R8, GL_RED, GL_UNSIGNED_BYTE};
+            return true;
+        case texture_format::rg8_unorm:
+            out = {GL_RG8, GL_RG, GL_UNSIGNED_BYTE};
+            return true;
         case texture_format::rgba8_unorm:
             out = {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE};
             return true;
         case texture_format::bgra8_unorm:
             out = {GL_RGBA8, GL_BGRA, GL_UNSIGNED_BYTE};
             return true;
+        case texture_format::rgba8_srgb:
+            out = {GL_SRGB8_ALPHA8, GL_RGBA, GL_UNSIGNED_BYTE};
+            return true;
+        case texture_format::bgra8_srgb:
+            out = {GL_SRGB8_ALPHA8, GL_BGRA, GL_UNSIGNED_BYTE};
+            return true;
+        case texture_format::r16_unorm:
+            out = {GL_R16, GL_RED, GL_UNSIGNED_SHORT};
+            return true;
+        case texture_format::rg16_unorm:
+            out = {GL_RG16, GL_RG, GL_UNSIGNED_SHORT};
+            return true;
+        case texture_format::rgba16_unorm:
+            out = {GL_RGBA16, GL_RGBA, GL_UNSIGNED_SHORT};
+            return true;
+        case texture_format::r16_float:
+            out = {GL_R16F, GL_RED, GL_HALF_FLOAT};
+            return true;
+        case texture_format::rg16_float:
+            out = {GL_RG16F, GL_RG, GL_HALF_FLOAT};
+            return true;
         case texture_format::rgba16_float:
             out = {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT};
             return true;
+        case texture_format::r32_float:
+            out = {GL_R32F, GL_RED, GL_FLOAT};
+            return true;
+        case texture_format::rg32_float:
+            out = {GL_RG32F, GL_RG, GL_FLOAT};
+            return true;
         case texture_format::rgba32_float:
             out = {GL_RGBA32F, GL_RGBA, GL_FLOAT};
+            return true;
+        case texture_format::r32_uint:
+            out = {GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT};
+            return true;
+        case texture_format::rgba32_uint:
+            out = {GL_RGBA32UI, GL_RGBA_INTEGER, GL_UNSIGNED_INT};
             return true;
         default:
             return false;
@@ -82,21 +189,25 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
 
 uint32_t gl_type_size(uint32_t gl_type) {
     switch (gl_type) {
-        case GL_UNSIGNED_BYTE: return 1;
-        case GL_HALF_FLOAT:    return 2;
-        case GL_FLOAT:         return 4;
-        default:               return 0;
+        case GL_UNSIGNED_BYTE:  return 1;
+        case GL_UNSIGNED_SHORT: return 2;
+        case GL_HALF_FLOAT:     return 2;
+        case GL_FLOAT:          return 4;
+        case GL_UNSIGNED_INT:   return 4;
+        default:                return 0;
     }
 }
 
 uint32_t gl_format_components(uint32_t gl_format) {
     switch (gl_format) {
-        case GL_RED:  return 1;
-        case GL_RG:   return 2;
-        case GL_RGB:  return 3;
-        case GL_RGBA: return 4;
-        case GL_BGRA: return 4;
-        default:      return 0;
+        case GL_RED:
+        case GL_RED_INTEGER:    return 1;
+        case GL_RG:             return 2;
+        case GL_RGB:            return 3;
+        case GL_RGBA:
+        case GL_BGRA:
+        case GL_RGBA_INTEGER:   return 4;
+        default:                return 0;
     }
 }
 
@@ -148,7 +259,10 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     // Since CGL binding always uses GL_BGRA, GL packs colors as BGRA into the
     // BGRA IOSurface — bytes are already correct after blit. No swap needed.
     texture_format publish_format = gl_desc.format;
-    if (gl_desc.format == texture_format::rgba8_unorm) {
+    if (gl_desc.format == texture_format::rgba8_unorm ||
+        gl_desc.format == texture_format::rgba8_srgb) {
+        publish_format = texture_format::bgra8_unorm;
+    } else if (gl_desc.format == texture_format::bgra8_srgb) {
         publish_format = texture_format::bgra8_unorm;
     }
 
