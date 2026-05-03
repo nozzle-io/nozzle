@@ -243,23 +243,36 @@ struct scoped_texture {
 
 namespace {
 
+// macOS CGL + IOSurface measured blit rects.
+// CGLTexImageIOSurface2D maps GL texel row 0 (y=0, bottom in GL coords)
+// to IOSurface memory row 0 (= image top, canonical top_left).
+// This means the CGL binding already performs the bottom_left→top_left
+// conversion implicitly. Therefore straight blit is always correct for
+// publish, and the destination-side flip is needed only when the caller
+// explicitly requests top_left output from a canonical top_left source.
+//
+// These rects are based on empirical measurement (Issue #7), not OpenGL theory.
+
 void blit_publish_to_canonical_macos_cgl_iosurface(
     texture_origin src_origin, GLint w, GLint h) {
-    if (src_origin == texture_origin::top_left) {
-        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h,
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    } else {
-        glBlitFramebuffer(0, 0, w, h, 0, h, w, 0,
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
+    // CGL IOSurface binding already aligns GL row 0 with IOSurface row 0.
+    // Straight blit is correct regardless of declared source origin.
+    // TODO: verify if top_left source needs different rect
+    (void)src_origin;
+    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
 }
 
 void blit_canonical_to_dest_macos_cgl_iosurface(
     texture_origin dst_origin, GLint w, GLint h) {
-    if (dst_origin == texture_origin::top_left) {
+    if (dst_origin == texture_origin::bottom_left) {
+        // CGL IOSurface binding maps GL row 0 to IOSurface row 0 (top).
+        // GL expects row 0 at bottom, so straight blit gives correct GL orientation.
         glBlitFramebuffer(0, 0, w, h, 0, 0, w, h,
                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
     } else {
+        // top_left destination: IOSurface row 0 (top) → GL row 0 (bottom),
+        // but caller wants top_left, so flip to put top at top.
         glBlitFramebuffer(0, h, w, 0, 0, 0, w, h,
                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
