@@ -304,65 +304,25 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
         return Error{ErrorCode::BackendError, "CGLTexImageIOSurface2D failed"};
     }
 
-    scoped_fbo fbos;
-
     auto src_w = static_cast<GLint>(gl_desc.width);
     auto src_h = static_cast<GLint>(gl_desc.height);
 
-    // glBlitFramebuffer requires identical internal formats on macOS.
-    // GL_RGB8 (3ch) → GL_RGBA8 (4ch) IOSurface produces incorrect results.
-    // Detect non-RGBA8 source and use CPU readback with Y-flip.
-    bool needs_cpu_copy = false;
-    if (publish_format == texture_format::bgra8_unorm) {
-        GLint src_fmt = 0;
-        glBindTexture(gl_desc.target, gl_desc.name);
-        glGetTexLevelParameteriv(gl_desc.target, 0, GL_TEXTURE_INTERNAL_FORMAT, &src_fmt);
-        needs_cpu_copy = (src_fmt != GL_RGBA8 && src_fmt != GL_SRGB8_ALPHA8);
-    }
+    scoped_fbo fbos;
 
-    if (needs_cpu_copy) {
-        size_t row_bytes = static_cast<size_t>(gl_desc.width) * 4;
-        std::vector<uint8_t> pixels(static_cast<size_t>(gl_desc.width) * gl_desc.height * 4);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbos.read_fbo);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           gl_desc.target, gl_desc.name, 0);
 
-        GLint prev_pack = 0;
-        glGetIntegerv(GL_PACK_ALIGNMENT, &prev_pack);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glBindTexture(gl_desc.target, gl_desc.name);
-        glGetTexImage(gl_desc.target, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, pixels.data());
-        glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos.draw_fbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_RECTANGLE_ARB, io_tex.name, 0);
 
-        glBindTexture(GL_TEXTURE_RECTANGLE_ARB, io_tex.name);
-        GLint prev_unpack = 0;
-        glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_unpack);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBlitFramebuffer(0, 0, src_w, src_h,
+                      0, src_h, src_w, 0,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        for (GLint y = 0; y < src_h; ++y) {
-            glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0,
-                0, src_h - 1 - y, src_w, 1,
-                GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
-                pixels.data() + y * row_bytes);
-        }
-
-        glPixelStorei(GL_UNPACK_ALIGNMENT, prev_unpack);
-    } else {
-        scoped_fbo fbos;
-
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbos.read_fbo);
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               gl_desc.target, gl_desc.name, 0);
-
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos.draw_fbo);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_RECTANGLE_ARB, io_tex.name, 0);
-
-        glBlitFramebuffer(0, 0, src_w, src_h,
-                          0, src_h, src_w, 0,
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    }
-
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glFlush();
 
     auto commit_result = snd.commit_frame(wframe);
