@@ -18,16 +18,21 @@ set(UNIT_TEST_SOURCES
     unit/test_channel_swizzle.cpp
     unit/test_format_resolve.cpp
     unit/test_resolved_format.cpp
+    unit/test_format_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp
     ${CMAKE_SOURCE_DIR}/src/common/channel_swizzle.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_resolve.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/format_convert.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/format_convert_sse2.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/format_convert_neon.cpp
 )
 
 if(APPLE)
     list(APPEND UNIT_TEST_SOURCES
         ${CMAKE_SOURCE_DIR}/src/common/channel_swizzle_vimage.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/format_convert_vimage.cpp
     )
 endif()
 

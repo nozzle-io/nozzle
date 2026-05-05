@@ -10,6 +10,7 @@
 #include <nozzle/discovery.hpp>
 #include <nozzle/pixel_access.hpp>
 #include <nozzle/channel_swizzle.hpp>
+#include <nozzle/format_convert.hpp>
 
 #if NOZZLE_HAS_OPENGL
 #include <nozzle/backends/opengl.hpp>
@@ -705,6 +706,34 @@ NozzleErrorCode nozzle_swizzle_channels(
         to_cpp_format(format),
         permute);
 
+    return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
+}
+
+NozzleErrorCode nozzle_widen_uint16_to_uint32(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    uint32_t channels
+) {
+    auto result = nozzle::widen_uint16_to_uint32(
+        src, dst, width, height, src_row_bytes, dst_row_bytes, channels);
+    return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
+}
+
+NozzleErrorCode nozzle_convert_uint32_to_float32(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    uint32_t channels
+) {
+    auto result = nozzle::convert_uint32_to_float32(
+        src, dst, width, height, src_row_bytes, dst_row_bytes, channels);
     return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
 }
 

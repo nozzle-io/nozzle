@@ -82,8 +82,15 @@ target_sources(nozzle PRIVATE
     src/common/metadata.cpp
     src/common/pixel_access.cpp
     src/common/channel_swizzle.cpp
+    src/common/format_convert.cpp
     src/common/format_resolve.cpp
     src/c_api/nozzle_c.cpp
+)
+
+# --- Architecture-specific SIMD sources ( guards inside each file) ---
+target_sources(nozzle PRIVATE
+    src/common/format_convert_sse2.cpp
+    src/common/format_convert_neon.cpp
 )
 
 # --- Platform-specific sources ---
@@ -94,6 +101,7 @@ if(APPLE)
         src/backends/metal/metal_channel_swap.mm
         src/backends/metal/metal_sync.mm
         src/common/channel_swizzle_vimage.cpp
+        src/common/format_convert_vimage.cpp
     )
     find_library(METAL_FRAMEWORK Metal REQUIRED)
     find_library(IOSURFACE_FRAMEWORK IOSurface REQUIRED)

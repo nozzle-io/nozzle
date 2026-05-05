@@ -343,6 +343,26 @@ NozzleErrorCode nozzle_swizzle_channels(
     const uint8_t permute_map[4]
 );
 
+NozzleErrorCode nozzle_widen_uint16_to_uint32(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    uint32_t channels
+);
+
+NozzleErrorCode nozzle_convert_uint32_to_float32(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    uint32_t channels
+);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
