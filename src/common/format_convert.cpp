@@ -103,7 +103,7 @@ static float half_to_float_scalar(uint16_t h) {
 		mantissa &= 0x3FF;
 		exp = static_cast<uint32_t>(static_cast<int32_t>(exp) + 127 - 15);
 	} else if (exp == 0x1F) {
-		uint32_t f = sign | (127 + 16) << 23 | (mantissa << 13);
+		uint32_t f = sign | (0xFFu << 23) | (mantissa << 13);
 		float result;
 		std::memcpy(&result, &f, sizeof(result));
 		return result;
