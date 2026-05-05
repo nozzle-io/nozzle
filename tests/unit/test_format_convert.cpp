@@ -4,6 +4,7 @@
 #include <nozzle/format_convert.hpp>
 #include <nozzle/types.hpp>
 
+#include <cmath>
 #include <cstring>
 #include <vector>
 
