@@ -19,7 +19,7 @@ constexpr uint32_t kDirectoryMagic = 0x4E5A4431;
 constexpr uint32_t kSenderMagic = 0x4E5A5331;
 constexpr uint32_t kMaxSenders = 64;
 constexpr uint32_t kMaxRingSlots = 8;
-constexpr uint64_t kSharedMemVersion = 2;
+constexpr uint64_t kSharedMemVersion = 3;
 
 constexpr resource_id64 kInvalidSharedResourceId = 0;
 constexpr process_id64 kInvalidPid = 0;

@@ -115,6 +115,13 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.sender_pid = dir_entry.value().pid;
 
     auto *state = setup.state_view.state;
+    if (state->version != detail::kSharedMemVersion) {
+        return Error{ErrorCode::BackendError,
+            "sender shared memory version mismatch: expected " +
+            std::to_string(detail::kSharedMemVersion) +
+            ", got " + std::to_string(state->version)};
+    }
+
     setup.info.name = state->name;
     setup.info.application_name = state->application_name;
     setup.info.id = state->uuid;
@@ -139,17 +146,13 @@ Result<texture> create_texture_from_slot(
             "sender uses a different backend than receiver"};
     }
     const auto &s = state->slots[slot];
-    uint32_t tex_width = s.width != 0 ? s.width : state->width;
-    uint32_t tex_height = s.height != 0 ? s.height : state->height;
-    uint32_t tex_format = s.format != 0 ? s.format : state->format;
-    uint8_t tex_swizzle = s.channel_swizzle != 0 ? s.channel_swizzle : state->channel_swizzle;
     return detail::backend::lookup_texture(
         nullptr,
         s.shared_resource_id,
-        tex_width,
-        tex_height,
-        tex_format,
-        tex_swizzle);
+        s.width,
+        s.height,
+        s.format,
+        s.channel_swizzle);
 }
 
 } // anonymous namespace
@@ -301,10 +304,10 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         info.frame_index = frame;
         info.timestamp_ns = detail::ipc::monotonic_ns();
         const auto &si = state->slots[slot];
-        info.width = si.width != 0 ? si.width : state->width;
-        info.height = si.height != 0 ? si.height : state->height;
-        info.format = static_cast<texture_format>(si.format != 0 ? si.format : state->format);
-        info.semantic_format = static_cast<texture_format>(si.semantic_format != 0 ? si.semantic_format : state->semantic_format);
+        info.width = si.width;
+        info.height = si.height;
+        info.format = static_cast<texture_format>(si.format);
+        info.semantic_format = static_cast<texture_format>(si.semantic_format);
         info.transfer_mode_val = transfer_mode::zero_copy_shared_texture;
         info.sync_mode_val = sync_mode::none;
         info.dropped_frame_count = dropped;
