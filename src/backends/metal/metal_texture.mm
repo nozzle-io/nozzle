@@ -78,6 +78,10 @@ static bool map_pixel_format(
             out_iosurface_pf = '2C16'; // kCVPixelFormatType_TwoComponent16
             out_bytes_per_element = 4;
             return true;
+        case MTLPixelFormatRGBA16Unorm:
+            out_iosurface_pf = 'RGhA'; // same layout as RGBA16Float
+            out_bytes_per_element = 8;
+            return true;
         case MTLPixelFormatR16Float:
             out_iosurface_pf = 'L00h'; // kCVPixelFormatType_OneComponent16Half
             out_bytes_per_element = 2;

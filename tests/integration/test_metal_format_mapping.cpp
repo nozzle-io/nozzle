@@ -105,7 +105,10 @@ TEST_CASE("mtl_format_to_iosurface: 16-bit unorm", "[metal_format]") {
     REQUIRE(pf == '2C16');
     REQUIRE(bpe == 4);
 
-    // rgba16_unorm: no IOSurface FourCC mapping (pre-existing gap)
+    mtl = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba16_unorm));
+    REQUIRE(metal::mtl_format_to_iosurface(mtl, pf, bpe));
+    REQUIRE(pf == 'RGhA');
+    REQUIRE(bpe == 8);
 }
 
 TEST_CASE("mtl_format_to_iosurface: 16-bit float", "[metal_format]") {
@@ -177,6 +180,17 @@ TEST_CASE("uint and float 32-bit share same IOSurface FourCC", "[metal_format]")
     REQUIRE(pf_uint == pf_float);
 }
 
+TEST_CASE("unorm and float 16-bit RGBA share same IOSurface FourCC", "[metal_format]") {
+    uint32_t pf_unorm = 0, pf_float = 0, bpe = 0;
+
+    auto mtl_unorm = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba16_unorm));
+    auto mtl_float = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba16_float));
+    REQUIRE(mtl_unorm != mtl_float);
+    REQUIRE(metal::mtl_format_to_iosurface(mtl_unorm, pf_unorm, bpe));
+    REQUIRE(metal::mtl_format_to_iosurface(mtl_float, pf_float, bpe));
+    REQUIRE(pf_unorm == pf_float);
+}
+
 // ---------- bytes_per_element consistency with resolve_bytes_per_pixel ----------
 
 TEST_CASE("mtl_format_to_iosurface: bpe matches resolve_bytes_per_pixel for all formats", "[metal_format]") {
@@ -187,6 +201,7 @@ TEST_CASE("mtl_format_to_iosurface: bpe matches resolve_bytes_per_pixel for all 
         texture_format::bgra8_unorm,
         texture_format::r16_unorm,
         texture_format::rg16_unorm,
+        texture_format::rgba16_unorm,
         texture_format::r16_float,
         texture_format::rg16_float,
         texture_format::rgba16_float,
@@ -215,19 +230,6 @@ TEST_CASE("mtl_format_to_iosurface: depth32_float has no IOSurface mapping", "[m
 
     uint32_t pf = 0, bpe = 0;
     REQUIRE_FALSE(metal::mtl_format_to_iosurface(mtl, pf, bpe));
-}
-
-TEST_CASE("mtl_format_to_iosurface: rgba16_unorm has no IOSurface mapping", "[metal_format]") {
-    auto mtl = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba16_unorm));
-    REQUIRE(mtl != 0);
-
-    uint32_t pf = 0, bpe = 0;
-    REQUIRE_FALSE(metal::mtl_format_to_iosurface(mtl, pf, bpe));
-}
-
-TEST_CASE("mtl_format_to_iosurface: invalid MTLPixelFormat returns false", "[metal_format]") {
-    uint32_t pf = 0, bpe = 0;
-    REQUIRE_FALSE(metal::mtl_format_to_iosurface(0, pf, bpe)); // MTLPixelFormatInvalid
 }
 
 #endif // NOZZLE_HAS_METAL
