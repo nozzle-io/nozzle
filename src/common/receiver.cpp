@@ -138,13 +138,14 @@ Result<texture> create_texture_from_slot(
         return Error{ErrorCode::BackendError,
             "sender uses a different backend than receiver"};
     }
+    const auto &s = state->slots[slot];
     return detail::backend::lookup_texture(
         nullptr,
-        state->slots[slot].shared_resource_id,
-        state->width,
-        state->height,
-        state->format,
-        state->channel_swizzle);
+        s.shared_resource_id,
+        s.width,
+        s.height,
+        s.format,
+        s.channel_swizzle);
 }
 
 } // anonymous namespace
@@ -295,10 +296,10 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         frame_info info{};
         info.frame_index = frame;
         info.timestamp_ns = detail::ipc::monotonic_ns();
-        info.width = state->width;
-        info.height = state->height;
-        info.format = static_cast<texture_format>(state->format);
-        info.semantic_format = static_cast<texture_format>(state->semantic_format);
+        info.width = state->slots[slot].width;
+        info.height = state->slots[slot].height;
+        info.format = static_cast<texture_format>(state->slots[slot].format);
+        info.semantic_format = static_cast<texture_format>(state->slots[slot].semantic_format);
         info.transfer_mode_val = transfer_mode::zero_copy_shared_texture;
         info.sync_mode_val = sync_mode::none;
         info.dropped_frame_count = dropped;

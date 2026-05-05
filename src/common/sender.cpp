@@ -204,7 +204,11 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	impl_->state->slots[slot].shared_resource_id = resource_id;
 
 	const auto &tex_desc = tex.desc();
-	impl_->state->channel_swizzle = static_cast<uint8_t>(tex_desc.swizzle);
+	impl_->state->slots[slot].width = tex_desc.width;
+	impl_->state->slots[slot].height = tex_desc.height;
+	impl_->state->slots[slot].format = static_cast<uint32_t>(tex_desc.format);
+	impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(tex_desc.semantic_format);
+	impl_->state->slots[slot].channel_swizzle = static_cast<uint8_t>(tex_desc.swizzle);
 
 	if (		impl_->state->width != tex_desc.width ||
 		impl_->state->height != tex_desc.height ||
@@ -365,6 +369,11 @@ Result<void> sender::commit_frame(writable_frame &f) {
 
 	impl_->state->slots[slot].frame_number = frame_number;
 	impl_->state->slots[slot].shared_resource_id = resource_id;
+	impl_->state->slots[slot].width = impl_->state->width;
+	impl_->state->slots[slot].height = impl_->state->height;
+	impl_->state->slots[slot].format = impl_->state->format;
+	impl_->state->slots[slot].semantic_format = impl_->state->semantic_format;
+	impl_->state->slots[slot].channel_swizzle = impl_->state->channel_swizzle;
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
@@ -432,6 +441,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				uint64_t frame_number = ++impl_->frame_counter_;
 				impl_->state->slots[slot].frame_number = frame_number;
 				impl_->state->slots[slot].shared_resource_id = resource_id;
+				impl_->state->slots[slot].width = width;
+				impl_->state->slots[slot].height = height;
+				impl_->state->slots[slot].format = static_cast<uint32_t>(wrapped.desc().format);
+				impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(texture_format::unknown);
+				impl_->state->slots[slot].channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 				impl_->state->width = width;
 				impl_->state->height = height;
 				impl_->state->format = static_cast<uint32_t>(wrapped.desc().format);
@@ -501,8 +515,14 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		}
 
 		uint64_t frame_number = ++impl_->frame_counter_;
+
 		impl_->state->slots[slot].frame_number = frame_number;
 		impl_->state->slots[slot].shared_resource_id = resource_id;
+		impl_->state->slots[slot].width = width;
+		impl_->state->slots[slot].height = height;
+		impl_->state->slots[slot].format = static_cast<uint32_t>(ring_actual);
+		impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(texture_format::unknown);
+		impl_->state->slots[slot].channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 		impl_->slot_in_use_[slot] = false;
