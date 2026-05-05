@@ -47,6 +47,7 @@ If you encounter problems, please do not become angry; instead, contributions in
 | nozzle-TOP (TouchDesigner plugins) | Done (macOS, Windows) |
 | obs-nozzle (OBS Studio plugin) | Done (macOS, Windows, Linux) |
 | blender-nozzle (Blender addon) | Done (macOS, Windows, Linux) |
+| nozzle.zig (Zig) | Done (macOS, Windows, Linux) |
 | nozzle.unity (Unity plugin) | Postponed |
 | nozzle.wasm (WebAssembly) | Pended |
 
