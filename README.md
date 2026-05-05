@@ -20,7 +20,7 @@ If you encounter problems, please do not become angry; instead, contributions in
 - Named sender/receiver model with discovery
 - Metal/IOSurface backend (macOS), D3D11 backend (Windows), DMA-BUF backend (Linux)
 - OpenGL interop (copy-based: GL↔IOSurface on macOS, GL↔D3D11 staging on Windows)
-- High-precision texture formats (R32F, RGBA16F, RGBA32F, etc.)
+- High-precision texture formats (R8, R8G8, RGBA8, R16, RGBA16, R32, R32F, RGBA16F, RGBA32F, etc.)
 - C++ API with `Result<T>` error handling (no exceptions)
 - C ABI (`nozzle_c.h`) for plugin/host integration
 - Zero runtime dependencies (C++17 STL + OS frameworks only)
@@ -37,8 +37,8 @@ If you encounter problems, please do not become angry; instead, contributions in
 | Linux DMA-BUF backend | Done |
 | OpenGL interop (macOS + Windows) | Done |
 | C ABI wrapper | Done |
-| Unit tests (11 cases) | Passing |
-| Integration tests (9 cases) | Passing |
+| Unit tests (67 cases) | Passing |
+| Integration tests (27 cases) | Passing |
 | py.nozzle (Python, nanobind) | Done (macOS, Windows, Linux) |
 | nozzle.swift (Swift, SPM) | Done (macOS) |
 | nozzle.rs (Rust, cargo) | Done (macOS, Windows, Linux) |
