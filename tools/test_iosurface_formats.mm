@@ -28,6 +28,10 @@ static const format_test tests[] = {
     {"R32Float",      kCVPixelFormatType_OneComponent32Float, MTLPixelFormatR32Float,   4},
     {"RG32Float",     kCVPixelFormatType_TwoComponent32Float, MTLPixelFormatRG32Float,  8},
     {"RGBA32Float",   kCVPixelFormatType_128RGBAFloat,     MTLPixelFormatRGBA32Float, 16},
+
+    // Uint: same IOSurface FourCC as float counterparts (same byte layout)
+    {"R32Uint",       kCVPixelFormatType_OneComponent32Float, MTLPixelFormatR32Uint,    4},
+    {"RGBA32Uint",    kCVPixelFormatType_128RGBAFloat,        MTLPixelFormatRGBA32Uint, 16},
 };
 
 int main() {

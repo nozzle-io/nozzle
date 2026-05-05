@@ -72,6 +72,12 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_cross_process.cpp
 )
 
+if(APPLE)
+    list(APPEND INTEGRATION_TEST_SOURCES
+        integration/test_metal_format_mapping.cpp
+    )
+endif()
+
 add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
 
 if(APPLE)

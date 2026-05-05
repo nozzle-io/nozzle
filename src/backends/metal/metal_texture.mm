@@ -102,6 +102,14 @@ static bool map_pixel_format(
             out_iosurface_pf = 'RGfA'; // kCVPixelFormatType_128RGBAFloat
             out_bytes_per_element = 16;
             return true;
+        case MTLPixelFormatR32Uint:
+            out_iosurface_pf = 'L00f'; // same layout as R32Float
+            out_bytes_per_element = 4;
+            return true;
+        case MTLPixelFormatRGBA32Uint:
+            out_iosurface_pf = 'RGfA'; // same layout as RGBA32Float
+            out_bytes_per_element = 16;
+            return true;
         default:
             return false;
     }
@@ -225,8 +233,7 @@ Result<metal_texture_pair> create_iosurface_texture(
         result.height = height;
 
         OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
-        texture_format observed = from_io_surface_pixel_format(actual_fourcc);
-        result.pixel_format = static_cast<uint32_t>(observed != texture_format::unknown ? observed : nozzle_fmt);
+        result.pixel_format = static_cast<uint32_t>(nozzle_fmt);
         result.fourcc = static_cast<uint32_t>(actual_fourcc);
         result.mtl_pixel_format = static_cast<uint32_t>(mtl_format);
 
@@ -327,13 +334,17 @@ Result<texture> lookup_iosurface_texture(
         }
 
         OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
-        texture_format observed_fmt = from_io_surface_pixel_format(surface_fourcc);
-        if (observed_fmt == texture_format::unknown) {
+        texture_format nozzle_fmt = static_cast<texture_format>(pixel_format);
+
+        if (nozzle_fmt == texture_format::unknown) {
+            nozzle_fmt = from_io_surface_pixel_format(surface_fourcc);
+        }
+        if (nozzle_fmt == texture_format::unknown) {
             CFRelease(surface);
             return Error{ErrorCode::UnsupportedFormat, "Unknown IOSurface pixel format"};
         }
 
-        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(observed_fmt));
+        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
         if (mtl_format == MTLPixelFormatInvalid) {
             CFRelease(surface);
             return Error{ErrorCode::UnsupportedFormat, "Unsupported nozzle pixel format"};
@@ -391,7 +402,7 @@ Result<texture> lookup_iosurface_texture(
             (void *)surface,
             width,
             height,
-            static_cast<uint32_t>(observed_fmt),
+            static_cast<uint32_t>(nozzle_fmt),
             0,
             &native
         );
