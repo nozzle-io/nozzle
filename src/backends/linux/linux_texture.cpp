@@ -151,21 +151,26 @@ uint32_t drm_format_from_nozzle(uint32_t nozzle_format) {
     switch (static_cast<texture_format>(nozzle_format)) {
         case texture_format::r8_unorm:         return DRM_FORMAT_R8;
         case texture_format::rg8_unorm:        return DRM_FORMAT_RG88;
+        case texture_format::rgb8_unorm:       return DRM_FORMAT_RGB888;
         case texture_format::rgba8_unorm:      return DRM_FORMAT_RGBA8888;
         case texture_format::bgra8_unorm:      return DRM_FORMAT_BGRA8888;
         case texture_format::rgba8_srgb:       return DRM_FORMAT_RGBA8888;
         case texture_format::bgra8_srgb:       return DRM_FORMAT_BGRA8888;
         case texture_format::r16_unorm:        return DRM_FORMAT_R16;
         case texture_format::rg16_unorm:       return DRM_FORMAT_RG1616;
+        case texture_format::rgb16_unorm:      return DRM_FORMAT_RGBA16161616;
         case texture_format::rgba16_unorm:     return DRM_FORMAT_RGBA16161616;
         case texture_format::r16_float:        return DRM_FORMAT_R16;
         case texture_format::rg16_float:       return DRM_FORMAT_RG1616;
+        case texture_format::rgb16_float:      return DRM_FORMAT_RGBA16161616;
         case texture_format::rgba16_float:     return DRM_FORMAT_RGBA16161616;
         case texture_format::r32_float:        return DRM_FORMAT_R32;
         case texture_format::rg32_float:       return DRM_FORMAT_RG3232;
+        case texture_format::rgb32_float:      return DRM_FORMAT_RGBA32323232;
         case texture_format::rgba32_float:     return DRM_FORMAT_RGBA32323232;
         case texture_format::r32_uint:         return DRM_FORMAT_R32;
         case texture_format::rgba32_uint:      return DRM_FORMAT_RGBA32323232;
+        case texture_format::rgb32_uint:       return DRM_FORMAT_RGBA32323232;
         default:                               return DRM_FORMAT_INVALID;
     }
 }

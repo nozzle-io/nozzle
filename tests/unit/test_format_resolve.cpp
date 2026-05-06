@@ -141,15 +141,62 @@ TEST_CASE("resolve_cpu_layout: unknown returns zeroed", "[format_resolve]") {
     REQUIRE(l.bytes_per_pixel == 0);
 }
 
+TEST_CASE("resolve_cpu_layout: rgb8_unorm", "[format_resolve]") {
+    auto l = resolve_cpu_layout(texture_format::rgb8_unorm);
+    REQUIRE(l.order == channel_order::rgb);
+    REQUIRE(l.component == component_type::unorm);
+    REQUIRE(l.component_bits == 8);
+    REQUIRE(l.channel_count == 3);
+    REQUIRE(l.bytes_per_pixel == 3);
+}
+
+TEST_CASE("resolve_cpu_layout: rgb16_unorm", "[format_resolve]") {
+    auto l = resolve_cpu_layout(texture_format::rgb16_unorm);
+    REQUIRE(l.order == channel_order::rgb);
+    REQUIRE(l.component == component_type::unorm);
+    REQUIRE(l.component_bits == 16);
+    REQUIRE(l.channel_count == 3);
+    REQUIRE(l.bytes_per_pixel == 6);
+}
+
+TEST_CASE("resolve_cpu_layout: rgb16_float", "[format_resolve]") {
+    auto l = resolve_cpu_layout(texture_format::rgb16_float);
+    REQUIRE(l.order == channel_order::rgb);
+    REQUIRE(l.component == component_type::floating);
+    REQUIRE(l.component_bits == 16);
+    REQUIRE(l.channel_count == 3);
+    REQUIRE(l.bytes_per_pixel == 6);
+}
+
+TEST_CASE("resolve_cpu_layout: rgb32_float", "[format_resolve]") {
+    auto l = resolve_cpu_layout(texture_format::rgb32_float);
+    REQUIRE(l.order == channel_order::rgb);
+    REQUIRE(l.component == component_type::floating);
+    REQUIRE(l.component_bits == 32);
+    REQUIRE(l.channel_count == 3);
+    REQUIRE(l.bytes_per_pixel == 12);
+}
+
+TEST_CASE("resolve_cpu_layout: rgb32_uint", "[format_resolve]") {
+    auto l = resolve_cpu_layout(texture_format::rgb32_uint);
+    REQUIRE(l.order == channel_order::rgb);
+    REQUIRE(l.component == component_type::uint);
+    REQUIRE(l.component_bits == 32);
+    REQUIRE(l.channel_count == 3);
+    REQUIRE(l.bytes_per_pixel == 12);
+}
+
 // ---------- resolve_sampling ----------
 
 TEST_CASE("resolve_sampling: unorm variants are normalized", "[format_resolve]") {
     REQUIRE(resolve_sampling(texture_format::r8_unorm).normalized == true);
     REQUIRE(resolve_sampling(texture_format::rg8_unorm).normalized == true);
+    REQUIRE(resolve_sampling(texture_format::rgb8_unorm).normalized == true);
     REQUIRE(resolve_sampling(texture_format::rgba8_unorm).normalized == true);
     REQUIRE(resolve_sampling(texture_format::bgra8_unorm).normalized == true);
     REQUIRE(resolve_sampling(texture_format::r16_unorm).normalized == true);
     REQUIRE(resolve_sampling(texture_format::rg16_unorm).normalized == true);
+    REQUIRE(resolve_sampling(texture_format::rgb16_unorm).normalized == true);
     REQUIRE(resolve_sampling(texture_format::rgba16_unorm).normalized == true);
 }
 
@@ -166,15 +213,18 @@ TEST_CASE("resolve_sampling: srgb variants are srgb+normalized", "[format_resolv
 TEST_CASE("resolve_sampling: float variants are floating_point", "[format_resolve]") {
     REQUIRE(resolve_sampling(texture_format::r16_float).floating_point == true);
     REQUIRE(resolve_sampling(texture_format::rg16_float).floating_point == true);
+    REQUIRE(resolve_sampling(texture_format::rgb16_float).floating_point == true);
     REQUIRE(resolve_sampling(texture_format::rgba16_float).floating_point == true);
     REQUIRE(resolve_sampling(texture_format::r32_float).floating_point == true);
     REQUIRE(resolve_sampling(texture_format::rg32_float).floating_point == true);
+    REQUIRE(resolve_sampling(texture_format::rgb32_float).floating_point == true);
     REQUIRE(resolve_sampling(texture_format::rgba32_float).floating_point == true);
 }
 
 TEST_CASE("resolve_sampling: uint variants are integer", "[format_resolve]") {
     REQUIRE(resolve_sampling(texture_format::r32_uint).integer == true);
     REQUIRE(resolve_sampling(texture_format::rgba32_uint).integer == true);
+    REQUIRE(resolve_sampling(texture_format::rgb32_uint).integer == true);
 }
 
 TEST_CASE("resolve_sampling: depth32_float is depth", "[format_resolve]") {
@@ -295,15 +345,20 @@ TEST_CASE("get_storage_compatible_fallback: no fallback for other formats", "[fo
 TEST_CASE("resolve_cpu_layout: every format returns positive bytes_per_pixel", "[format_resolve]") {
     const texture_format all[] = {
         texture_format::r8_unorm, texture_format::rg8_unorm,
+        texture_format::rgb8_unorm,
         texture_format::rgba8_unorm, texture_format::bgra8_unorm,
         texture_format::rgba8_srgb, texture_format::bgra8_srgb,
         texture_format::r16_unorm, texture_format::rg16_unorm,
+        texture_format::rgb16_unorm,
         texture_format::rgba16_unorm,
         texture_format::r16_float, texture_format::rg16_float,
+        texture_format::rgb16_float,
         texture_format::rgba16_float,
         texture_format::r32_float, texture_format::rg32_float,
+        texture_format::rgb32_float,
         texture_format::rgba32_float,
         texture_format::r32_uint, texture_format::rgba32_uint,
+        texture_format::rgb32_uint,
         texture_format::depth32_float,
     };
     for (auto fmt : all) {
@@ -336,4 +391,12 @@ TEST_CASE("resolve_cpu_layout: 32-bit formats have 4 bytes per component", "[for
     REQUIRE(resolve_cpu_layout(texture_format::r32_uint).bytes_per_pixel == 4);
     REQUIRE(resolve_cpu_layout(texture_format::rgba32_uint).bytes_per_pixel == 16);
     REQUIRE(resolve_cpu_layout(texture_format::depth32_float).bytes_per_pixel == 4);
+}
+
+TEST_CASE("get_storage_compatible_fallback: 3ch formats map to 4ch", "[format_resolve]") {
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb8_unorm) == texture_format::rgba8_unorm);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb16_unorm) == texture_format::rgba16_unorm);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb16_float) == texture_format::rgba16_float);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb32_float) == texture_format::rgba32_float);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb32_uint) == texture_format::rgba32_uint);
 }

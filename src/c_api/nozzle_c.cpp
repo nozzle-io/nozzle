@@ -60,21 +60,26 @@ NozzleTextureFormat to_c_format(nozzle::texture_format fmt) {
     switch (fmt) {
         case nozzle::texture_format::r8_unorm: return NOZZLE_FORMAT_R8_UNORM;
         case nozzle::texture_format::rg8_unorm: return NOZZLE_FORMAT_RG8_UNORM;
+        case nozzle::texture_format::rgb8_unorm: return NOZZLE_FORMAT_RGB8_UNORM;
         case nozzle::texture_format::rgba8_unorm: return NOZZLE_FORMAT_RGBA8_UNORM;
         case nozzle::texture_format::bgra8_unorm: return NOZZLE_FORMAT_BGRA8_UNORM;
         case nozzle::texture_format::rgba8_srgb: return NOZZLE_FORMAT_RGBA8_SRGB;
         case nozzle::texture_format::bgra8_srgb: return NOZZLE_FORMAT_BGRA8_SRGB;
         case nozzle::texture_format::r16_unorm: return NOZZLE_FORMAT_R16_UNORM;
         case nozzle::texture_format::rg16_unorm: return NOZZLE_FORMAT_RG16_UNORM;
+        case nozzle::texture_format::rgb16_unorm: return NOZZLE_FORMAT_RGB16_UNORM;
         case nozzle::texture_format::rgba16_unorm: return NOZZLE_FORMAT_RGBA16_UNORM;
         case nozzle::texture_format::r16_float: return NOZZLE_FORMAT_R16_FLOAT;
         case nozzle::texture_format::rg16_float: return NOZZLE_FORMAT_RG16_FLOAT;
+        case nozzle::texture_format::rgb16_float: return NOZZLE_FORMAT_RGB16_FLOAT;
         case nozzle::texture_format::rgba16_float: return NOZZLE_FORMAT_RGBA16_FLOAT;
         case nozzle::texture_format::r32_float: return NOZZLE_FORMAT_R32_FLOAT;
         case nozzle::texture_format::rg32_float: return NOZZLE_FORMAT_RG32_FLOAT;
+        case nozzle::texture_format::rgb32_float: return NOZZLE_FORMAT_RGB32_FLOAT;
         case nozzle::texture_format::rgba32_float: return NOZZLE_FORMAT_RGBA32_FLOAT;
         case nozzle::texture_format::r32_uint: return NOZZLE_FORMAT_R32_UINT;
         case nozzle::texture_format::rgba32_uint: return NOZZLE_FORMAT_RGBA32_UINT;
+        case nozzle::texture_format::rgb32_uint: return NOZZLE_FORMAT_RGB32_UINT;
         case nozzle::texture_format::depth32_float: return NOZZLE_FORMAT_DEPTH32_FLOAT;
         case nozzle::texture_format::unknown:
         default: return NOZZLE_FORMAT_UNKNOWN;
@@ -85,21 +90,26 @@ nozzle::texture_format to_cpp_format(NozzleTextureFormat fmt) {
     switch (fmt) {
         case NOZZLE_FORMAT_R8_UNORM: return nozzle::texture_format::r8_unorm;
         case NOZZLE_FORMAT_RG8_UNORM: return nozzle::texture_format::rg8_unorm;
+        case NOZZLE_FORMAT_RGB8_UNORM: return nozzle::texture_format::rgb8_unorm;
         case NOZZLE_FORMAT_RGBA8_UNORM: return nozzle::texture_format::rgba8_unorm;
         case NOZZLE_FORMAT_BGRA8_UNORM: return nozzle::texture_format::bgra8_unorm;
         case NOZZLE_FORMAT_RGBA8_SRGB: return nozzle::texture_format::rgba8_srgb;
         case NOZZLE_FORMAT_BGRA8_SRGB: return nozzle::texture_format::bgra8_srgb;
         case NOZZLE_FORMAT_R16_UNORM: return nozzle::texture_format::r16_unorm;
         case NOZZLE_FORMAT_RG16_UNORM: return nozzle::texture_format::rg16_unorm;
+        case NOZZLE_FORMAT_RGB16_UNORM: return nozzle::texture_format::rgb16_unorm;
         case NOZZLE_FORMAT_RGBA16_UNORM: return nozzle::texture_format::rgba16_unorm;
         case NOZZLE_FORMAT_R16_FLOAT: return nozzle::texture_format::r16_float;
         case NOZZLE_FORMAT_RG16_FLOAT: return nozzle::texture_format::rg16_float;
+        case NOZZLE_FORMAT_RGB16_FLOAT: return nozzle::texture_format::rgb16_float;
         case NOZZLE_FORMAT_RGBA16_FLOAT: return nozzle::texture_format::rgba16_float;
         case NOZZLE_FORMAT_R32_FLOAT: return nozzle::texture_format::r32_float;
         case NOZZLE_FORMAT_RG32_FLOAT: return nozzle::texture_format::rg32_float;
+        case NOZZLE_FORMAT_RGB32_FLOAT: return nozzle::texture_format::rgb32_float;
         case NOZZLE_FORMAT_RGBA32_FLOAT: return nozzle::texture_format::rgba32_float;
         case NOZZLE_FORMAT_R32_UINT: return nozzle::texture_format::r32_uint;
         case NOZZLE_FORMAT_RGBA32_UINT: return nozzle::texture_format::rgba32_uint;
+        case NOZZLE_FORMAT_RGB32_UINT: return nozzle::texture_format::rgb32_uint;
         case NOZZLE_FORMAT_DEPTH32_FLOAT: return nozzle::texture_format::depth32_float;
         default: return nozzle::texture_format::unknown;
     }

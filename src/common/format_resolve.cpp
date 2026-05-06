@@ -19,6 +19,13 @@ cpu_layout_desc resolve_cpu_layout(texture_format fmt) {
         desc.channel_count = 2;
         desc.bytes_per_pixel = 2;
         break;
+    case texture_format::rgb8_unorm:
+        desc.order = channel_order::rgb;
+        desc.component = component_type::unorm;
+        desc.component_bits = 8;
+        desc.channel_count = 3;
+        desc.bytes_per_pixel = 3;
+        break;
     case texture_format::rgba8_unorm:
         desc.order = channel_order::rgba;
         desc.component = component_type::unorm;
@@ -61,6 +68,13 @@ cpu_layout_desc resolve_cpu_layout(texture_format fmt) {
         desc.channel_count = 2;
         desc.bytes_per_pixel = 4;
         break;
+    case texture_format::rgb16_unorm:
+        desc.order = channel_order::rgb;
+        desc.component = component_type::unorm;
+        desc.component_bits = 16;
+        desc.channel_count = 3;
+        desc.bytes_per_pixel = 6;
+        break;
     case texture_format::rgba16_unorm:
         desc.order = channel_order::rgba;
         desc.component = component_type::unorm;
@@ -81,6 +95,13 @@ cpu_layout_desc resolve_cpu_layout(texture_format fmt) {
         desc.component_bits = 16;
         desc.channel_count = 2;
         desc.bytes_per_pixel = 4;
+        break;
+    case texture_format::rgb16_float:
+        desc.order = channel_order::rgb;
+        desc.component = component_type::floating;
+        desc.component_bits = 16;
+        desc.channel_count = 3;
+        desc.bytes_per_pixel = 6;
         break;
     case texture_format::rgba16_float:
         desc.order = channel_order::rgba;
@@ -103,6 +124,13 @@ cpu_layout_desc resolve_cpu_layout(texture_format fmt) {
         desc.channel_count = 2;
         desc.bytes_per_pixel = 8;
         break;
+    case texture_format::rgb32_float:
+        desc.order = channel_order::rgb;
+        desc.component = component_type::floating;
+        desc.component_bits = 32;
+        desc.channel_count = 3;
+        desc.bytes_per_pixel = 12;
+        break;
     case texture_format::rgba32_float:
         desc.order = channel_order::rgba;
         desc.component = component_type::floating;
@@ -123,6 +151,13 @@ cpu_layout_desc resolve_cpu_layout(texture_format fmt) {
         desc.component_bits = 32;
         desc.channel_count = 4;
         desc.bytes_per_pixel = 16;
+        break;
+    case texture_format::rgb32_uint:
+        desc.order = channel_order::rgb;
+        desc.component = component_type::uint;
+        desc.component_bits = 32;
+        desc.channel_count = 3;
+        desc.bytes_per_pixel = 12;
         break;
     case texture_format::depth32_float:
         desc.order = channel_order::r;
@@ -142,10 +177,12 @@ sampling_desc resolve_sampling(texture_format fmt) {
     switch (fmt) {
     case texture_format::r8_unorm:
     case texture_format::rg8_unorm:
+    case texture_format::rgb8_unorm:
     case texture_format::rgba8_unorm:
     case texture_format::bgra8_unorm:
     case texture_format::r16_unorm:
     case texture_format::rg16_unorm:
+    case texture_format::rgb16_unorm:
     case texture_format::rgba16_unorm:
         desc.normalized = true;
         break;
@@ -156,14 +193,17 @@ sampling_desc resolve_sampling(texture_format fmt) {
         break;
     case texture_format::r16_float:
     case texture_format::rg16_float:
+    case texture_format::rgb16_float:
     case texture_format::rgba16_float:
     case texture_format::r32_float:
     case texture_format::rg32_float:
+    case texture_format::rgb32_float:
     case texture_format::rgba32_float:
         desc.floating_point = true;
         break;
     case texture_format::r32_uint:
     case texture_format::rgba32_uint:
+    case texture_format::rgb32_uint:
         desc.integer = true;
         break;
     case texture_format::depth32_float:
@@ -216,6 +256,16 @@ texture_format get_storage_compatible_fallback(texture_format fmt) {
         return texture_format::bgra8_unorm;
     case texture_format::bgra8_unorm:
         return texture_format::rgba8_unorm;
+    case texture_format::rgb8_unorm:
+        return texture_format::rgba8_unorm;
+    case texture_format::rgb16_unorm:
+        return texture_format::rgba16_unorm;
+    case texture_format::rgb16_float:
+        return texture_format::rgba16_float;
+    case texture_format::rgb32_float:
+        return texture_format::rgba32_float;
+    case texture_format::rgb32_uint:
+        return texture_format::rgba32_uint;
     default:
         return texture_format::unknown;
     }

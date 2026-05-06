@@ -107,6 +107,30 @@ namespace {
 #define GL_RGBA32UI 0x8C70
 #endif
 
+#ifndef GL_RGB
+#define GL_RGB 0x1907
+#endif
+
+#ifndef GL_RGB8
+#define GL_RGB8 0x8051
+#endif
+
+#ifndef GL_RGB16F
+#define GL_RGB16F 0x8C3B
+#endif
+
+#ifndef GL_RGB32F
+#define GL_RGB32F 0x8C3E
+#endif
+
+#ifndef GL_RGB32UI
+#define GL_RGB32UI 0x8D71
+#endif
+
+#ifndef GL_RGB_INTEGER
+#define GL_RGB_INTEGER 0x8D98
+#endif
+
 #ifndef GL_RED_INTEGER
 #define GL_RED_INTEGER 0x8D94
 #endif
@@ -137,6 +161,9 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
         case texture_format::rg8_unorm:
             out = {GL_RG8, GL_RG, GL_UNSIGNED_BYTE};
             return true;
+        case texture_format::rgb8_unorm:
+            out = {GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE};
+            return true;
         case texture_format::rgba8_unorm:
             out = {GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE};
             return true;
@@ -155,6 +182,9 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
         case texture_format::rg16_unorm:
             out = {GL_RG16, GL_RG, GL_UNSIGNED_SHORT};
             return true;
+        case texture_format::rgb16_unorm:
+            out = {GL_RGB, GL_RGB, GL_UNSIGNED_SHORT};
+            return true;
         case texture_format::rgba16_unorm:
             out = {GL_RGBA16, GL_RGBA, GL_UNSIGNED_SHORT};
             return true;
@@ -163,6 +193,9 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
             return true;
         case texture_format::rg16_float:
             out = {GL_RG16F, GL_RG, GL_HALF_FLOAT};
+            return true;
+        case texture_format::rgb16_float:
+            out = {GL_RGB16F, GL_RGB, GL_HALF_FLOAT};
             return true;
         case texture_format::rgba16_float:
             out = {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT};
@@ -173,6 +206,9 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
         case texture_format::rg32_float:
             out = {GL_RG32F, GL_RG, GL_FLOAT};
             return true;
+        case texture_format::rgb32_float:
+            out = {GL_RGB32F, GL_RGB, GL_FLOAT};
+            return true;
         case texture_format::rgba32_float:
             out = {GL_RGBA32F, GL_RGBA, GL_FLOAT};
             return true;
@@ -181,6 +217,9 @@ bool map_format(texture_format fmt, gl_format_mapping &out) {
             return true;
         case texture_format::rgba32_uint:
             out = {GL_RGBA32UI, GL_RGBA_INTEGER, GL_UNSIGNED_INT};
+            return true;
+        case texture_format::rgb32_uint:
+            out = {GL_RGB32UI, GL_RGB_INTEGER, GL_UNSIGNED_INT};
             return true;
         default:
             return false;

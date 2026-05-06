@@ -24,6 +24,7 @@ uint32_t bytes_per_pixel(texture_format fmt) {
     switch (fmt) {
     case texture_format::r8_unorm: return 1;
     case texture_format::rg8_unorm: return 2;
+    case texture_format::rgb8_unorm: return 3;
     case texture_format::r16_unorm:
     case texture_format::r16_float: return 2;
     case texture_format::rgba8_unorm:
@@ -34,9 +35,13 @@ uint32_t bytes_per_pixel(texture_format fmt) {
     case texture_format::r32_uint: return 4;
     case texture_format::rg16_unorm:
     case texture_format::rg16_float: return 4;
+    case texture_format::rgb16_unorm:
+    case texture_format::rgb16_float: return 6;
     case texture_format::rg32_float: return 8;
     case texture_format::rgba16_unorm:
     case texture_format::rgba16_float: return 8;
+    case texture_format::rgb32_float:
+    case texture_format::rgb32_uint: return 12;
     case texture_format::rgba32_float:
     case texture_format::rgba32_uint: return 16;
     case texture_format::depth32_float: return 4;

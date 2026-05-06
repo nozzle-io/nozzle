@@ -17,21 +17,26 @@ static DXGI_FORMAT to_dxgi_format(uint32_t nozzle_format) {
     switch (static_cast<texture_format>(nozzle_format)) {
         case texture_format::r8_unorm:         return DXGI_FORMAT_R8_UNORM;
         case texture_format::rg8_unorm:        return DXGI_FORMAT_R8G8_UNORM;
+        case texture_format::rgb8_unorm:       return DXGI_FORMAT_R8G8B8A8_UNORM;
         case texture_format::rgba8_unorm:      return DXGI_FORMAT_R8G8B8A8_UNORM;
         case texture_format::bgra8_unorm:      return DXGI_FORMAT_B8G8R8A8_UNORM;
         case texture_format::rgba8_srgb:       return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
         case texture_format::bgra8_srgb:       return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
         case texture_format::r16_unorm:        return DXGI_FORMAT_R16_UNORM;
         case texture_format::rg16_unorm:       return DXGI_FORMAT_R16G16_UNORM;
+        case texture_format::rgb16_unorm:      return DXGI_FORMAT_R16G16B16A16_UNORM;
         case texture_format::rgba16_unorm:     return DXGI_FORMAT_R16G16B16A16_UNORM;
         case texture_format::r16_float:        return DXGI_FORMAT_R16_FLOAT;
         case texture_format::rg16_float:       return DXGI_FORMAT_R16G16_FLOAT;
+        case texture_format::rgb16_float:      return DXGI_FORMAT_R16G16B16A16_FLOAT;
         case texture_format::rgba16_float:     return DXGI_FORMAT_R16G16B16A16_FLOAT;
         case texture_format::r32_float:        return DXGI_FORMAT_R32_FLOAT;
         case texture_format::rg32_float:       return DXGI_FORMAT_R32G32_FLOAT;
+        case texture_format::rgb32_float:      return DXGI_FORMAT_R32G32B32A32_FLOAT;
         case texture_format::rgba32_float:     return DXGI_FORMAT_R32G32B32A32_FLOAT;
         case texture_format::r32_uint:         return DXGI_FORMAT_R32_UINT;
         case texture_format::rgba32_uint:      return DXGI_FORMAT_R32G32B32A32_UINT;
+        case texture_format::rgb32_uint:       return DXGI_FORMAT_R32G32B32A32_UINT;
         case texture_format::depth32_float:    return DXGI_FORMAT_D32_FLOAT;
         default:                               return DXGI_FORMAT_UNKNOWN;
     }

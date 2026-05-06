@@ -25,13 +25,21 @@ using detail::safe_mul_u32;
 
 static uint32_t bytes_per_pixel_for_format(texture_format fmt) {
 	switch (fmt) {
+		case texture_format::rgb8_unorm:
+			return 3;
 		case texture_format::rgba8_unorm:
 		case texture_format::bgra8_unorm:
 		case texture_format::rgba8_srgb:
 		case texture_format::bgra8_srgb:
 			return 4;
+		case texture_format::rgb16_unorm:
+		case texture_format::rgb16_float:
+			return 6;
 		case texture_format::rgba32_float:
 			return 16;
+		case texture_format::rgb32_float:
+		case texture_format::rgb32_uint:
+			return 12;
 		default:
 			return 0;
 	}

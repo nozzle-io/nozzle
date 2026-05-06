@@ -20,21 +20,26 @@ static MTLPixelFormat to_mtl_pixel_format(uint32_t nozzle_format) {
     switch (static_cast<nozzle::texture_format>(nozzle_format)) {
         case nozzle::texture_format::r8_unorm:         return MTLPixelFormatR8Unorm;
         case nozzle::texture_format::rg8_unorm:        return MTLPixelFormatRG8Unorm;
+        case nozzle::texture_format::rgb8_unorm:       return MTLPixelFormatRGBA8Unorm;
         case nozzle::texture_format::rgba8_unorm:      return MTLPixelFormatRGBA8Unorm;
         case nozzle::texture_format::bgra8_unorm:      return MTLPixelFormatBGRA8Unorm;
         case nozzle::texture_format::rgba8_srgb:       return MTLPixelFormatRGBA8Unorm_sRGB;
         case nozzle::texture_format::bgra8_srgb:       return MTLPixelFormatBGRA8Unorm_sRGB;
         case nozzle::texture_format::r16_unorm:        return MTLPixelFormatR16Unorm;
         case nozzle::texture_format::rg16_unorm:       return MTLPixelFormatRG16Unorm;
+        case nozzle::texture_format::rgb16_unorm:      return MTLPixelFormatRGBA16Unorm;
         case nozzle::texture_format::rgba16_unorm:     return MTLPixelFormatRGBA16Unorm;
         case nozzle::texture_format::r16_float:        return MTLPixelFormatR16Float;
         case nozzle::texture_format::rg16_float:       return MTLPixelFormatRG16Float;
+        case nozzle::texture_format::rgb16_float:      return MTLPixelFormatRGBA16Float;
         case nozzle::texture_format::rgba16_float:     return MTLPixelFormatRGBA16Float;
         case nozzle::texture_format::r32_float:        return MTLPixelFormatR32Float;
         case nozzle::texture_format::rg32_float:       return MTLPixelFormatRG32Float;
+        case nozzle::texture_format::rgb32_float:      return MTLPixelFormatRGBA32Float;
         case nozzle::texture_format::rgba32_float:     return MTLPixelFormatRGBA32Float;
         case nozzle::texture_format::r32_uint:         return MTLPixelFormatR32Uint;
         case nozzle::texture_format::rgba32_uint:      return MTLPixelFormatRGBA32Uint;
+        case nozzle::texture_format::rgb32_uint:       return MTLPixelFormatRGBA32Uint;
         case nozzle::texture_format::depth32_float:    return MTLPixelFormatDepth32Float;
         default:                                             return MTLPixelFormatInvalid;
     }
