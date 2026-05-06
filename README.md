@@ -48,6 +48,10 @@ If you encounter problems, please do not become angry; instead, contributions in
 | obs-nozzle (OBS Studio plugin) | Done (macOS, Windows, Linux) |
 | blender-nozzle (Blender addon) | Done (macOS, Windows, Linux) |
 | nozzle.zig (Zig) | Done (macOS, Windows, Linux) |
+| nozzle.go (Go, cgo) | Done (macOS, Windows, Linux) |
+| nozzle.dart (Dart, FFI) | Done (macOS, Windows, Linux) |
+| nozzle.java (Java, JNI) | Done (macOS, Windows, Linux) |
+| nozzle.kotlin (Kotlin/JVM, JNI) | Done (macOS, Windows, Linux) |
 | nozzle.unity (Unity plugin) | Postponed |
 | nozzle.wasm (WebAssembly) | Pended |
 
@@ -118,7 +122,7 @@ nozzle_sender_commit_frame(sender, frame);
 ## Architecture
 
 ```
-Layer 4: Integration wrappers (ofxNozzle, jit.nozzle, py.nozzle, etc.)
+Layer 4: Integration wrappers (ofxNozzle, jit.nozzle, py.nozzle, nozzle.zig, nozzle.go, nozzle.dart, nozzle.java, nozzle.kotlin, etc.)
 Layer 3: OpenGL interop (copy-based GL↔backend)
 Layer 2: Backend-native API (Metal/IOSurface, D3D11, DMA-BUF)
 Layer 1: Common API (sender, receiver, frame, texture, device, discovery)
