@@ -16,6 +16,7 @@ namespace nozzle::metal {
 void *get_default_mtl_device() {
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        if (!device) { return nullptr; }
 #if __has_feature(objc_arc)
         return (__bridge_retained void *)device;
 #else

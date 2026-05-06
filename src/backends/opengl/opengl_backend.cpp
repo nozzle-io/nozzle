@@ -369,6 +369,11 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glFlush();
 
+    GLenum flush_err = glGetError();
+    if (flush_err != GL_NO_ERROR) {
+        return Error{ErrorCode::BackendError, "GL flush failed in publish"};
+    }
+
     auto commit_result = snd.commit_frame(wframe);
     if (!commit_result) { return commit_result.error(); }
 

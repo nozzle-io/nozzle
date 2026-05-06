@@ -398,3 +398,71 @@ TEST_CASE("widen_half_to_float: error on zero dimensions", "[format_convert]") {
 	REQUIRE_FALSE(r.ok());
 	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
 }
+
+// ---------- safe_mul_u32 overflow guard (P2-T1) ----------
+
+TEST_CASE("widen_uint16_to_uint32: overflow on width*channels rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	auto r = widen_uint16_to_uint32(buf, buf, UINT32_MAX, 2, 4, 8, 2);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("convert_uint32_to_float32: overflow on width*channels rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	auto r = convert_uint32_to_float32(buf, buf, UINT32_MAX / 2 + 1, 1, 4, 4, 2);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("widen_half_to_float: overflow on width*channels rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	auto r = widen_half_to_float(buf, buf, UINT32_MAX, 1, 2, 4, 2);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+// ---------- half-float additional edge cases (P2-T7) ----------
+
+TEST_CASE("widen_half_to_float: largest subnormal", "[format_convert]") {
+	uint16_t src = 0x03FF;
+	float dst = -1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE(dst > 0.0f);
+	REQUIRE(dst < 0.001f);
+}
+
+TEST_CASE("widen_half_to_float: smallest normal", "[format_convert]") {
+	uint16_t src = 0x0400;
+	float dst = -1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE_THAT(dst, WithinAbs(6.1035e-5f, 1e-8f));
+}
+
+TEST_CASE("widen_half_to_float: largest finite half", "[format_convert]") {
+	uint16_t src = 0x7BFF;
+	float dst = -1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE(dst > 65000.0f);
+	REQUIRE(std::isfinite(dst));
+}
+
+TEST_CASE("widen_half_to_float: negative zero", "[format_convert]") {
+	uint16_t src = 0x8000;
+	float dst = 1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE(dst == 0.0f);
+	REQUIRE(std::signbit(dst));
+}
+
+TEST_CASE("widen_half_to_float: quiet NaN with payload", "[format_convert]") {
+	uint16_t src = 0x7FFF;
+	float dst = -1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE(std::isnan(dst));
+}

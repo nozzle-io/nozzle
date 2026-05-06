@@ -84,5 +84,7 @@ struct SenderSharedState {
     char metadata[kMetadataSize]{};
 };
 
+static_assert(sizeof(SenderSharedState) == 1216, "unexpected SenderSharedState size");
+
 } // namespace detail
 } // namespace nozzle

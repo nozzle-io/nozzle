@@ -289,3 +289,51 @@ TEST_CASE("get_storage_compatible_fallback: no fallback for other formats", "[fo
     REQUIRE(get_storage_compatible_fallback(texture_format::rgba16_float) == texture_format::unknown);
     REQUIRE(get_storage_compatible_fallback(texture_format::unknown) == texture_format::unknown);
 }
+
+// ---------- resolve_cpu_layout: all formats have valid bytes_per_pixel (P2-T8) ----------
+
+TEST_CASE("resolve_cpu_layout: every format returns positive bytes_per_pixel", "[format_resolve]") {
+    const texture_format all[] = {
+        texture_format::r8_unorm, texture_format::rg8_unorm,
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        texture_format::rgba8_srgb, texture_format::bgra8_srgb,
+        texture_format::r16_unorm, texture_format::rg16_unorm,
+        texture_format::rgba16_unorm,
+        texture_format::r16_float, texture_format::rg16_float,
+        texture_format::rgba16_float,
+        texture_format::r32_float, texture_format::rg32_float,
+        texture_format::rgba32_float,
+        texture_format::r32_uint, texture_format::rgba32_uint,
+        texture_format::depth32_float,
+    };
+    for (auto fmt : all) {
+        auto l = resolve_cpu_layout(fmt);
+        REQUIRE(l.bytes_per_pixel > 0);
+        REQUIRE(l.channel_count > 0);
+    }
+}
+
+TEST_CASE("resolve_cpu_layout: 8-bit formats have 1 byte per component", "[format_resolve]") {
+    REQUIRE(resolve_cpu_layout(texture_format::r8_unorm).bytes_per_pixel == 1);
+    REQUIRE(resolve_cpu_layout(texture_format::rg8_unorm).bytes_per_pixel == 2);
+    REQUIRE(resolve_cpu_layout(texture_format::rgba8_unorm).bytes_per_pixel == 4);
+    REQUIRE(resolve_cpu_layout(texture_format::bgra8_unorm).bytes_per_pixel == 4);
+}
+
+TEST_CASE("resolve_cpu_layout: 16-bit formats have 2 bytes per component", "[format_resolve]") {
+    REQUIRE(resolve_cpu_layout(texture_format::r16_unorm).bytes_per_pixel == 2);
+    REQUIRE(resolve_cpu_layout(texture_format::rg16_unorm).bytes_per_pixel == 4);
+    REQUIRE(resolve_cpu_layout(texture_format::rgba16_unorm).bytes_per_pixel == 8);
+    REQUIRE(resolve_cpu_layout(texture_format::r16_float).bytes_per_pixel == 2);
+    REQUIRE(resolve_cpu_layout(texture_format::rg16_float).bytes_per_pixel == 4);
+    REQUIRE(resolve_cpu_layout(texture_format::rgba16_float).bytes_per_pixel == 8);
+}
+
+TEST_CASE("resolve_cpu_layout: 32-bit formats have 4 bytes per component", "[format_resolve]") {
+    REQUIRE(resolve_cpu_layout(texture_format::r32_float).bytes_per_pixel == 4);
+    REQUIRE(resolve_cpu_layout(texture_format::rg32_float).bytes_per_pixel == 8);
+    REQUIRE(resolve_cpu_layout(texture_format::rgba32_float).bytes_per_pixel == 16);
+    REQUIRE(resolve_cpu_layout(texture_format::r32_uint).bytes_per_pixel == 4);
+    REQUIRE(resolve_cpu_layout(texture_format::rgba32_uint).bytes_per_pixel == 16);
+    REQUIRE(resolve_cpu_layout(texture_format::depth32_float).bytes_per_pixel == 4);
+}

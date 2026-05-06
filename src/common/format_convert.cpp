@@ -3,6 +3,8 @@
 #include <nozzle/format_convert.hpp>
 #include <nozzle/result.hpp>
 
+#include "safe_math.hpp"
+
 #include <cstring>
 
 namespace nozzle::detail {
@@ -47,12 +49,7 @@ void convert_uint32_to_float32_neon(
 
 namespace nozzle {
 
-static bool safe_mul_u32(uint32_t a, uint32_t b, uint32_t &result) {
-	if (a == 0 || b == 0) { result = 0; return true; }
-	if (a > UINT32_MAX / b) return false;
-	result = a * b;
-	return true;
-}
+using detail::safe_mul_u32;
 
 static void widen_uint16_to_uint32_scalar(
 	const uint8_t *src, uint8_t *dst,

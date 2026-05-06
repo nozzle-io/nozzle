@@ -4,6 +4,8 @@
 #include <nozzle/result.hpp>
 #include <nozzle/types.hpp>
 
+#include "safe_math.hpp"
+
 #include <cstring>
 
 #if NOZZLE_PLATFORM_MACOS
@@ -19,12 +21,7 @@ Result<void> try_swizzle_vimage(
 
 namespace nozzle {
 
-static bool safe_mul_u32(uint32_t a, uint32_t b, uint32_t &result) {
-	if (a == 0 || b == 0) { result = 0; return true; }
-	if (a > UINT32_MAX / b) return false;
-	result = a * b;
-	return true;
-}
+using detail::safe_mul_u32;
 
 static uint32_t bytes_per_pixel_for_format(texture_format fmt) {
 	switch (fmt) {
