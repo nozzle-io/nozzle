@@ -152,6 +152,25 @@ NozzleNativeFormatKind to_c_native_kind(nozzle::native_format_kind kind) {
     }
 }
 
+NozzleTransferMode to_c_transfer_mode(nozzle::transfer_mode tm) {
+    switch (tm) {
+        case nozzle::transfer_mode::zero_copy_shared_texture: return NOZZLE_TRANSFER_ZERO_COPY_SHARED_TEXTURE;
+        case nozzle::transfer_mode::gpu_copy: return NOZZLE_TRANSFER_GPU_COPY;
+        case nozzle::transfer_mode::cpu_copy: return NOZZLE_TRANSFER_CPU_COPY;
+        case nozzle::transfer_mode::unknown:
+        default: return NOZZLE_TRANSFER_UNKNOWN;
+    }
+}
+
+NozzleSyncMode to_c_sync_mode(nozzle::sync_mode sm) {
+    switch (sm) {
+        case nozzle::sync_mode::access_guarded: return NOZZLE_SYNC_ACCESS_GUARDED;
+        case nozzle::sync_mode::gpu_fence_best_effort: return NOZZLE_SYNC_GPU_FENCE_BEST_EFFORT;
+        case nozzle::sync_mode::none:
+        default: return NOZZLE_SYNC_NONE;
+    }
+}
+
 } // anonymous namespace
 
 struct NozzleSender {
@@ -352,9 +371,11 @@ NozzleErrorCode nozzle_receiver_get_connected_info(
     out_info->width = ci.width;
     out_info->height = ci.height;
     out_info->format = to_c_format(ci.format);
+    out_info->semantic_format = to_c_format(ci.semantic_format);
     out_info->estimated_fps = ci.estimated_fps;
     out_info->frame_counter = ci.frame_counter;
     out_info->last_update_time_ns = ci.last_update_time_ns;
+    out_info->native_format_modifier = ci.native_format_modifier;
     return NOZZLE_OK;
 }
 
@@ -371,6 +392,9 @@ NozzleErrorCode nozzle_frame_get_info(
         out_info->width = td.width;
         out_info->height = td.height;
         out_info->format = to_c_format(td.format);
+        out_info->semantic_format = to_c_format(td.semantic_format);
+        out_info->transfer_mode = NOZZLE_TRANSFER_UNKNOWN;
+        out_info->sync_mode = NOZZLE_SYNC_NONE;
         out_info->dropped_frame_count = 0;
     } else {
         const auto fi = frame->obj->info();
@@ -379,6 +403,9 @@ NozzleErrorCode nozzle_frame_get_info(
         out_info->width = fi.width;
         out_info->height = fi.height;
         out_info->format = to_c_format(fi.format);
+        out_info->semantic_format = to_c_format(fi.semantic_format);
+        out_info->transfer_mode = to_c_transfer_mode(fi.transfer_mode_val);
+        out_info->sync_mode = to_c_sync_mode(fi.sync_mode_val);
         out_info->dropped_frame_count = fi.dropped_frame_count;
     }
     return NOZZLE_OK;

@@ -82,6 +82,19 @@ typedef enum NozzleTextureOrigin {
     NOZZLE_ORIGIN_BOTTOM_LEFT,
 } NozzleTextureOrigin;
 
+typedef enum NozzleTransferMode {
+    NOZZLE_TRANSFER_UNKNOWN = 0,
+    NOZZLE_TRANSFER_ZERO_COPY_SHARED_TEXTURE,
+    NOZZLE_TRANSFER_GPU_COPY,
+    NOZZLE_TRANSFER_CPU_COPY,
+} NozzleTransferMode;
+
+typedef enum NozzleSyncMode {
+    NOZZLE_SYNC_NONE = 0,
+    NOZZLE_SYNC_ACCESS_GUARDED,
+    NOZZLE_SYNC_GPU_FENCE_BEST_EFFORT,
+} NozzleSyncMode;
+
 typedef enum NozzleFormatSource {
     NOZZLE_FORMAT_SOURCE_UNKNOWN = 0,
     NOZZLE_FORMAT_SOURCE_REQUESTED,
@@ -133,9 +146,11 @@ typedef struct NozzleConnectedSenderInfo {
     uint32_t width;
     uint32_t height;
     NozzleTextureFormat format;
+    NozzleTextureFormat semantic_format;
     double estimated_fps;
     uint64_t frame_counter;
     uint64_t last_update_time_ns;
+    uint64_t native_format_modifier;
 } NozzleConnectedSenderInfo;
 
 // ========== Frame Info ==========
@@ -146,6 +161,9 @@ typedef struct NozzleFrameInfo {
     uint32_t width;
     uint32_t height;
     NozzleTextureFormat format;
+    NozzleTextureFormat semantic_format;
+    NozzleTransferMode transfer_mode;
+    NozzleSyncMode sync_mode;
     uint32_t dropped_frame_count;
 } NozzleFrameInfo;
 

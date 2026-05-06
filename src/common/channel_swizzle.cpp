@@ -19,6 +19,13 @@ Result<void> try_swizzle_vimage(
 
 namespace nozzle {
 
+static bool safe_mul_u32(uint32_t a, uint32_t b, uint32_t &result) {
+	if (a == 0 || b == 0) { result = 0; return true; }
+	if (a > UINT32_MAX / b) return false;
+	result = a * b;
+	return true;
+}
+
 static uint32_t bytes_per_pixel_for_format(texture_format fmt) {
 	switch (fmt) {
 		case texture_format::rgba8_unorm:
@@ -74,7 +81,9 @@ Result<void> swizzle_channels(
 		return Error{ErrorCode::UnsupportedFormat, "unsupported texture format for swizzle"};
 	}
 
-	uint32_t min_row_bytes = width * bpp;
+	uint32_t min_row_bytes{};
+	if (!safe_mul_u32(width, bpp, min_row_bytes))
+		return Error{ErrorCode::InvalidArgument, "width * bpp overflow"};
 	if (src_row_bytes < min_row_bytes || dst_row_bytes < min_row_bytes) {
 		return Error{ErrorCode::InvalidArgument, "row_bytes too small for width and format"};
 	}

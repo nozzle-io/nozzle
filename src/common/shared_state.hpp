@@ -26,6 +26,7 @@ constexpr process_id64 kInvalidPid = 0;
 constexpr frame_number64 kInitialFrameNumber = 0;
 constexpr ring_size32 kMinimumRingSize = 1;
 constexpr int32_t kSlotNotFound = -1;
+constexpr uint32_t kMetadataSize = 512;
 
 constexpr const char kDirectoryShmName[] = "/nozzle_dir";
 constexpr const char kSenderShmPrefix[] = "/nozzle_";
@@ -80,7 +81,7 @@ struct SenderSharedState {
         uint8_t _pad[3]{};
     } slots[kMaxRingSlots]{};
 
-    char metadata[512]{};
+    char metadata[kMetadataSize]{};
 };
 
 } // namespace detail

@@ -47,19 +47,26 @@ void convert_uint32_to_float32_neon(
 
 namespace nozzle {
 
+static bool safe_mul_u32(uint32_t a, uint32_t b, uint32_t &result) {
+	if (a == 0 || b == 0) { result = 0; return true; }
+	if (a > UINT32_MAX / b) return false;
+	result = a * b;
+	return true;
+}
+
 static void widen_uint16_to_uint32_scalar(
 	const uint8_t *src, uint8_t *dst,
 	uint32_t width, uint32_t height,
 	uint32_t src_row_bytes, uint32_t dst_row_bytes,
 	uint32_t channels)
 {
-	uint32_t row_elements = width * channels;
+	uint64_t row_elements = static_cast<uint64_t>(width) * channels;
 	for (uint32_t y = 0; y < height; ++y) {
 		const auto *src_row = reinterpret_cast<const uint16_t *>(
 			src + static_cast<uint64_t>(y) * src_row_bytes);
 		auto *dst_row = reinterpret_cast<uint32_t *>(
 			dst + static_cast<uint64_t>(y) * dst_row_bytes);
-		for (uint32_t i = 0; i < row_elements; ++i) {
+		for (uint64_t i = 0; i < row_elements; ++i) {
 			dst_row[i] = static_cast<uint32_t>(src_row[i]);
 		}
 	}
@@ -71,7 +78,7 @@ static void convert_uint32_to_float32_scalar(
 	uint32_t src_row_bytes, uint32_t dst_row_bytes,
 	uint32_t channels)
 {
-	uint32_t row_elements = width * channels;
+	uint64_t row_elements = static_cast<uint64_t>(width) * channels;
 	for (uint32_t y = 0; y < height; ++y) {
 		const auto *src_row = reinterpret_cast<const uint32_t *>(
 			src + static_cast<uint64_t>(y) * src_row_bytes);
@@ -96,7 +103,7 @@ static float half_to_float_scalar(uint16_t h) {
 			return result;
 		}
 		exp = 1;
-		while ((mantissa & 0x400) == 0) {
+		while ((mantissa & 0x400) == 0 && exp > 0) {
 			mantissa <<= 1;
 			--exp;
 		}
@@ -123,13 +130,13 @@ static void widen_half_to_float_scalar(
 	uint32_t src_row_bytes, uint32_t dst_row_bytes,
 	uint32_t channels)
 {
-	uint32_t row_elements = width * channels;
+	uint64_t row_elements = static_cast<uint64_t>(width) * channels;
 	for (uint32_t y = 0; y < height; ++y) {
 		const auto *src_row = reinterpret_cast<const uint16_t *>(
 			src + static_cast<uint64_t>(y) * src_row_bytes);
 		auto *dst_row = reinterpret_cast<float *>(
 			dst + static_cast<uint64_t>(y) * dst_row_bytes);
-		for (uint32_t i = 0; i < row_elements; ++i) {
+		for (uint64_t i = 0; i < row_elements; ++i) {
 			dst_row[i] = half_to_float_scalar(src_row[i]);
 		}
 	}
@@ -144,8 +151,15 @@ Result<void> widen_uint16_to_uint32(
 	if (!src || !dst) return Error{ErrorCode::InvalidArgument, "null pointer"};
 	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
 
-	uint32_t min_src = width * channels * sizeof(uint16_t);
-	uint32_t min_dst = width * channels * sizeof(uint32_t);
+	uint32_t min_src{};
+	uint32_t min_dst{};
+	uint32_t row_el{};
+	if (!safe_mul_u32(width, channels, row_el))
+		return Error{ErrorCode::InvalidArgument, "width * channels overflow"};
+	if (!safe_mul_u32(row_el, sizeof(uint16_t), min_src))
+		return Error{ErrorCode::InvalidArgument, "row bytes overflow"};
+	if (!safe_mul_u32(row_el, sizeof(uint32_t), min_dst))
+		return Error{ErrorCode::InvalidArgument, "row bytes overflow"};
 	if (src_row_bytes < min_src || dst_row_bytes < min_dst)
 		return Error{ErrorCode::InvalidArgument, "row_bytes too small"};
 
@@ -171,7 +185,12 @@ Result<void> convert_uint32_to_float32(
 	if (!src || !dst) return Error{ErrorCode::InvalidArgument, "null pointer"};
 	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
 
-	uint32_t min_row = width * channels * sizeof(uint32_t);
+	uint32_t min_row{};
+	uint32_t row_el{};
+	if (!safe_mul_u32(width, channels, row_el))
+		return Error{ErrorCode::InvalidArgument, "width * channels overflow"};
+	if (!safe_mul_u32(row_el, sizeof(uint32_t), min_row))
+		return Error{ErrorCode::InvalidArgument, "row bytes overflow"};
 	if (src_row_bytes < min_row || dst_row_bytes < min_row)
 		return Error{ErrorCode::InvalidArgument, "row_bytes too small"};
 
@@ -197,8 +216,15 @@ Result<void> widen_half_to_float(
 	if (!src || !dst) return Error{ErrorCode::InvalidArgument, "null pointer"};
 	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
 
-	uint32_t min_src = width * channels * sizeof(uint16_t);
-	uint32_t min_dst = width * channels * sizeof(float);
+	uint32_t min_src{};
+	uint32_t min_dst{};
+	uint32_t row_el{};
+	if (!safe_mul_u32(width, channels, row_el))
+		return Error{ErrorCode::InvalidArgument, "width * channels overflow"};
+	if (!safe_mul_u32(row_el, sizeof(uint16_t), min_src))
+		return Error{ErrorCode::InvalidArgument, "row bytes overflow"};
+	if (!safe_mul_u32(row_el, sizeof(float), min_dst))
+		return Error{ErrorCode::InvalidArgument, "row bytes overflow"};
 	if (src_row_bytes < min_src || dst_row_bytes < min_dst)
 		return Error{ErrorCode::InvalidArgument, "row_bytes too small"};
 

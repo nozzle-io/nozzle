@@ -651,12 +651,9 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
         return Error{ErrorCode::BackendError, "no EGLImage in writable frame"};
     }
 
-    // TODO: Phase 2 — use EGLImage + GL mapping for zero-copy.
-    // Phase 1: CPU copy via pixel access API (once DMA-BUF mmap is implemented).
-    auto commit_result = snd.commit_frame(wframe);
-    if (!commit_result) { return commit_result.error(); }
-
-    return {};
+    // DMA-BUF CPU pixel write not yet implemented — cannot transfer GL pixels.
+    return Error{ErrorCode::UnsupportedBackend,
+        "Linux GL interop requires Phase 2 DMA-BUF pixel write (not yet implemented)"};
 }
 
 Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &gl_desc) {
@@ -677,10 +674,9 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
         return Error{ErrorCode::BackendError, "no EGLImage in frame"};
     }
 
-    // TODO: Phase 2 — use EGLImage + GL mapping for zero-copy.
-    // Phase 1: CPU copy via pixel access API (once DMA-BUF mmap is implemented).
-
-    return {};
+    // DMA-BUF CPU pixel read not yet implemented.
+    return Error{ErrorCode::UnsupportedBackend,
+        "Linux GL interop requires Phase 2 EGLImage mapping (not yet implemented)"};
 }
 
 #endif // NOZZLE_PLATFORM_LINUX
