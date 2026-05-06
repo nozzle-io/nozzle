@@ -11,9 +11,11 @@
 
 namespace nozzle::gl {
 
+constexpr uint32_t kGLTexture2D = 0x0DE1;
+
 struct gl_texture_desc {
     uint32_t name{0};           // GLuint
-    uint32_t target{0x0DE1};    // GL_TEXTURE_2D
+    uint32_t target{kGLTexture2D};
     uint32_t width{0};
     uint32_t height{0};
     texture_format format{texture_format::rgba8_unorm};

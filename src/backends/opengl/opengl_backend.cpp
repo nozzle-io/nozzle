@@ -358,6 +358,13 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
 
     blit_publish_to_canonical_macos_cgl_iosurface(gl_desc.origin, src_w, src_h);
 
+    GLenum gl_err = glGetError();
+    if (gl_err != GL_NO_ERROR) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        return Error{ErrorCode::BackendError, "GL blit failed in publish"};
+    }
+
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glFlush();
@@ -422,6 +429,13 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
     blit_canonical_to_dest_macos_cgl_iosurface(gl_desc.origin,
         static_cast<GLint>(gl_desc.width), static_cast<GLint>(gl_desc.height));
 
+    GLenum gl_err = glGetError();
+    if (gl_err != GL_NO_ERROR) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        return Error{ErrorCode::BackendError, "GL blit failed in copy_to_gl"};
+    }
+
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
@@ -454,6 +468,10 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     glGetTexImage(GL_TEXTURE_2D, 0, gl_fmt.format, gl_fmt.type, pixel_data.data());
     glPixelStorei(GL_PACK_ALIGNMENT, prev_pack);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    if (glGetError() != GL_NO_ERROR) {
+        return Error{ErrorCode::BackendError, "glGetTexImage failed"};
+    }
 
     nozzle::texture_desc td{};
     td.width = gl_desc.width;
@@ -606,6 +624,10 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
         gl_fmt.format, gl_fmt.type, pixel_data.data());
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_unpack);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    if (glGetError() != GL_NO_ERROR) {
+        return Error{ErrorCode::BackendError, "glTexSubImage2D failed"};
+    }
 
     return {};
 }
