@@ -73,9 +73,20 @@ inline void handle_fd_request(int client_fd, linux_sender_state *state) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(state->mutex_);
-    if (slot_index < 8 && state->slot_fds_[slot_index] >= 0) {
-        linux_backend::send_fd_response(client_fd, state->slot_fds_[slot_index]);
+    // dup() under lock so the fd remains valid even if the sender
+    // destroys its ring texture (and closes the original fd) while
+    // send_fd_response is still in progress outside the lock.
+    int fd_to_send = -1;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        if (slot_index < 8 && state->slot_fds_[slot_index] >= 0) {
+            fd_to_send = dup(state->slot_fds_[slot_index]);
+        }
+    }
+
+    if (fd_to_send >= 0) {
+        linux_backend::send_fd_response(client_fd, fd_to_send);
+        close(fd_to_send);
     }
 }
 
@@ -147,10 +158,14 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
                     if (state->stop_flag_.load(std::memory_order_relaxed)) break;
                     continue;
                 }
-                struct timeval recv_tv{};
-                recv_tv.tv_sec = 2;
-                recv_tv.tv_usec = 0;
-                setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &recv_tv, sizeof(recv_tv));
+                struct timeval tv{};
+                tv.tv_sec = 2;
+                tv.tv_usec = 0;
+                if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
+                    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+                    close(client_fd);
+                    continue;
+                }
                 handle_fd_request(client_fd, state);
                 close(client_fd);
             }
@@ -303,18 +318,19 @@ inline auto lookup_texture(
                 struct timeval tv{};
                 tv.tv_sec = 2;
                 tv.tv_usec = 0;
-                setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-                setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+                if (setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == 0 &&
+                    setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == 0) {
 
-                abstract_socket_addr addr(socket_name);
+                    abstract_socket_addr addr(socket_name);
 
-                if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) == 0) {
-                    ssize_t sent = ::send(sock_fd, &slot_index, sizeof(slot_index), 0);
-                    if (sent == static_cast<ssize_t>(sizeof(slot_index))) {
-                        int fd = linux_backend::recv_fd_response(sock_fd);
-                        if (fd >= 0) {
-                            cache.cache_.store(slot_index, fd, sender_uuid, width, height, format, native_modifier, generation,
-                                native_plane_count, native_plane_strides, native_plane_offsets);
+                    if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) == 0) {
+                        ssize_t sent = ::send(sock_fd, &slot_index, sizeof(slot_index), 0);
+                        if (sent == static_cast<ssize_t>(sizeof(slot_index))) {
+                            int fd = linux_backend::recv_fd_response(sock_fd);
+                            if (fd >= 0) {
+                                cache.cache_.store(slot_index, fd, sender_uuid, width, height, format, native_modifier, generation,
+                                    native_plane_count, native_plane_strides, native_plane_offsets);
+                            }
                         }
                     }
                 }
