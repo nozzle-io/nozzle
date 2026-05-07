@@ -205,6 +205,11 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
 	impl_->state->slots[slot].native_format_value = resolved.native.value;
 	impl_->state->slots[slot].native_format_modifier = resolved.native.modifier;
+	impl_->state->slots[slot].plane_count = resolved.native.plane_count;
+	for (uint32_t i = 0; i < resolved.native.plane_count && i < 4; ++i) {
+		impl_->state->slots[slot].plane_strides[i] = resolved.native.plane_strides[i];
+		impl_->state->slots[slot].plane_offsets[i] = resolved.native.plane_offsets[i];
+	}
 
 	impl_->state->semantic_format = static_cast<uint32_t>(tex_desc.semantic_format);
 	if (		impl_->state->width != tex_desc.width ||
@@ -377,6 +382,11 @@ Result<void> sender::commit_frame(writable_frame &f) {
 		impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
 		impl_->state->slots[slot].native_format_value = resolved.native.value;
 		impl_->state->slots[slot].native_format_modifier = resolved.native.modifier;
+		impl_->state->slots[slot].plane_count = resolved.native.plane_count;
+		for (uint32_t i = 0; i < resolved.native.plane_count && i < 4; ++i) {
+			impl_->state->slots[slot].plane_strides[i] = resolved.native.plane_strides[i];
+			impl_->state->slots[slot].plane_offsets[i] = resolved.native.plane_offsets[i];
+		}
 	}
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
@@ -455,6 +465,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				impl_->state->slots[slot].format_source = static_cast<uint8_t>(wr.source);
 				impl_->state->slots[slot].native_format_value = wr.native.value;
 				impl_->state->slots[slot].native_format_modifier = wr.native.modifier;
+				impl_->state->slots[slot].plane_count = wr.native.plane_count;
+				for (uint32_t i = 0; i < wr.native.plane_count && i < 4; ++i) {
+					impl_->state->slots[slot].plane_strides[i] = wr.native.plane_strides[i];
+					impl_->state->slots[slot].plane_offsets[i] = wr.native.plane_offsets[i];
+				}
 				impl_->state->width = width;
 				impl_->state->height = height;
 				impl_->state->format = static_cast<uint32_t>(wrapped.desc().format);
@@ -537,6 +552,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		impl_->state->slots[slot].format_source = static_cast<uint8_t>(rr.source);
 		impl_->state->slots[slot].native_format_value = rr.native.value;
 		impl_->state->slots[slot].native_format_modifier = rr.native.modifier;
+		impl_->state->slots[slot].plane_count = rr.native.plane_count;
+		for (uint32_t i = 0; i < rr.native.plane_count && i < 4; ++i) {
+			impl_->state->slots[slot].plane_strides[i] = rr.native.plane_strides[i];
+			impl_->state->slots[slot].plane_offsets[i] = rr.native.plane_offsets[i];
+		}
 		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 		impl_->slot_in_use_[slot] = false;

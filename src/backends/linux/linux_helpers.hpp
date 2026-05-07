@@ -14,9 +14,15 @@ struct _EGLDisplay;
 namespace nozzle::detail::linux_backend {
 class dmabuf_texture_cache;
 
+struct dmabuf_plane {
+    uint32_t stride{0};
+    uint32_t offset{0};
+};
+
 struct dmabuf_allocation {
     int fd{-1};
-    uint32_t stride{0};
+    uint32_t plane_count{0};
+    dmabuf_plane planes[4]{};
     uint64_t modifier{0};
     void *gbm_bo{nullptr};
 };
@@ -38,7 +44,8 @@ void *import_egl_image(
     uint32_t width,
     uint32_t height,
     uint32_t fourcc,
-    uint32_t stride,
+    uint32_t plane_count,
+    const dmabuf_plane *planes,
     uint64_t modifier
 );
 
@@ -72,7 +79,8 @@ Result<texture> import_dmabuf_texture(
     uint32_t width,
     uint32_t height,
     uint32_t fourcc,
-    uint32_t stride,
+    uint32_t plane_count,
+    const dmabuf_plane *planes,
     uint64_t modifier
 );
 

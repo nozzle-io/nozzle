@@ -154,7 +154,8 @@ Result<texture> create_texture_from_slot(
         s.format,
         s.channel_swizzle,
         s.semantic_format,
-        s.native_format_modifier);
+        s.native_format_modifier,
+        s.plane_strides[0]);
 }
 
 } // anonymous namespace

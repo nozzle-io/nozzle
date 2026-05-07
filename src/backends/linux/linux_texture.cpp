@@ -218,13 +218,12 @@ Result<dmabuf_allocation> allocate_dmabuf(
             "Failed to export DMA-BUF fd from GBM buffer object"};
     }
 
-    uint32_t stride = gbm_bo_get_stride(bo);
-    uint64_t modifier = DRM_FORMAT_MOD_LINEAR;
-
     dmabuf_allocation alloc{};
     alloc.fd = fd;
-    alloc.stride = stride;
-    alloc.modifier = modifier;
+    alloc.plane_count = 1;
+    alloc.planes[0].stride = gbm_bo_get_stride(bo);
+    alloc.planes[0].offset = 0;
+    alloc.modifier = DRM_FORMAT_MOD_LINEAR;
     alloc.gbm_bo = static_cast<void *>(bo);
 
     return alloc;
@@ -236,7 +235,8 @@ void *import_egl_image(
     uint32_t width,
     uint32_t height,
     uint32_t fourcc,
-    uint32_t stride,
+    uint32_t plane_count,
+    const dmabuf_plane *planes,
     uint64_t modifier
 ) {
     if (!init_egl_extensions()) {
@@ -248,42 +248,66 @@ void *import_egl_image(
         return nullptr;
     }
 
-    EGLint attribs[] = {
-        EGL_WIDTH, static_cast<EGLint>(width),
-        EGL_HEIGHT, static_cast<EGLint>(height),
-        EGL_LINUX_DRM_FOURCC_EXT, static_cast<EGLint>(fourcc),
-        EGL_DMA_BUF_PLANE0_FD_EXT, static_cast<EGLint>(fd),
-        EGL_DMA_BUF_PLANE0_PITCH_EXT, static_cast<EGLint>(stride),
-        EGL_DMA_BUF_PLANE0_OFFSET_EXT, static_cast<EGLint>(0),
-    };
+    EGLint attribs[64]{};
+    int idx = 0;
+    attribs[idx++] = EGL_WIDTH;
+    attribs[idx++] = static_cast<EGLint>(width);
+    attribs[idx++] = EGL_HEIGHT;
+    attribs[idx++] = static_cast<EGLint>(height);
+    attribs[idx++] = EGL_LINUX_DRM_FOURCC_EXT;
+    attribs[idx++] = static_cast<EGLint>(fourcc);
 
-    EGLint modifier_attrs[] = {
-        EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
-            static_cast<EGLint>(modifier & 0xFFFFFFFF),
-        EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
-            static_cast<EGLint>(modifier >> 32),
-        EGL_NONE,
-    };
+    attribs[idx++] = EGL_DMA_BUF_PLANE0_FD_EXT;
+    attribs[idx++] = static_cast<EGLint>(fd);
+    attribs[idx++] = EGL_DMA_BUF_PLANE0_PITCH_EXT;
+    attribs[idx++] = static_cast<EGLint>(planes[0].stride);
+    attribs[idx++] = EGL_DMA_BUF_PLANE0_OFFSET_EXT;
+    attribs[idx++] = static_cast<EGLint>(planes[0].offset);
 
-    EGLint final_attribs[32]{};
-    std::memcpy(final_attribs, attribs, sizeof(attribs));
+    if (plane_count > 1) {
+        attribs[idx++] = EGL_DMA_BUF_PLANE1_FD_EXT;
+        attribs[idx++] = static_cast<EGLint>(fd);
+        attribs[idx++] = EGL_DMA_BUF_PLANE1_PITCH_EXT;
+        attribs[idx++] = static_cast<EGLint>(planes[1].stride);
+        attribs[idx++] = EGL_DMA_BUF_PLANE1_OFFSET_EXT;
+        attribs[idx++] = static_cast<EGLint>(planes[1].offset);
+    }
+    if (plane_count > 2) {
+        attribs[idx++] = EGL_DMA_BUF_PLANE2_FD_EXT;
+        attribs[idx++] = static_cast<EGLint>(fd);
+        attribs[idx++] = EGL_DMA_BUF_PLANE2_PITCH_EXT;
+        attribs[idx++] = static_cast<EGLint>(planes[2].stride);
+        attribs[idx++] = EGL_DMA_BUF_PLANE2_OFFSET_EXT;
+        attribs[idx++] = static_cast<EGLint>(planes[2].offset);
+    }
 
     if (modifier != DRM_FORMAT_MOD_LINEAR) {
-        std::memcpy(
-            final_attribs + (sizeof(attribs) / sizeof(EGLint)) - 1,
-            modifier_attrs,
-            sizeof(modifier_attrs));
-    } else {
-        size_t base_count = sizeof(attribs) / sizeof(EGLint);
-        final_attribs[base_count - 1] = EGL_NONE;
+        attribs[idx++] = EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT;
+        attribs[idx++] = static_cast<EGLint>(modifier & 0xFFFFFFFF);
+        attribs[idx++] = EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT;
+        attribs[idx++] = static_cast<EGLint>(modifier >> 32);
+        if (plane_count > 1) {
+            attribs[idx++] = EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT;
+            attribs[idx++] = static_cast<EGLint>(modifier & 0xFFFFFFFF);
+            attribs[idx++] = EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT;
+            attribs[idx++] = static_cast<EGLint>(modifier >> 32);
+        }
+        if (plane_count > 2) {
+            attribs[idx++] = EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT;
+            attribs[idx++] = static_cast<EGLint>(modifier & 0xFFFFFFFF);
+            attribs[idx++] = EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT;
+            attribs[idx++] = static_cast<EGLint>(modifier >> 32);
+        }
     }
+
+    attribs[idx++] = EGL_NONE;
 
     auto *image = g_egl_ext.create_image(
         display,
         EGL_NO_CONTEXT,
         EGL_LINUX_DMA_BUF_EXT,
         nullptr,
-        final_attribs);
+        attribs);
 
     return static_cast<void *>(image);
 }
@@ -321,7 +345,7 @@ void destroy_dmabuf_allocation(dmabuf_allocation &alloc) {
         close(alloc.fd);
         alloc.fd = -1;
     }
-    alloc.stride = 0;
+    alloc.plane_count = 0;
     alloc.modifier = 0;
 }
 
@@ -354,7 +378,7 @@ Result<texture> create_dmabuf_texture(
 
     uint32_t fourcc = drm_format_from_nozzle(format);
     void *egl_image = import_egl_image(
-        egl_disp, alloc.fd, width, height, fourcc, alloc.stride, alloc.modifier);
+        egl_disp, alloc.fd, width, height, fourcc, alloc.plane_count, alloc.planes, alloc.modifier);
     if (!egl_image) {
         destroy_dmabuf_allocation(alloc);
         return Error{ErrorCode::ResourceCreationFailed,
@@ -375,6 +399,11 @@ Result<texture> create_dmabuf_texture(
     native.kind = native_format_kind::drm_fourcc;
     native.value = fourcc;
     native.modifier = alloc.modifier;
+    native.plane_count = alloc.plane_count;
+    for (uint32_t i = 0; i < alloc.plane_count && i < 4; ++i) {
+        native.plane_strides[i] = alloc.planes[i].stride;
+        native.plane_offsets[i] = alloc.planes[i].offset;
+    }
 
     return make_texture_from_backend(native_texture, native_surface, width, height, format, 0, &native);
 }
@@ -384,7 +413,8 @@ Result<texture> import_dmabuf_texture(
     uint32_t width,
     uint32_t height,
     uint32_t fourcc,
-    uint32_t stride,
+    uint32_t plane_count,
+    const dmabuf_plane *planes,
     uint64_t modifier
 ) {
     if (fd < 0) {
@@ -397,7 +427,7 @@ Result<texture> import_dmabuf_texture(
     }
 
     void *egl_image = import_egl_image(
-        egl_disp, fd, width, height, fourcc, stride, modifier);
+        egl_disp, fd, width, height, fourcc, plane_count, planes, modifier);
     if (!egl_image) {
         return Error{ErrorCode::ResourceCreationFailed,
             "Failed to import DMA-BUF fd as EGLImage"};
@@ -411,6 +441,11 @@ Result<texture> import_dmabuf_texture(
     native.kind = native_format_kind::drm_fourcc;
     native.value = fourcc;
     native.modifier = modifier;
+    native.plane_count = plane_count;
+    for (uint32_t i = 0; i < plane_count && i < 4; ++i) {
+        native.plane_strides[i] = planes[i].stride;
+        native.plane_offsets[i] = planes[i].offset;
+    }
 
     return make_texture_from_backend(native_texture, native_surface, width, height, 0, 0, &native);
 }
@@ -481,8 +516,24 @@ Result<texture> lookup_dmabuf_texture_with_fds(
         return Error{ErrorCode::BackendError, "No EGL display available"};
     }
 
+    uint32_t pc = cache.get_plane_count(slot_index);
+    dmabuf_plane planes[4]{};
+    uint32_t strides[4]{};
+    uint32_t offsets[4]{};
+    cache.get_plane_metadata(slot_index, pc, strides, offsets);
+    if (pc == 0) {
+        pc = 1;
+        planes[0].stride = 0;
+        planes[0].offset = 0;
+    } else {
+        for (uint32_t i = 0; i < pc && i < 4; ++i) {
+            planes[i].stride = strides[i];
+            planes[i].offset = offsets[i];
+        }
+    }
+
     void *egl_image = import_egl_image(
-        egl_disp, fd, width, height, fourcc, 0, DRM_FORMAT_MOD_LINEAR);
+        egl_disp, fd, width, height, fourcc, pc, planes, DRM_FORMAT_MOD_LINEAR);
     if (!egl_image) {
         return Error{ErrorCode::ResourceCreationFailed,
             "Failed to import cached DMA-BUF fd as EGLImage"};
@@ -768,7 +819,8 @@ dmabuf_texture_cache::~dmabuf_texture_cache() {
 }
 
 void dmabuf_texture_cache::store(
-    uint32_t slot_index, int fd, uint32_t width, uint32_t height, uint32_t format
+    uint32_t slot_index, int fd, uint32_t width, uint32_t height, uint32_t format,
+    uint32_t plane_count, const uint32_t *plane_strides, const uint32_t *plane_offsets
 ) {
     if (slot_index >= 8) {
         return;
@@ -777,7 +829,13 @@ void dmabuf_texture_cache::store(
     if (valid_[slot_index] && entries_[slot_index].fd >= 0) {
         close(entries_[slot_index].fd);
     }
-    entries_[slot_index] = cache_entry{fd, width, height, format};
+    entries_[slot_index] = cache_entry{fd, width, height, format, plane_count, {}, {}};
+    if (plane_strides && plane_offsets) {
+        for (uint32_t i = 0; i < plane_count && i < 4; ++i) {
+            entries_[slot_index].plane_strides[i] = plane_strides[i];
+            entries_[slot_index].plane_offsets[i] = plane_offsets[i];
+        }
+    }
     valid_[slot_index] = true;
 }
 
@@ -798,6 +856,39 @@ int dmabuf_texture_cache::get_fd(uint32_t slot_index) const {
         return -1;
     }
     return entries_[slot_index].fd;
+}
+
+uint32_t dmabuf_texture_cache::get_plane_count(uint32_t slot_index) const {
+    if (slot_index >= 8) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!valid_[slot_index]) {
+        return 0;
+    }
+    return entries_[slot_index].plane_count;
+}
+
+void dmabuf_texture_cache::get_plane_metadata(
+    uint32_t slot_index, uint32_t &plane_count, uint32_t (&strides)[4], uint32_t (&offsets)[4]
+) const {
+    plane_count = 0;
+    for (uint32_t i = 0; i < 4; ++i) {
+        strides[i] = 0;
+        offsets[i] = 0;
+    }
+    if (slot_index >= 8) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!valid_[slot_index]) {
+        return;
+    }
+    plane_count = entries_[slot_index].plane_count;
+    for (uint32_t i = 0; i < plane_count && i < 4; ++i) {
+        strides[i] = entries_[slot_index].plane_strides[i];
+        offsets[i] = entries_[slot_index].plane_offsets[i];
+    }
 }
 
 } // namespace nozzle::detail::linux_backend
@@ -831,6 +922,11 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
     native.kind = native_format_kind::drm_fourcc;
     native.value = desc.fourcc;
     native.modifier = desc.modifier;
+    native.plane_count = desc.plane_count;
+    for (uint32_t i = 0; i < desc.plane_count && i < 4; ++i) {
+        native.plane_strides[i] = desc.plane_strides[i];
+        native.plane_offsets[i] = desc.plane_offsets[i];
+    }
 
     return detail::make_texture_from_backend(
         native_texture, native_surface, desc.width, desc.height, 0, 0, &native);

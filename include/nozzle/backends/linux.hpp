@@ -24,6 +24,9 @@ struct texture_wrap_desc {
     uint64_t modifier{0};
     uint32_t width{0};
     uint32_t height{0};
+    uint32_t plane_count{0};
+    uint32_t plane_strides[4]{0};
+    uint32_t plane_offsets[4]{0};
 };
 
 Result<texture> wrap_texture(const texture_wrap_desc &desc);

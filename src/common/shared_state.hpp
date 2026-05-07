@@ -19,7 +19,7 @@ constexpr uint32_t kDirectoryMagic = 0x4E5A4431;
 constexpr uint32_t kSenderMagic = 0x4E5A5331;
 constexpr uint32_t kMaxSenders = 64;
 constexpr uint32_t kMaxRingSlots = 8;
-constexpr uint64_t kSharedMemVersion = 4;
+constexpr uint64_t kSharedMemVersion = 5;
 
 constexpr resource_id64 kInvalidSharedResourceId = 0;
 constexpr process_id64 kInvalidPid = 0;
@@ -83,12 +83,15 @@ struct SenderSharedState {
         uint8_t _pad{};
         uint32_t native_format_value{0};
         uint64_t native_format_modifier{0};
+        uint32_t plane_count{0};
+        uint32_t plane_strides[4]{0};
+        uint32_t plane_offsets[4]{0};
     } slots[kMaxRingSlots]{};
 
     char metadata[kMetadataSize]{};
 };
 
-static_assert(sizeof(SenderSharedState) == 1280, "unexpected SenderSharedState size");
+static_assert(sizeof(SenderSharedState) == 1600, "unexpected SenderSharedState size");
 
 } // namespace detail
 } // namespace nozzle

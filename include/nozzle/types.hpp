@@ -121,6 +121,9 @@ struct native_format_desc {
     native_format_kind kind{native_format_kind::unknown};
     uint32_t value{0};
     uint64_t modifier{0};
+    uint32_t plane_count{0};
+    uint32_t plane_strides[4]{0};
+    uint32_t plane_offsets[4]{0};
 };
 
 struct cpu_layout_desc {
