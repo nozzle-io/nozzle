@@ -9,7 +9,13 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <mutex>
+#include <string>
+
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 namespace nozzle {
 namespace detail {
@@ -20,6 +26,8 @@ namespace {
 struct linux_sender_state {
     std::array<int, 8> slot_fds_{};
     uint32_t ring_size_{0};
+    int listen_fd_{-1};
+    std::string socket_path_{};
     std::mutex mutex_;
 };
 
@@ -36,6 +44,65 @@ linux_receiver_cache &get_receiver_cache() {
 }
 
 } // anonymous namespace
+
+inline void notify_sender_uuid(const char *uuid) {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state || !uuid) return;
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    if (state->listen_fd_ >= 0) return;
+
+    std::string path = "/tmp/nozzle_fd_";
+    path += uuid;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return;
+
+    struct sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+    unlink(path.c_str());
+
+    if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+        close(fd);
+        return;
+    }
+    if (listen(fd, 4) < 0) {
+        close(fd);
+        unlink(path.c_str());
+        return;
+    }
+
+    state->listen_fd_ = fd;
+    state->socket_path_ = path;
+}
+
+inline void cleanup_sender_socket() {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state) return;
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    if (state->listen_fd_ >= 0) {
+        close(state->listen_fd_);
+        state->listen_fd_ = -1;
+    }
+    if (!state->socket_path_.empty()) {
+        unlink(state->socket_path_.c_str());
+        state->socket_path_.clear();
+    }
+}
+
+inline void handle_fd_request(int client_fd, linux_sender_state *state) {
+    uint32_t slot_index = 0;
+    ssize_t n = recv(client_fd, &slot_index, sizeof(slot_index), 0);
+    if (n != sizeof(slot_index)) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    if (slot_index < 8 && state->slot_fds_[slot_index] >= 0) {
+        linux_backend::send_fd_response(client_fd, state->slot_fds_[slot_index]);
+    }
+}
 
 inline auto get_default_device() -> void * {
     return linux_backend::get_default_gbm_device();
@@ -130,54 +197,98 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 }
 
 inline auto lookup_texture(
-    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets
+    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, const char *sender_uuid
 ) -> Result<texture> {
     uint32_t slot_index = static_cast<uint32_t>(shared_id);
     if (slot_index >= 8) {
         return Error{ErrorCode::InvalidArgument, "DMA-BUF slot index out of range"};
     }
 
+    auto *sender_state = g_sender_state.load(std::memory_order_relaxed);
+    if (sender_state) {
+        int listen_fd = -1;
+        {
+            std::lock_guard<std::mutex> lock(sender_state->mutex_);
+            listen_fd = sender_state->listen_fd_;
+        }
+        if (listen_fd >= 0) {
+            struct sockaddr_un client_addr{};
+            socklen_t client_len = sizeof(client_addr);
+            int client_fd = accept(listen_fd, reinterpret_cast<struct sockaddr *>(&client_addr), &client_len);
+            if (client_fd >= 0) {
+                handle_fd_request(client_fd, sender_state);
+                close(client_fd);
+            }
+        }
+    }
+
     auto &cache = get_receiver_cache();
     std::lock_guard<std::mutex> lock(cache.mutex_);
 
-    if (cache.cache_.has(slot_index)) {
-        int fd = cache.cache_.get_fd(slot_index);
-        uint32_t fourcc = linux_backend::drm_format_from_nozzle(format);
-        void *egl_disp = linux_backend::get_egl_display();
-        if (!egl_disp) {
-            return Error{ErrorCode::BackendError, "No EGL display available"};
-        }
+    if (!cache.cache_.has(slot_index)) {
+        if (sender_uuid && sender_uuid[0] != '\0') {
+            std::string socket_path = "/tmp/nozzle_fd_";
+            socket_path += sender_uuid;
 
-        uint32_t pc = native_plane_count > 0 ? native_plane_count : 1;
-        linux_backend::dmabuf_plane planes[4]{};
-        for (uint32_t i = 0; i < pc && i < 4; ++i) {
-            planes[i].stride = native_plane_strides ? native_plane_strides[i] : 0;
-            planes[i].offset = native_plane_offsets ? native_plane_offsets[i] : 0;
-        }
+            int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+            if (sock_fd >= 0) {
+                struct sockaddr_un addr{};
+                addr.sun_family = AF_UNIX;
+                std::strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
 
-        void *egl_image = linux_backend::import_egl_image(
-            egl_disp, fd, width, height, fourcc, pc, planes, native_modifier);
-        if (!egl_image) {
-            return Error{ErrorCode::ResourceCreationFailed,
-                "Failed to import DMA-BUF fd as EGLImage"};
+                if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0) {
+                    ssize_t sent = ::send(sock_fd, &slot_index, sizeof(slot_index), 0);
+                    if (sent == static_cast<ssize_t>(sizeof(slot_index))) {
+                        int fd = linux_backend::recv_fd_response(sock_fd);
+                        if (fd >= 0) {
+                            cache.cache_.store(slot_index, fd, width, height, format,
+                                native_plane_count, native_plane_strides, native_plane_offsets);
+                        }
+                    }
+                }
+                close(sock_fd);
+            }
         }
-
-        void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
-        native_format_desc native{};
-        native.backend = backend_type::dma_buf;
-        native.kind = native_format_kind::drm_fourcc;
-        native.value = fourcc;
-        native.modifier = native_modifier;
-        native.plane_count = pc;
-        for (uint32_t i = 0; i < pc && i < 4; ++i) {
-            native.plane_strides[i] = planes[i].stride;
-            native.plane_offsets[i] = planes[i].offset;
-        }
-        return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native, semantic_format);
     }
 
-    return Error{ErrorCode::BackendError,
-        "DMA-BUF slot not cached — fd transfer requires sender UUID"};
+    if (!cache.cache_.has(slot_index)) {
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF slot not cached — fd transfer failed"};
+    }
+
+    int fd = cache.cache_.get_fd(slot_index);
+    uint32_t fourcc = linux_backend::drm_format_from_nozzle(format);
+    void *egl_disp = linux_backend::get_egl_display();
+    if (!egl_disp) {
+        return Error{ErrorCode::BackendError, "No EGL display available"};
+    }
+
+    uint32_t pc = native_plane_count > 0 ? native_plane_count : 1;
+    linux_backend::dmabuf_plane planes[4]{};
+    for (uint32_t i = 0; i < pc && i < 4; ++i) {
+        planes[i].stride = native_plane_strides ? native_plane_strides[i] : 0;
+        planes[i].offset = native_plane_offsets ? native_plane_offsets[i] : 0;
+    }
+
+    void *egl_image = linux_backend::import_egl_image(
+        egl_disp, fd, width, height, fourcc, pc, planes, native_modifier);
+    if (!egl_image) {
+        return Error{ErrorCode::ResourceCreationFailed,
+            "Failed to import DMA-BUF fd as EGLImage"};
+    }
+
+    void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
+    native_format_desc native{};
+    native.backend = backend_type::dma_buf;
+    native.kind = native_format_kind::drm_fourcc;
+    native.value = fourcc;
+    native.modifier = native_modifier;
+    native.plane_count = pc;
+    for (uint32_t i = 0; i < pc && i < 4; ++i) {
+        native.plane_strides[i] = planes[i].stride;
+        native.plane_offsets[i] = planes[i].offset;
+    }
+    return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native, semantic_format);
 }
 
 inline auto wrap_backend_texture(

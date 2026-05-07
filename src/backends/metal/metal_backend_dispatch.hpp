@@ -40,7 +40,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
     metal::release_mtl_texture_resources(native_texture, native_surface);
 }
 
-inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t channel_swizzle, uint32_t semantic_format, uint64_t /*native_modifier*/, uint32_t /*native_plane_count*/, const uint32_t * /*native_plane_strides*/, const uint32_t * /*native_plane_offsets*/) -> Result<texture> {
+inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t channel_swizzle, uint32_t semantic_format, uint64_t /*native_modifier*/, uint32_t /*native_plane_count*/, const uint32_t * /*native_plane_strides*/, const uint32_t * /*native_plane_offsets*/, const char * /*sender_uuid*/) -> Result<texture> {
     return metal::lookup_iosurface_texture(
         static_cast<uint32_t>(shared_id), width, height, format, channel_swizzle, semantic_format);
 }
@@ -68,6 +68,9 @@ inline auto get_native_surface_from_texture(void *native_texture) -> void * {
 inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void> {
     return metal::blit_to_texture(device, src, dst, width, height);
 }
+
+inline void notify_sender_uuid(const char * /*uuid*/) {}
+inline void cleanup_sender_socket() {}
 
 } // namespace backend
 } // namespace detail

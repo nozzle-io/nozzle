@@ -42,6 +42,7 @@ struct sender::Impl {
 		for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
 			slot_in_use_[i] = false;
 		}
+		detail::backend::cleanup_sender_socket();
 		if (state != nullptr) {
 			detail::ipc::shm_unmap(state, sizeof(detail::SenderSharedState));
 			state = nullptr;
@@ -124,6 +125,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->metadata_ = desc.metadata;
 	s.impl_->allow_format_fallback_ = desc.allow_format_fallback;
 	s.impl_->valid_ = true;
+
+	detail::backend::notify_sender_uuid(reg.uuid);
 
 	return s;
 }

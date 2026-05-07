@@ -478,6 +478,63 @@ Result<texture> import_dmabuf_texture(
 
 namespace nozzle::detail::linux_backend {
 
+bool send_fd_response(int socket_fd, int fd_to_send) {
+    char dummy = 'F';
+    struct iovec iov{};
+    iov.iov_base = &dummy;
+    iov.iov_len = 1;
+
+    union {
+        struct cmsghdr align;
+        char buf[CMSG_SPACE(sizeof(int))];
+    } ctrl{};
+    struct msghdr msg{};
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl.buf;
+    msg.msg_controllen = sizeof(ctrl.buf);
+
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+    std::memcpy(CMSG_DATA(cmsg), &fd_to_send, sizeof(int));
+
+    ssize_t sent = sendmsg(socket_fd, &msg, 0);
+    return sent == 1;
+}
+
+int recv_fd_response(int socket_fd) {
+    char dummy{};
+    struct iovec iov{};
+    iov.iov_base = &dummy;
+    iov.iov_len = 1;
+
+    union {
+        struct cmsghdr align;
+        char buf[CMSG_SPACE(sizeof(int))];
+    } ctrl{};
+    struct msghdr msg{};
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl.buf;
+    msg.msg_controllen = sizeof(ctrl.buf);
+
+    ssize_t received = recvmsg(socket_fd, &msg, 0);
+    if (received != 1) {
+        return -1;
+    }
+
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+    if (!cmsg || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS) {
+        return -1;
+    }
+
+    int fd = -1;
+    std::memcpy(&fd, CMSG_DATA(cmsg), sizeof(int));
+    return fd;
+}
+
 dmabuf_texture_cache::~dmabuf_texture_cache() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (size_t i = 0; i < entries_.size(); ++i) {

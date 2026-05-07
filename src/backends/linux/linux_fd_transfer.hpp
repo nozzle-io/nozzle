@@ -5,8 +5,12 @@
 #include <array>
 #include <cstdint>
 #include <mutex>
+#include <string>
 
 namespace nozzle::detail::linux_backend {
+
+bool send_fd_response(int socket_fd, int fd_to_send);
+int recv_fd_response(int socket_fd);
 
 class dmabuf_texture_cache {
 public:

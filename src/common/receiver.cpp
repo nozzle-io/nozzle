@@ -157,7 +157,8 @@ Result<texture> create_texture_from_slot(
         s.native_format_modifier,
         s.plane_count,
         s.plane_strides,
-        s.plane_offsets);
+        s.plane_offsets,
+        state->uuid);
 }
 
 } // anonymous namespace
