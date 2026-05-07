@@ -42,7 +42,6 @@ struct linux_sender_state {
 };
 
 std::atomic<linux_sender_state *> g_sender_state{nullptr};
-std::string g_pending_uuid;
 
 struct linux_receiver_cache {
     linux_backend::dmabuf_texture_cache cache_{};
@@ -83,38 +82,63 @@ inline void handle_fd_request(int client_fd, linux_sender_state *state) {
 } // anonymous namespace
 
 inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
-    if (uuid) g_pending_uuid = uuid;
+    if (!uuid) return {};
 
     auto *state = g_sender_state.load(std::memory_order_relaxed);
-    if (!state || !uuid) return {};
 
-    std::lock_guard<std::mutex> lock(state->mutex_);
-    if (state->listen_fd_ >= 0) {
-        return Error{ErrorCode::BackendError,
-            "DMA-BUF backend supports only one sender per process"};
+    if (state) {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        if (state->listen_fd_ >= 0) {
+            return Error{ErrorCode::BackendError,
+                "DMA-BUF backend supports only one sender per process"};
+        }
     }
 
-    state->uuid_ = uuid;
+    if (!state) {
+        auto *new_state = new linux_sender_state{};
+        linux_sender_state *expected = nullptr;
+        if (!g_sender_state.compare_exchange_strong(expected, new_state,
+                std::memory_order_release, std::memory_order_relaxed)) {
+            delete new_state;
+            state = expected;
+        } else {
+            state = new_state;
+        }
+    }
+
+    if (!state) {
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF sender state allocation failed"};
+    }
 
     std::string name = "nozzle_fd_";
     name += uuid;
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) return {};
+    if (fd < 0) {
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF fd broker socket creation failed"};
+    }
 
     abstract_socket_addr addr(name);
 
     if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) < 0) {
         close(fd);
-        return {};
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF fd broker socket bind failed"};
     }
     if (listen(fd, 4) < 0) {
         close(fd);
-        return {};
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF fd broker socket listen failed"};
     }
 
-    state->listen_fd_ = fd;
-    state->socket_path_ = name;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        state->listen_fd_ = fd;
+        state->socket_path_ = name;
+        state->uuid_ = uuid;
+    }
 
     state->stop_flag_.store(false, std::memory_order_relaxed);
     state->accept_thread_ = std::thread([state]() {
@@ -149,8 +173,6 @@ inline void cleanup_sender_socket() {
         state->accept_thread_.join();
     }
 
-    g_pending_uuid.clear();
-
     {
         std::lock_guard<std::mutex> lock(state->mutex_);
         if (state->listen_fd_ >= 0) {
@@ -159,6 +181,9 @@ inline void cleanup_sender_socket() {
         }
         state->socket_path_.clear();
         state->uuid_.clear();
+        state->slot_fds_.fill(-1);
+        state->slot_generations_.fill(0);
+        state->ring_size_ = 0;
     }
 }
 
@@ -175,18 +200,6 @@ inline auto create_ring_texture(
     }
 
     auto *state = g_sender_state.load(std::memory_order_relaxed);
-    if (!state) {
-        auto *new_state = new linux_sender_state{};
-        linux_sender_state *expected = nullptr;
-        if (!g_sender_state.compare_exchange_strong(expected, new_state,
-                std::memory_order_release, std::memory_order_relaxed)) {
-            delete new_state;
-            state = expected;
-        } else {
-            state = new_state;
-        }
-    }
-
     if (state) {
         std::lock_guard<std::mutex> lock(state->mutex_);
         void *surface = detail::get_surface_native(tex_result.value());
@@ -201,13 +214,14 @@ inline auto create_ring_texture(
         }
     }
 
-    if (!g_pending_uuid.empty()) {
-        notify_sender_uuid(g_pending_uuid.c_str());
-    }
-
     return tex_result;
 }
 
+// Generation encodes allocation identity: when a DMA-BUF fd changes for a slot,
+// generation increments. Since DMA-BUF plane metadata (strides/offsets) is
+// determined by the allocation, a generation change also implies plane metadata
+// change. This makes separate plane metadata comparison in the receiver cache
+// unnecessary — generation alone is sufficient to detect stale fd entries.
 inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
     void *surface = detail::get_surface_native(tex);
     if (!surface) {
