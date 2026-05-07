@@ -774,4 +774,18 @@ NozzleErrorCode nozzle_convert_uint32_to_float32(
     return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
 }
 
+NozzleErrorCode nozzle_widen_half_to_float(
+    const void *src,
+    void *dst,
+    uint32_t width,
+    uint32_t height,
+    uint32_t src_row_bytes,
+    uint32_t dst_row_bytes,
+    uint32_t channels
+) {
+    auto result = nozzle::widen_half_to_float(
+        src, dst, width, height, src_row_bytes, dst_row_bytes, channels);
+    return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
+}
+
 } // extern "C"
