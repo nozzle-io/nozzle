@@ -7,64 +7,64 @@
 namespace nozzle {
 
 enum class backend_type {
-    unknown,
-    d3d11,
-    metal,
-    opengl,
-    dma_buf,
+    unknown = 0,
+    d3d11 = 1,
+    metal = 2,
+    opengl = 3,
+    dma_buf = 4,
 };
 
 enum class texture_format {
-    unknown,
-    r8_unorm,
-    rg8_unorm,
-    rgb8_unorm,
-    rgba8_unorm,
-    bgra8_unorm,
-    rgba8_srgb,   // v0.1: unsupported on Metal/IOSurface (IOSurface FourCC cannot encode sRGB semantics)
-    bgra8_srgb,   // v0.1: unsupported on Metal/IOSurface (IOSurface FourCC cannot encode sRGB semantics)
-    r16_unorm,
-    rg16_unorm,
-    rgb16_unorm,
-    rgba16_unorm,
-    r16_float,
-    rg16_float,
-    rgb16_float,
-    rgba16_float,
-    r32_float,
-    rg32_float,
-    rgb32_float,
-    rgba32_float,
-    r32_uint,
-    rgba32_uint,
-    rgb32_uint,
-    depth32_float,
+    unknown = 0,
+    r8_unorm = 1,
+    rg8_unorm = 2,
+    rgb8_unorm = 3,
+    rgba8_unorm = 4,
+    bgra8_unorm = 5,
+    rgba8_srgb = 6,
+    bgra8_srgb = 7,
+    r16_unorm = 8,
+    rg16_unorm = 9,
+    rgb16_unorm = 10,
+    rgba16_unorm = 11,
+    r16_float = 12,
+    rg16_float = 13,
+    rgb16_float = 14,
+    rgba16_float = 15,
+    r32_float = 16,
+    rg32_float = 17,
+    rgb32_float = 18,
+    rgba32_float = 19,
+    r32_uint = 20,
+    rgba32_uint = 21,
+    rgb32_uint = 22,
+    depth32_float = 23,
 };
 
 enum class transfer_mode {
-    unknown,
-    zero_copy_shared_texture,
-    gpu_copy,
-    cpu_copy,
+    unknown = 0,
+    zero_copy_shared_texture = 1,
+    gpu_copy = 2,
+    cpu_copy = 3,
 };
 
 enum class sync_mode {
-    none,
-    access_guarded,
-    gpu_fence_best_effort,
+    none = 0,
+    access_guarded = 1,
+    gpu_fence_best_effort = 2,
 };
 
 enum class receive_mode {
-    latest_only,
-    sequential_best_effort,
+    latest_only = 0,
+    sequential_best_effort = 1,
 };
 
 enum class frame_status {
-    new_frame,
-    no_new_frame,
-    dropped_frames,
-    sender_closed,
-    error,
+    new_frame = 0,
+    no_new_frame = 1,
+    dropped_frames = 2,
+    sender_closed = 3,
+    error = 4,
 };
 
 enum class channel_swizzle : uint8_t {
@@ -73,8 +73,8 @@ enum class channel_swizzle : uint8_t {
 };
 
 enum class texture_origin : uint8_t {
-    top_left,      // Metal, CoreGraphics, Jitter matrix, IOSurface canonical
-    bottom_left,   // OpenGL, TD CPUMem
+    top_left = 0,
+    bottom_left = 1,
 };
 
 enum class texture_usage : uint32_t {
@@ -102,14 +102,18 @@ enum class component_type : uint8_t {
 };
 
 enum class format_source : uint8_t {
-    requested,
-    caller_hint,
-    native_observed,
-    registry_metadata
+    requested = 0,
+    caller_hint = 1,
+    native_observed = 2,
+    registry_metadata = 3
 };
 
 enum class native_format_kind : uint8_t {
-    unknown, mtl_pixel_format, dxgi_format, drm_fourcc, gl_internal_format
+    unknown = 0,
+    mtl_pixel_format = 1,
+    dxgi_format = 2,
+    drm_fourcc = 3,
+    gl_internal_format = 4
 };
 
 struct native_format_desc {
