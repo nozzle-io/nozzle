@@ -90,6 +90,7 @@ target_sources(nozzle PRIVATE
 # --- Architecture-specific SIMD sources ( guards inside each file) ---
 target_sources(nozzle PRIVATE
     src/common/format_convert_sse2.cpp
+    src/common/format_convert_f16c.cpp
     src/common/format_convert_neon.cpp
 )
 

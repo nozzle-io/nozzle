@@ -323,8 +323,7 @@ TEST_CASE("widen_half_to_float: smallest positive subnormal", "[format_convert]"
 	float dst = -1.0f;
 	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
 	REQUIRE(r.ok());
-	REQUIRE(dst > 0.0f);
-	REQUIRE(dst < 0.001f);
+	REQUIRE_THAT(dst, WithinAbs(5.960464477539063e-8f, 1e-15f));
 }
 
 TEST_CASE("widen_half_to_float: infinity", "[format_convert]") {
@@ -429,16 +428,7 @@ TEST_CASE("widen_half_to_float: largest subnormal", "[format_convert]") {
 	float dst = -1.0f;
 	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
 	REQUIRE(r.ok());
-	REQUIRE(dst > 0.0f);
-	REQUIRE(dst < 0.001f);
-}
-
-TEST_CASE("widen_half_to_float: smallest normal", "[format_convert]") {
-	uint16_t src = 0x0400;
-	float dst = -1.0f;
-	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
-	REQUIRE(r.ok());
-	REQUIRE_THAT(dst, WithinAbs(6.1035e-5f, 1e-8f));
+	REQUIRE_THAT(dst, WithinAbs(0.00006097555160522461f, 1e-12f));
 }
 
 TEST_CASE("widen_half_to_float: largest finite half", "[format_convert]") {
@@ -465,4 +455,38 @@ TEST_CASE("widen_half_to_float: quiet NaN with payload", "[format_convert]") {
 	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
 	REQUIRE(r.ok());
 	REQUIRE(std::isnan(dst));
+}
+
+TEST_CASE("widen_half_to_float: second subnormal", "[format_convert]") {
+	uint16_t src = 0x0002;
+	float dst = -1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE_THAT(dst, WithinAbs(1.1920928955078125e-7f, 1e-14f));
+}
+
+TEST_CASE("widen_half_to_float: negative smallest subnormal", "[format_convert]") {
+	uint16_t src = 0x8001;
+	float dst = 1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE_THAT(dst, WithinAbs(-5.960464477539063e-8f, 1e-15f));
+	REQUIRE(std::signbit(dst));
+}
+
+TEST_CASE("widen_half_to_float: negative largest subnormal", "[format_convert]") {
+	uint16_t src = 0x83FF;
+	float dst = 1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE_THAT(dst, WithinAbs(-0.00006097555160522461f, 1e-12f));
+	REQUIRE(std::signbit(dst));
+}
+
+TEST_CASE("widen_half_to_float: subnormal to normal boundary", "[format_convert]") {
+	uint16_t src = 0x0400;
+	float dst = -1.0f;
+	auto r = widen_half_to_float(&src, &dst, 1, 1, 2, 4, 1);
+	REQUIRE(r.ok());
+	REQUIRE_THAT(dst, WithinAbs(0.00006103515625f, 1e-12f));
 }

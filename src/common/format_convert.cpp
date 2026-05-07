@@ -43,6 +43,20 @@ void convert_uint32_to_float32_neon(
 	uint32_t width, uint32_t height,
 	uint32_t src_row_bytes, uint32_t dst_row_bytes,
 	uint32_t channels);
+
+void widen_half_to_float_neon(
+	const uint8_t *src, uint8_t *dst,
+	uint32_t width, uint32_t height,
+	uint32_t src_row_bytes, uint32_t dst_row_bytes,
+	uint32_t channels);
+#endif
+
+#if defined(__F16C__) || defined(__AVX2__)
+void widen_half_to_float_f16c(
+	const uint8_t *src, uint8_t *dst,
+	uint32_t width, uint32_t height,
+	uint32_t src_row_bytes, uint32_t dst_row_bytes,
+	uint32_t channels);
 #endif
 
 } // namespace nozzle::detail
@@ -99,13 +113,15 @@ static float half_to_float_scalar(uint16_t h) {
 			std::memcpy(&result, &f, sizeof(result));
 			return result;
 		}
-		exp = 1;
-		while ((mantissa & 0x400) == 0 && exp > 0) {
+		// Subnormal: shift mantissa until bit 10 (implicit 1) is set
+		int shift = 0;
+		while ((mantissa & 0x400) == 0) {
 			mantissa <<= 1;
-			--exp;
+			++shift;
 		}
 		mantissa &= 0x3FF;
-		exp = static_cast<uint32_t>(static_cast<int32_t>(exp) + 127 - 15);
+		// float exp = 127 - 14 - shift = 113 - shift
+		exp = static_cast<uint32_t>(113 - shift);
 	} else if (exp == 0x1F) {
 		uint32_t f = sign | (0xFFu << 23) | (mantissa << 13);
 		float result;
@@ -231,9 +247,16 @@ Result<void> widen_half_to_float(
 	if (r.ok()) return r;
 #endif
 
-	widen_half_to_float_scalar(
-		static_cast<const uint8_t *>(src), static_cast<uint8_t *>(dst),
-		width, height, src_row_bytes, dst_row_bytes, channels);
+	const auto *s = static_cast<const uint8_t *>(src);
+	auto *d = static_cast<uint8_t *>(dst);
+
+#if defined(__F16C__) || defined(__AVX2__)
+	detail::widen_half_to_float_f16c(s, d, width, height, src_row_bytes, dst_row_bytes, channels);
+#elif defined(__ARM_NEON)
+	detail::widen_half_to_float_neon(s, d, width, height, src_row_bytes, dst_row_bytes, channels);
+#else
+	widen_half_to_float_scalar(s, d, width, height, src_row_bytes, dst_row_bytes, channels);
+#endif
 	return {};
 }
 
