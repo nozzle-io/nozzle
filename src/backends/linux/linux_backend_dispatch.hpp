@@ -86,14 +86,6 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 
     auto *state = g_sender_state.load(std::memory_order_relaxed);
 
-    if (state) {
-        std::lock_guard<std::mutex> lock(state->mutex_);
-        if (state->listen_fd_ >= 0) {
-            return Error{ErrorCode::BackendError,
-                "DMA-BUF backend supports only one sender per process"};
-        }
-    }
-
     if (!state) {
         auto *new_state = new linux_sender_state{};
         linux_sender_state *expected = nullptr;
@@ -135,23 +127,43 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 
     {
         std::lock_guard<std::mutex> lock(state->mutex_);
+        if (state->listen_fd_ >= 0) {
+            close(fd);
+            return Error{ErrorCode::BackendError,
+                "DMA-BUF backend supports only one sender per process"};
+        }
         state->listen_fd_ = fd;
         state->socket_path_ = name;
         state->uuid_ = uuid;
     }
 
     state->stop_flag_.store(false, std::memory_order_relaxed);
-    state->accept_thread_ = std::thread([state]() {
-        while (!state->stop_flag_.load(std::memory_order_relaxed)) {
-            int client_fd = accept(state->listen_fd_, nullptr, nullptr);
-            if (client_fd < 0) {
-                if (state->stop_flag_.load(std::memory_order_relaxed)) break;
-                continue;
+
+    try {
+        state->accept_thread_ = std::thread([state]() {
+            while (!state->stop_flag_.load(std::memory_order_relaxed)) {
+                int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+                if (client_fd < 0) {
+                    if (state->stop_flag_.load(std::memory_order_relaxed)) break;
+                    continue;
+                }
+                struct timeval recv_tv{};
+                recv_tv.tv_sec = 2;
+                recv_tv.tv_usec = 0;
+                setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &recv_tv, sizeof(recv_tv));
+                handle_fd_request(client_fd, state);
+                close(client_fd);
             }
-            handle_fd_request(client_fd, state);
-            close(client_fd);
-        }
-    });
+        });
+    } catch (const std::system_error &) {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        close(state->listen_fd_);
+        state->listen_fd_ = -1;
+        state->socket_path_.clear();
+        state->uuid_.clear();
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF fd broker accept thread creation failed"};
+    }
 
     return {};
 }
