@@ -374,6 +374,7 @@ Result<texture> create_dmabuf_texture(
     native.backend = backend_type::dma_buf;
     native.kind = native_format_kind::drm_fourcc;
     native.value = fourcc;
+    native.modifier = alloc.modifier;
 
     return make_texture_from_backend(native_texture, native_surface, width, height, format, 0, &native);
 }
@@ -409,6 +410,7 @@ Result<texture> import_dmabuf_texture(
     native.backend = backend_type::dma_buf;
     native.kind = native_format_kind::drm_fourcc;
     native.value = fourcc;
+    native.modifier = modifier;
 
     return make_texture_from_backend(native_texture, native_surface, width, height, 0, 0, &native);
 }
@@ -493,6 +495,7 @@ Result<texture> lookup_dmabuf_texture_with_fds(
     native.backend = backend_type::dma_buf;
     native.kind = native_format_kind::drm_fourcc;
     native.value = fourcc;
+    native.modifier = DRM_FORMAT_MOD_LINEAR;
 
     return make_texture_from_backend(native_texture, native_surface, width, height, format, 0, &native);
 }
@@ -823,8 +826,14 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
     void *native_surface = reinterpret_cast<void *>(
         static_cast<intptr_t>(desc.dmabuf_fd));
 
+    native_format_desc native{};
+    native.backend = backend_type::dma_buf;
+    native.kind = native_format_kind::drm_fourcc;
+    native.value = desc.fourcc;
+    native.modifier = desc.modifier;
+
     return detail::make_texture_from_backend(
-        native_texture, native_surface, desc.width, desc.height, 0);
+        native_texture, native_surface, desc.width, desc.height, 0, 0, &native);
 }
 
 void *get_egl_image(const texture &tex) {

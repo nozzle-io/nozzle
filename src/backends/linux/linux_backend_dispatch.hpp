@@ -139,7 +139,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 }
 
 inline auto lookup_texture(
-    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format
+    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint64_t native_modifier
 ) -> Result<texture> {
     uint32_t slot_index = static_cast<uint32_t>(shared_id);
     if (slot_index >= 8) {
@@ -158,7 +158,7 @@ inline auto lookup_texture(
         }
 
         void *egl_image = linux_backend::import_egl_image(
-            egl_disp, fd, width, height, fourcc, 0, 0);
+            egl_disp, fd, width, height, fourcc, 0, native_modifier);
         if (!egl_image) {
             return Error{ErrorCode::ResourceCreationFailed,
                 "Failed to import DMA-BUF fd as EGLImage"};
@@ -169,6 +169,7 @@ inline auto lookup_texture(
         native.backend = backend_type::dma_buf;
         native.kind = native_format_kind::drm_fourcc;
         native.value = fourcc;
+        native.modifier = native_modifier;
         return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native, semantic_format);
     }
 

@@ -153,7 +153,8 @@ Result<texture> create_texture_from_slot(
         s.height,
         s.format,
         s.channel_swizzle,
-        s.semantic_format);
+        s.semantic_format,
+        s.native_format_modifier);
 }
 
 } // anonymous namespace
