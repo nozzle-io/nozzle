@@ -545,7 +545,7 @@ dmabuf_texture_cache::~dmabuf_texture_cache() {
 }
 
 void dmabuf_texture_cache::store(
-    uint32_t slot_index, int fd, uint32_t width, uint32_t height, uint32_t format,
+    uint32_t slot_index, int fd, const char *sender_uuid, uint32_t width, uint32_t height, uint32_t format,
     uint32_t plane_count, const uint32_t *plane_strides, const uint32_t *plane_offsets
 ) {
     if (slot_index >= 8) {
@@ -555,7 +555,11 @@ void dmabuf_texture_cache::store(
     if (valid_[slot_index] && entries_[slot_index].fd >= 0) {
         close(entries_[slot_index].fd);
     }
-    entries_[slot_index] = cache_entry{fd, width, height, format, plane_count, {}, {}};
+    entries_[slot_index] = cache_entry{fd, {}, width, height, format, plane_count, {}, {}};
+    if (sender_uuid) {
+        std::strncpy(entries_[slot_index].sender_uuid, sender_uuid, 36);
+        entries_[slot_index].sender_uuid[36] = '\0';
+    }
     if (plane_strides && plane_offsets) {
         for (uint32_t i = 0; i < plane_count && i < 4; ++i) {
             entries_[slot_index].plane_strides[i] = plane_strides[i];
@@ -565,12 +569,21 @@ void dmabuf_texture_cache::store(
     valid_[slot_index] = true;
 }
 
-bool dmabuf_texture_cache::has(uint32_t slot_index) const {
+bool dmabuf_texture_cache::has(uint32_t slot_index, const char *sender_uuid) const {
     if (slot_index >= 8) {
         return false;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    return valid_[slot_index] && entries_[slot_index].fd >= 0;
+    if (!valid_[slot_index] || entries_[slot_index].fd < 0) {
+        return false;
+    }
+    if (sender_uuid && sender_uuid[0] != '\0') {
+        if (entries_[slot_index].sender_uuid[0] != '\0' &&
+            std::strncmp(entries_[slot_index].sender_uuid, sender_uuid, 36) != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 int dmabuf_texture_cache::get_fd(uint32_t slot_index) const {

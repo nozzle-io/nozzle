@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <string>
 
@@ -17,9 +18,9 @@ public:
     dmabuf_texture_cache() = default;
     ~dmabuf_texture_cache();
 
-    void store(uint32_t slot_index, int fd, uint32_t width, uint32_t height, uint32_t format,
+    void store(uint32_t slot_index, int fd, const char *sender_uuid, uint32_t width, uint32_t height, uint32_t format,
                uint32_t plane_count = 0, const uint32_t *plane_strides = nullptr, const uint32_t *plane_offsets = nullptr);
-    bool has(uint32_t slot_index) const;
+    bool has(uint32_t slot_index, const char *sender_uuid = nullptr) const;
     int get_fd(uint32_t slot_index) const;
     uint32_t get_plane_count(uint32_t slot_index) const;
     void get_plane_metadata(uint32_t slot_index, uint32_t &plane_count, uint32_t (&strides)[4], uint32_t (&offsets)[4]) const;
@@ -27,6 +28,7 @@ public:
 private:
     struct cache_entry {
         int fd{-1};
+        char sender_uuid[37]{};
         uint32_t width{0};
         uint32_t height{0};
         uint32_t format{0};
