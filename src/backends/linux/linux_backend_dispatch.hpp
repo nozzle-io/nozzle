@@ -53,6 +53,19 @@ linux_receiver_cache &get_receiver_cache() {
     return instance;
 }
 
+struct abstract_socket_addr {
+    struct sockaddr_un addr{};
+    socklen_t len{0};
+
+    explicit abstract_socket_addr(const std::string &name) {
+        addr.sun_family = AF_UNIX;
+        addr.sun_path[0] = '\0';
+        size_t copy_len = std::min(name.size(), sizeof(addr.sun_path) - 2);
+        std::memcpy(addr.sun_path + 1, name.c_str(), copy_len);
+        len = static_cast<socklen_t>(offsetof(struct sockaddr_un, sun_path) + 1 + copy_len);
+    }
+};
+
 inline void handle_fd_request(int client_fd, linux_sender_state *state) {
     uint32_t slot_index = 0;
     ssize_t n = recv(client_fd, &slot_index, sizeof(slot_index), 0);
@@ -77,10 +90,6 @@ inline void notify_sender_uuid(const char *uuid) {
     std::lock_guard<std::mutex> lock(state->mutex_);
     if (state->listen_fd_ >= 0) return;
 
-    if (!state->uuid_.empty() && std::strncmp(state->uuid_.c_str(), uuid, 36) != 0) {
-        return;
-    }
-
     state->uuid_ = uuid;
 
     std::string name = "nozzle_fd_";
@@ -89,13 +98,9 @@ inline void notify_sender_uuid(const char *uuid) {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return;
 
-    struct sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    addr.sun_path[0] = '\0';
-    std::memcpy(addr.sun_path + 1, name.c_str(), std::min(name.size(), sizeof(addr.sun_path) - 2));
-    socklen_t addr_len = static_cast<socklen_t>(offsetof(struct sockaddr_un, sun_path) + 1 + name.size());
+    abstract_socket_addr addr(name);
 
-    if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), addr_len) < 0) {
+    if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) < 0) {
         close(fd);
         return;
     }
@@ -138,6 +143,8 @@ inline void cleanup_sender_socket() {
         state->accept_thread_.join();
     }
 
+    g_pending_uuid.clear();
+
     {
         std::lock_guard<std::mutex> lock(state->mutex_);
         if (state->listen_fd_ >= 0) {
@@ -145,6 +152,7 @@ inline void cleanup_sender_socket() {
             state->listen_fd_ = -1;
         }
         state->socket_path_.clear();
+        state->uuid_.clear();
     }
 }
 
@@ -195,9 +203,6 @@ inline auto create_ring_texture(
                     slot_index = i;
                     break;
                 }
-            }
-            if (state->slot_fds_[slot_index] >= 0 && state->slot_fds_[slot_index] != fd) {
-                close(state->slot_fds_[slot_index]);
             }
             state->slot_fds_[slot_index] = fd;
         }
@@ -269,7 +274,7 @@ inline auto lookup_texture(
     auto &cache = get_receiver_cache();
     std::lock_guard<std::mutex> lock(cache.mutex_);
 
-    if (!cache.cache_.has(slot_index, sender_uuid)) {
+    if (!cache.cache_.has(slot_index, sender_uuid, width, height, format, native_modifier)) {
         if (sender_uuid && sender_uuid[0] != '\0') {
             std::string socket_name = "nozzle_fd_";
             socket_name += sender_uuid;
@@ -282,18 +287,14 @@ inline auto lookup_texture(
                 setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
                 setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-                struct sockaddr_un addr{};
-                addr.sun_family = AF_UNIX;
-                addr.sun_path[0] = '\0';
-                std::memcpy(addr.sun_path + 1, socket_name.c_str(), std::min(socket_name.size(), sizeof(addr.sun_path) - 2));
-                socklen_t addr_len = static_cast<socklen_t>(offsetof(struct sockaddr_un, sun_path) + 1 + socket_name.size());
+                abstract_socket_addr addr(socket_name);
 
-                if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr), addr_len) == 0) {
+                if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) == 0) {
                     ssize_t sent = ::send(sock_fd, &slot_index, sizeof(slot_index), 0);
                     if (sent == static_cast<ssize_t>(sizeof(slot_index))) {
                         int fd = linux_backend::recv_fd_response(sock_fd);
                         if (fd >= 0) {
-                            cache.cache_.store(slot_index, fd, sender_uuid, width, height, format,
+                            cache.cache_.store(slot_index, fd, sender_uuid, width, height, format, native_modifier,
                                 native_plane_count, native_plane_strides, native_plane_offsets);
                         }
                     }
@@ -303,7 +304,7 @@ inline auto lookup_texture(
         }
     }
 
-    if (!cache.cache_.has(slot_index, sender_uuid)) {
+    if (!cache.cache_.has(slot_index, sender_uuid, width, height, format, native_modifier)) {
         return Error{ErrorCode::BackendError,
             "DMA-BUF slot not cached — fd transfer failed"};
     }
