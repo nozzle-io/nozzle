@@ -27,6 +27,7 @@ namespace {
 
 struct linux_sender_state {
     std::array<int, 8> slot_fds_{};
+    std::array<uint32_t, 8> slot_generations_{};
     uint32_t ring_size_{0};
     int listen_fd_{-1};
     std::string socket_path_{};
@@ -81,14 +82,17 @@ inline void handle_fd_request(int client_fd, linux_sender_state *state) {
 
 } // anonymous namespace
 
-inline void notify_sender_uuid(const char *uuid) {
+inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     if (uuid) g_pending_uuid = uuid;
 
     auto *state = g_sender_state.load(std::memory_order_relaxed);
-    if (!state || !uuid) return;
+    if (!state || !uuid) return {};
 
     std::lock_guard<std::mutex> lock(state->mutex_);
-    if (state->listen_fd_ >= 0) return;
+    if (state->listen_fd_ >= 0) {
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF backend supports only one sender per process"};
+    }
 
     state->uuid_ = uuid;
 
@@ -96,17 +100,17 @@ inline void notify_sender_uuid(const char *uuid) {
     name += uuid;
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) return;
+    if (fd < 0) return {};
 
     abstract_socket_addr addr(name);
 
     if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) < 0) {
         close(fd);
-        return;
+        return {};
     }
     if (listen(fd, 4) < 0) {
         close(fd);
-        return;
+        return {};
     }
 
     state->listen_fd_ = fd;
@@ -124,6 +128,8 @@ inline void notify_sender_uuid(const char *uuid) {
             close(client_fd);
         }
     });
+
+    return {};
 }
 
 inline void cleanup_sender_socket() {
@@ -161,7 +167,7 @@ inline auto get_default_device() -> void * {
 }
 
 inline auto create_ring_texture(
-    void *device, uint32_t width, uint32_t height, uint32_t format
+    void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t ring_slot
 ) -> Result<texture> {
     auto tex_result = linux_backend::create_dmabuf_texture(device, width, height, format);
     if (!tex_result.ok()) {
@@ -185,28 +191,14 @@ inline auto create_ring_texture(
         std::lock_guard<std::mutex> lock(state->mutex_);
         void *surface = detail::get_surface_native(tex_result.value());
         int fd = static_cast<int>(reinterpret_cast<intptr_t>(surface));
-        uint32_t slot_index = 0;
-        bool found_existing = false;
 
-        for (uint32_t i = 0; i < 8; ++i) {
-            if (state->slot_fds_[i] == fd) {
-                slot_index = i;
-                found_existing = true;
-                break;
+        if (ring_slot < 8) {
+            if (state->slot_fds_[ring_slot] != fd) {
+                state->slot_generations_[ring_slot]++;
             }
+            state->slot_fds_[ring_slot] = fd;
+            state->ring_size_ = std::max(state->ring_size_, ring_slot + 1u);
         }
-
-        if (!found_existing) {
-            slot_index = 0;
-            for (uint32_t i = 0; i < 8; ++i) {
-                if (state->slot_fds_[i] < 0) {
-                    slot_index = i;
-                    break;
-                }
-            }
-            state->slot_fds_[slot_index] = fd;
-        }
-        state->ring_size_ = std::max(state->ring_size_, slot_index + 1u);
     }
 
     if (!g_pending_uuid.empty()) {
@@ -228,7 +220,7 @@ inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
         std::lock_guard<std::mutex> lock(state->mutex_);
         for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
             if (state->slot_fds_[i] == fd) {
-                return static_cast<uint64_t>(i);
+                return (static_cast<uint64_t>(state->slot_generations_[i]) << 32) | static_cast<uint64_t>(i);
             }
         }
     }
@@ -266,7 +258,8 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 inline auto lookup_texture(
     void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, const char *sender_uuid
 ) -> Result<texture> {
-    uint32_t slot_index = static_cast<uint32_t>(shared_id);
+    uint32_t slot_index = static_cast<uint32_t>(shared_id & 0xFFFFFFFF);
+    uint32_t generation = static_cast<uint32_t>(shared_id >> 32);
     if (slot_index >= 8) {
         return Error{ErrorCode::InvalidArgument, "DMA-BUF slot index out of range"};
     }
@@ -274,7 +267,7 @@ inline auto lookup_texture(
     auto &cache = get_receiver_cache();
     std::lock_guard<std::mutex> lock(cache.mutex_);
 
-    if (!cache.cache_.has(slot_index, sender_uuid, width, height, format, native_modifier)) {
+    if (!cache.cache_.has(slot_index, sender_uuid, width, height, format, native_modifier, generation)) {
         if (sender_uuid && sender_uuid[0] != '\0') {
             std::string socket_name = "nozzle_fd_";
             socket_name += sender_uuid;
@@ -294,7 +287,7 @@ inline auto lookup_texture(
                     if (sent == static_cast<ssize_t>(sizeof(slot_index))) {
                         int fd = linux_backend::recv_fd_response(sock_fd);
                         if (fd >= 0) {
-                            cache.cache_.store(slot_index, fd, sender_uuid, width, height, format, native_modifier,
+                            cache.cache_.store(slot_index, fd, sender_uuid, width, height, format, native_modifier, generation,
                                 native_plane_count, native_plane_strides, native_plane_offsets);
                         }
                     }
@@ -304,7 +297,7 @@ inline auto lookup_texture(
         }
     }
 
-    if (!cache.cache_.has(slot_index, sender_uuid, width, height, format, native_modifier)) {
+    if (!cache.cache_.has(slot_index, sender_uuid, width, height, format, native_modifier, generation)) {
         return Error{ErrorCode::BackendError,
             "DMA-BUF slot not cached — fd transfer failed"};
     }

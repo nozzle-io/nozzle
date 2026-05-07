@@ -18,9 +18,9 @@ public:
     dmabuf_texture_cache() = default;
     ~dmabuf_texture_cache();
 
-    void store(uint32_t slot_index, int fd, const char *sender_uuid, uint32_t width, uint32_t height, uint32_t format, uint64_t modifier,
+    void store(uint32_t slot_index, int fd, const char *sender_uuid, uint32_t width, uint32_t height, uint32_t format, uint64_t modifier, uint32_t generation,
                uint32_t plane_count = 0, const uint32_t *plane_strides = nullptr, const uint32_t *plane_offsets = nullptr);
-    bool has(uint32_t slot_index, const char *sender_uuid = nullptr, uint32_t width = 0, uint32_t height = 0, uint32_t format = 0, uint64_t modifier = 0) const;
+    bool has(uint32_t slot_index, const char *sender_uuid = nullptr, uint32_t width = 0, uint32_t height = 0, uint32_t format = 0, uint64_t modifier = 0, uint32_t generation = 0) const;
     int get_fd(uint32_t slot_index) const;
     uint32_t get_plane_count(uint32_t slot_index) const;
     void get_plane_metadata(uint32_t slot_index, uint32_t &plane_count, uint32_t (&strides)[4], uint32_t (&offsets)[4]) const;
@@ -33,6 +33,7 @@ private:
         uint32_t height{0};
         uint32_t format{0};
         uint64_t modifier{0};
+        uint32_t generation{0};
         uint32_t plane_count{0};
         uint32_t plane_strides[4]{};
         uint32_t plane_offsets[4]{};

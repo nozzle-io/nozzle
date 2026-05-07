@@ -13,7 +13,7 @@ inline auto get_default_device() -> void * {
     return d3d11::get_default_d3d11_device();
 }
 
-inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format) -> Result<texture> {
+inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t /*slot_index*/) -> Result<texture> {
     return d3d11::create_shared_texture(device, width, height, format);
 }
 
@@ -59,7 +59,7 @@ inline auto blit_textures(void * /*device*/, void *src, void *dst, uint32_t /*wi
     return d3d11::blit_to_texture(src, dst);
 }
 
-inline void notify_sender_uuid(const char * /*uuid*/) {}
+inline auto notify_sender_uuid(const char * /*uuid*/) -> Result<void> { return {}; }
 inline void cleanup_sender_socket() {}
 
 } // namespace backend

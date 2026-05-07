@@ -13,7 +13,7 @@ namespace detail {
 namespace backend {
 
 auto get_default_device() -> void *;
-auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format) -> Result<texture>;
+auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t slot_index = 0) -> Result<texture>;
 auto get_shared_resource_id(const texture &tex) -> uint64_t;
 auto get_native_surface(const texture &tex) -> void *;
 void release_texture_resources(void *native_texture, void *native_surface);
@@ -22,7 +22,7 @@ auto wrap_backend_texture(void *backend_texture, void *backend_surface, uint32_t
 auto get_backend_type() -> backend_type;
 auto get_native_texture(const texture &tex) -> void *;
 
-void notify_sender_uuid(const char *uuid);
+auto notify_sender_uuid(const char *uuid) -> Result<void>;
 void cleanup_sender_socket();
 
 auto is_native_texture_shared(void *native_texture) -> bool;

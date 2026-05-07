@@ -13,7 +13,7 @@ inline auto get_default_device() -> void * {
     return metal::get_default_mtl_device();
 }
 
-inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format) -> Result<texture> {
+inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t /*slot_index*/) -> Result<texture> {
     auto pair_result = metal::create_iosurface_texture(device, width, height, format);
     if (!pair_result.ok()) {
         return pair_result.error();
@@ -69,7 +69,7 @@ inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, ui
     return metal::blit_to_texture(device, src, dst, width, height);
 }
 
-inline void notify_sender_uuid(const char * /*uuid*/) {}
+inline auto notify_sender_uuid(const char * /*uuid*/) -> Result<void> { return {}; }
 inline void cleanup_sender_socket() {}
 
 } // namespace backend

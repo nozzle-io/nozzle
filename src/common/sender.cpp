@@ -34,6 +34,7 @@ struct sender::Impl {
 	sender_info info_{};
 	metadata_list metadata_{};
 	bool allow_format_fallback_{true};
+	bool owns_socket_{false};
 	bool valid_{false};
 	std::mutex mutex_;
 
@@ -42,7 +43,9 @@ struct sender::Impl {
 		for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
 			slot_in_use_[i] = false;
 		}
-		detail::backend::cleanup_sender_socket();
+		if (owns_socket_) {
+			detail::backend::cleanup_sender_socket();
+		}
 		if (state != nullptr) {
 			detail::ipc::shm_unmap(state, sizeof(detail::SenderSharedState));
 			state = nullptr;
@@ -126,7 +129,11 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->allow_format_fallback_ = desc.allow_format_fallback;
 	s.impl_->valid_ = true;
 
-	detail::backend::notify_sender_uuid(reg.uuid);
+	auto notify_result = detail::backend::notify_sender_uuid(reg.uuid);
+	if (!notify_result.ok()) {
+		return notify_result.error();
+	}
+	s.impl_->owns_socket_ = true;
 
 	return s;
 }
@@ -276,7 +283,8 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			impl_->native_device_,
 			tdesc.width,
 			tdesc.height,
-			static_cast<uint32_t>(attempt_format)
+			static_cast<uint32_t>(attempt_format),
+			slot
 		);
 
 		if (!tex_result.ok() && impl_->allow_format_fallback_) {
@@ -286,7 +294,8 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 					impl_->native_device_,
 					tdesc.width,
 					tdesc.height,
-					static_cast<uint32_t>(fallback)
+					static_cast<uint32_t>(fallback),
+					slot
 				);
 				if (tex_result.ok()) {
 					LOG_WARNING << "format fallback: "
@@ -507,7 +516,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 
 		if (needs_create) {
 			auto tex_result = detail::backend::create_ring_texture(
-				impl_->native_device_, width, height, static_cast<uint32_t>(format));
+				impl_->native_device_, width, height, static_cast<uint32_t>(format), slot);
 			if (!tex_result.ok()) return tex_result.error();
 			impl_->ring_textures_[slot] = std::move(tex_result.value());
 		}
