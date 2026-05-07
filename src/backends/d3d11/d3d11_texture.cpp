@@ -118,7 +118,8 @@ Result<texture> lookup_shared_texture(
     uint64_t shared_handle_val,
     uint32_t width,
     uint32_t height,
-    uint32_t format
+    uint32_t format,
+    uint32_t semantic_format
 ) {
     if (!d3d11_device) {
         return Error{ErrorCode::InvalidArgument, "D3D11 device is null"};
@@ -154,7 +155,8 @@ Result<texture> lookup_shared_texture(
         height,
         format,
         0,
-        &native
+        &native,
+        semantic_format
     );
 }
 

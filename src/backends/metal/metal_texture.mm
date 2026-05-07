@@ -326,7 +326,8 @@ Result<texture> lookup_iosurface_texture(
     uint32_t width,
     uint32_t height,
     uint32_t pixel_format,
-    uint8_t channel_swizzle_val
+    uint8_t channel_swizzle_val,
+    uint32_t semantic_format
 ) {
     @autoreleasepool {
         IOSurfaceRef surface = IOSurfaceLookup(iosurface_id);
@@ -414,7 +415,8 @@ Result<texture> lookup_iosurface_texture(
             height,
             static_cast<uint32_t>(nozzle_fmt),
             0,
-            &native
+            &native,
+            semantic_format
         );
     }
 }

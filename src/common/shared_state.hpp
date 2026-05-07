@@ -82,12 +82,13 @@ struct SenderSharedState {
         uint8_t format_source{0};
         uint8_t _pad{};
         uint32_t native_format_value{0};
+        uint64_t native_format_modifier{0};
     } slots[kMaxRingSlots]{};
 
     char metadata[kMetadataSize]{};
 };
 
-static_assert(sizeof(SenderSharedState) == 1216, "unexpected SenderSharedState size");
+static_assert(sizeof(SenderSharedState) == 1280, "unexpected SenderSharedState size");
 
 } // namespace detail
 } // namespace nozzle

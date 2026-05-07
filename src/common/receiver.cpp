@@ -152,7 +152,8 @@ Result<texture> create_texture_from_slot(
         s.width,
         s.height,
         s.format,
-        s.channel_swizzle);
+        s.channel_swizzle,
+        s.semantic_format);
 }
 
 } // anonymous namespace
@@ -315,6 +316,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         impl_->connected_info_.native_format_value = si.native_format_value;
         impl_->connected_info_.native_format_kind = si.native_format_kind;
         impl_->connected_info_.format_source_ = si.format_source;
+        impl_->connected_info_.native_format_modifier = si.native_format_modifier;
 
         auto tex_result = create_texture_from_slot(state, slot);
         if (!tex_result.ok()) {

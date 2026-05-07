@@ -139,7 +139,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 }
 
 inline auto lookup_texture(
-    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t
+    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format
 ) -> Result<texture> {
     uint32_t slot_index = static_cast<uint32_t>(shared_id);
     if (slot_index >= 8) {
@@ -169,7 +169,7 @@ inline auto lookup_texture(
         native.backend = backend_type::dma_buf;
         native.kind = native_format_kind::drm_fourcc;
         native.value = fourcc;
-        return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native);
+        return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native, semantic_format);
     }
 
     return Error{ErrorCode::BackendError,
