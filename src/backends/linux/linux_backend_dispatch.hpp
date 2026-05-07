@@ -12,6 +12,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <thread>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -28,10 +29,18 @@ struct linux_sender_state {
     uint32_t ring_size_{0};
     int listen_fd_{-1};
     std::string socket_path_{};
+    std::string uuid_{};
+    std::thread accept_thread_{};
+    std::atomic<bool> stop_flag_{false};
     std::mutex mutex_;
+
+    linux_sender_state() {
+        slot_fds_.fill(-1);
+    }
 };
 
 std::atomic<linux_sender_state *> g_sender_state{nullptr};
+std::string g_pending_uuid;
 
 struct linux_receiver_cache {
     linux_backend::dmabuf_texture_cache cache_{};
@@ -46,11 +55,15 @@ linux_receiver_cache &get_receiver_cache() {
 } // anonymous namespace
 
 inline void notify_sender_uuid(const char *uuid) {
+    if (uuid) g_pending_uuid = uuid;
+
     auto *state = g_sender_state.load(std::memory_order_relaxed);
     if (!state || !uuid) return;
 
     std::lock_guard<std::mutex> lock(state->mutex_);
     if (state->listen_fd_ >= 0) return;
+
+    state->uuid_ = uuid;
 
     std::string path = "/tmp/nozzle_fd_";
     path += uuid;
@@ -75,19 +88,48 @@ inline void notify_sender_uuid(const char *uuid) {
 
     state->listen_fd_ = fd;
     state->socket_path_ = path;
+
+    state->stop_flag_.store(false, std::memory_order_relaxed);
+    state->accept_thread_ = std::thread([state]() {
+        while (!state->stop_flag_.load(std::memory_order_relaxed)) {
+            int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+            if (client_fd < 0) {
+                if (state->stop_flag_.load(std::memory_order_relaxed)) break;
+                continue;
+            }
+            handle_fd_request(client_fd, state);
+            close(client_fd);
+        }
+    });
 }
 
 inline void cleanup_sender_socket() {
     auto *state = g_sender_state.load(std::memory_order_relaxed);
     if (!state) return;
-    std::lock_guard<std::mutex> lock(state->mutex_);
-    if (state->listen_fd_ >= 0) {
-        close(state->listen_fd_);
-        state->listen_fd_ = -1;
+
+    state->stop_flag_.store(true, std::memory_order_relaxed);
+
+    {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        if (state->listen_fd_ >= 0) {
+            shutdown(state->listen_fd_, SHUT_RDWR);
+        }
     }
-    if (!state->socket_path_.empty()) {
-        unlink(state->socket_path_.c_str());
-        state->socket_path_.clear();
+
+    if (state->accept_thread_.joinable()) {
+        state->accept_thread_.join();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        if (state->listen_fd_ >= 0) {
+            close(state->listen_fd_);
+            state->listen_fd_ = -1;
+        }
+        if (!state->socket_path_.empty()) {
+            unlink(state->socket_path_.c_str());
+            state->socket_path_.clear();
+        }
     }
 }
 
@@ -146,7 +188,7 @@ inline auto create_ring_texture(
 
         if (!found_existing) {
             for (uint32_t i = 0; i < 8; ++i) {
-                if (state->slot_fds_[i] == 0) {
+                if (state->slot_fds_[i] < 0) {
                     slot_index = i;
                     break;
                 }
@@ -154,6 +196,10 @@ inline auto create_ring_texture(
             state->slot_fds_[slot_index] = fd;
         }
         state->ring_size_ = std::max(state->ring_size_, slot_index + 1u);
+    }
+
+    if (!g_pending_uuid.empty()) {
+        notify_sender_uuid(g_pending_uuid.c_str());
     }
 
     return tex_result;
@@ -204,24 +250,6 @@ inline auto lookup_texture(
         return Error{ErrorCode::InvalidArgument, "DMA-BUF slot index out of range"};
     }
 
-    auto *sender_state = g_sender_state.load(std::memory_order_relaxed);
-    if (sender_state) {
-        int listen_fd = -1;
-        {
-            std::lock_guard<std::mutex> lock(sender_state->mutex_);
-            listen_fd = sender_state->listen_fd_;
-        }
-        if (listen_fd >= 0) {
-            struct sockaddr_un client_addr{};
-            socklen_t client_len = sizeof(client_addr);
-            int client_fd = accept(listen_fd, reinterpret_cast<struct sockaddr *>(&client_addr), &client_len);
-            if (client_fd >= 0) {
-                handle_fd_request(client_fd, sender_state);
-                close(client_fd);
-            }
-        }
-    }
-
     auto &cache = get_receiver_cache();
     std::lock_guard<std::mutex> lock(cache.mutex_);
 
@@ -232,6 +260,12 @@ inline auto lookup_texture(
 
             int sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
             if (sock_fd >= 0) {
+                struct timeval tv{};
+                tv.tv_sec = 2;
+                tv.tv_usec = 0;
+                setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+                setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
                 struct sockaddr_un addr{};
                 addr.sun_family = AF_UNIX;
                 std::strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
