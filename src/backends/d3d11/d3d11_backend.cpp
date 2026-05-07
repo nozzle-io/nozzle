@@ -115,6 +115,11 @@ bool d3d11_supports_format(void *device, uint32_t format, uint32_t usage) {
         case texture_format::rgba32_float:     dxgi_fmt = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
         case texture_format::r32_uint:         dxgi_fmt = DXGI_FORMAT_R32_UINT; break;
         case texture_format::rgba32_uint:      dxgi_fmt = DXGI_FORMAT_R32G32B32A32_UINT; break;
+        case texture_format::rgb8_unorm:       dxgi_fmt = DXGI_FORMAT_R8G8B8A8_UNORM; break;
+        case texture_format::rgb16_unorm:      dxgi_fmt = DXGI_FORMAT_R16G16B16A16_UNORM; break;
+        case texture_format::rgb16_float:      dxgi_fmt = DXGI_FORMAT_R16G16B16A16_FLOAT; break;
+        case texture_format::rgb32_float:      dxgi_fmt = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
+        case texture_format::rgb32_uint:       dxgi_fmt = DXGI_FORMAT_R32G32B32A32_UINT; break;
         case texture_format::depth32_float:    dxgi_fmt = DXGI_FORMAT_D32_FLOAT; break;
         default:                               return false;
     }

@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include <nozzle/device.hpp>
+#include <nozzle/format_resolve.hpp>
 #include <nozzle/result.hpp>
 
 #include <plog/Log.h>
@@ -144,32 +145,21 @@ texture_format get_next_fallback(texture_format fmt) {
         case texture_format::r16_unorm:     return texture_format::rg16_unorm;
         case texture_format::rg16_unorm:    return texture_format::rgba16_unorm;
         case texture_format::rgba16_unorm:  return texture_format::rgba8_unorm;
+        case texture_format::rgb8_unorm:    return texture_format::rgba8_unorm;
+        case texture_format::rgb16_unorm:   return texture_format::rgba16_unorm;
+        case texture_format::rgb16_float:   return texture_format::rgba16_float;
+        case texture_format::rgb32_float:   return texture_format::rgba32_float;
+        case texture_format::rgb32_uint:    return texture_format::rgba32_uint;
         default:                            return texture_format::unknown;
     }
 }
 
 bool is_same_cpu_layout(texture_format a, texture_format b) {
-    auto layout_group = [](texture_format f) -> int {
-        switch (f) {
-            case texture_format::r8_unorm: return 1;
-            case texture_format::rg8_unorm: return 2;
-            case texture_format::rgba8_unorm:
-            case texture_format::bgra8_unorm: return 3;
-            case texture_format::rgba8_srgb:
-            case texture_format::bgra8_srgb: return 4;
-            case texture_format::r16_unorm: return 5;
-            case texture_format::r16_float: return 6;
-            case texture_format::rg16_unorm: return 7;
-            case texture_format::rg16_float: return 8;
-            case texture_format::rgba16_unorm: return 9;
-            case texture_format::rgba16_float: return 10;
-            case texture_format::r32_float: return 11;
-            case texture_format::rg32_float: return 12;
-            case texture_format::rgba32_float: return 13;
-            default: return 0;
-        }
-    };
-    return layout_group(a) == layout_group(b) && layout_group(a) != 0;
+    if (a == texture_format::unknown || b == texture_format::unknown) return false;
+    if (a == b) return true;
+    return resolve_bytes_per_pixel(a) == resolve_bytes_per_pixel(b)
+        && resolve_component_bits(a) == resolve_component_bits(b)
+        && resolve_component_type(a) == resolve_component_type(b);
 }
 
 } // namespace
