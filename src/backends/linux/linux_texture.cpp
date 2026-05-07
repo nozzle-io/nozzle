@@ -220,10 +220,12 @@ Result<dmabuf_allocation> allocate_dmabuf(
 
     dmabuf_allocation alloc{};
     alloc.fd = fd;
-    alloc.plane_count = 1;
-    alloc.planes[0].stride = gbm_bo_get_stride(bo);
-    alloc.planes[0].offset = 0;
-    alloc.modifier = DRM_FORMAT_MOD_LINEAR;
+    alloc.plane_count = gbm_bo_get_plane_count(bo);
+    for (uint32_t i = 0; i < alloc.plane_count && i < 4; ++i) {
+        alloc.planes[i].stride = gbm_bo_get_stride_for_plane(bo, i);
+        alloc.planes[i].offset = gbm_bo_get_offset(bo, i);
+    }
+    alloc.modifier = gbm_bo_get_modifier(bo);
     alloc.gbm_bo = static_cast<void *>(bo);
 
     return alloc;

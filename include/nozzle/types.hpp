@@ -213,6 +213,9 @@ struct connected_sender_info {
     uint8_t native_format_kind{0};
     uint8_t format_source_{0};
     uint64_t native_format_modifier{0};
+    uint32_t plane_count{0};
+    uint32_t plane_strides[4]{0};
+    uint32_t plane_offsets[4]{0};
     double estimated_fps{0.0};
     uint64_t frame_counter{0};
     uint64_t last_update_time_ns{0};

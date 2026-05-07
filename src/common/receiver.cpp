@@ -155,7 +155,9 @@ Result<texture> create_texture_from_slot(
         s.channel_swizzle,
         s.semantic_format,
         s.native_format_modifier,
-        s.plane_strides[0]);
+        s.plane_count,
+        s.plane_strides,
+        s.plane_offsets);
 }
 
 } // anonymous namespace
@@ -319,6 +321,11 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         impl_->connected_info_.native_format_kind = si.native_format_kind;
         impl_->connected_info_.format_source_ = si.format_source;
         impl_->connected_info_.native_format_modifier = si.native_format_modifier;
+        impl_->connected_info_.plane_count = si.plane_count;
+        for (uint32_t i = 0; i < si.plane_count && i < 4; ++i) {
+            impl_->connected_info_.plane_strides[i] = si.plane_strides[i];
+            impl_->connected_info_.plane_offsets[i] = si.plane_offsets[i];
+        }
 
         auto tex_result = create_texture_from_slot(state, slot);
         if (!tex_result.ok()) {
