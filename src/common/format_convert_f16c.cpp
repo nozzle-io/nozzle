@@ -1,6 +1,6 @@
 // nozzle - format_convert_f16c.cpp - x86 F16C half-to-float SIMD conversion
 
-#if defined(__F16C__) || defined(__AVX2__)
+#if defined(__F16C__)
 
 #include <nozzle/format_convert.hpp>
 #include <nozzle/result.hpp>

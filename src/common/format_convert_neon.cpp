@@ -53,6 +53,19 @@ void convert_uint32_to_float32_neon(
 	}
 }
 
+} // namespace nozzle::detail
+
+#endif
+
+#if defined(__ARM_NEON) && defined(__ARM_FP16_FORMAT_IEEE)
+
+#include <nozzle/format_convert.hpp>
+#include <nozzle/result.hpp>
+#include <arm_neon.h>
+#include <cstring>
+
+namespace nozzle::detail {
+
 void widen_half_to_float_neon(
 	const uint8_t *src, uint8_t *dst,
 	uint32_t width, uint32_t height,

@@ -43,7 +43,9 @@ void convert_uint32_to_float32_neon(
 	uint32_t width, uint32_t height,
 	uint32_t src_row_bytes, uint32_t dst_row_bytes,
 	uint32_t channels);
+#endif
 
+#if defined(__ARM_NEON) && defined(__ARM_FP16_FORMAT_IEEE)
 void widen_half_to_float_neon(
 	const uint8_t *src, uint8_t *dst,
 	uint32_t width, uint32_t height,
@@ -51,7 +53,7 @@ void widen_half_to_float_neon(
 	uint32_t channels);
 #endif
 
-#if defined(__F16C__) || defined(__AVX2__)
+#if defined(__F16C__)
 void widen_half_to_float_f16c(
 	const uint8_t *src, uint8_t *dst,
 	uint32_t width, uint32_t height,
@@ -250,9 +252,9 @@ Result<void> widen_half_to_float(
 	const auto *s = static_cast<const uint8_t *>(src);
 	auto *d = static_cast<uint8_t *>(dst);
 
-#if defined(__F16C__) || defined(__AVX2__)
+#if defined(__F16C__)
 	detail::widen_half_to_float_f16c(s, d, width, height, src_row_bytes, dst_row_bytes, channels);
-#elif defined(__ARM_NEON)
+#elif defined(__ARM_NEON) && defined(__ARM_FP16_FORMAT_IEEE)
 	detail::widen_half_to_float_neon(s, d, width, height, src_row_bytes, dst_row_bytes, channels);
 #else
 	widen_half_to_float_scalar(s, d, width, height, src_row_bytes, dst_row_bytes, channels);
