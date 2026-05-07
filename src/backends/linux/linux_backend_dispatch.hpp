@@ -52,6 +52,19 @@ linux_receiver_cache &get_receiver_cache() {
     return instance;
 }
 
+inline void handle_fd_request(int client_fd, linux_sender_state *state) {
+    uint32_t slot_index = 0;
+    ssize_t n = recv(client_fd, &slot_index, sizeof(slot_index), 0);
+    if (n != sizeof(slot_index)) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    if (slot_index < 8 && state->slot_fds_[slot_index] >= 0) {
+        linux_backend::send_fd_response(client_fd, state->slot_fds_[slot_index]);
+    }
+}
+
 } // anonymous namespace
 
 inline void notify_sender_uuid(const char *uuid) {
@@ -130,19 +143,6 @@ inline void cleanup_sender_socket() {
             unlink(state->socket_path_.c_str());
             state->socket_path_.clear();
         }
-    }
-}
-
-inline void handle_fd_request(int client_fd, linux_sender_state *state) {
-    uint32_t slot_index = 0;
-    ssize_t n = recv(client_fd, &slot_index, sizeof(slot_index), 0);
-    if (n != sizeof(slot_index)) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(state->mutex_);
-    if (slot_index < 8 && state->slot_fds_[slot_index] >= 0) {
-        linux_backend::send_fd_response(client_fd, state->slot_fds_[slot_index]);
     }
 }
 
