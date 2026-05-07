@@ -84,23 +84,6 @@ Result<texture> import_dmabuf_texture(
     uint64_t modifier
 );
 
-Result<texture> lookup_dmabuf_texture(
-    uint32_t slot_index,
-    uint32_t width,
-    uint32_t height,
-    uint32_t format
-);
-
-Result<texture> lookup_dmabuf_texture_with_fds(
-    const char *sender_uuid,
-    uint32_t slot_index,
-    uint32_t ring_size,
-    uint32_t width,
-    uint32_t height,
-    uint32_t format,
-    dmabuf_texture_cache &cache
-);
-
 } // namespace nozzle::detail::linux_backend
 
 namespace nozzle::detail {

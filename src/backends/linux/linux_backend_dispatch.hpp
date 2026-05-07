@@ -18,10 +18,8 @@ namespace backend {
 namespace {
 
 struct linux_sender_state {
-    linux_backend::fd_sender fd_sender_{};
     std::array<int, 8> slot_fds_{};
     uint32_t ring_size_{0};
-    bool started_{false};
     std::mutex mutex_;
 };
 
@@ -89,13 +87,6 @@ inline auto create_ring_texture(
             state->slot_fds_[slot_index] = fd;
         }
         state->ring_size_ = std::max(state->ring_size_, slot_index + 1u);
-
-        if (!state->started_) {
-            // TODO: Phase 1 uses fixed socket name. Phase 2: pass sender UUID
-            // through backend dispatch to support multiple concurrent senders.
-            state->fd_sender_.start("nozzle_default");
-            state->started_ = true;
-        }
     }
 
     return tex_result;
