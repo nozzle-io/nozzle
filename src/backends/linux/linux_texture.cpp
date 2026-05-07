@@ -225,7 +225,11 @@ Result<dmabuf_allocation> allocate_dmabuf(
         alloc.planes[i].stride = gbm_bo_get_stride_for_plane(bo, i);
         alloc.planes[i].offset = gbm_bo_get_offset(bo, i);
     }
-    alloc.modifier = gbm_bo_get_modifier(bo);
+    uint64_t mod = gbm_bo_get_modifier(bo);
+    if (mod == ((1ULL << 56) - 1)) {
+        mod = DRM_FORMAT_MOD_LINEAR;
+    }
+    alloc.modifier = mod;
     alloc.gbm_bo = static_cast<void *>(bo);
 
     return alloc;
@@ -282,8 +286,16 @@ void *import_egl_image(
         attribs[idx++] = EGL_DMA_BUF_PLANE2_OFFSET_EXT;
         attribs[idx++] = static_cast<EGLint>(planes[2].offset);
     }
+    if (plane_count > 3) {
+        attribs[idx++] = EGL_DMA_BUF_PLANE3_FD_EXT;
+        attribs[idx++] = static_cast<EGLint>(fd);
+        attribs[idx++] = EGL_DMA_BUF_PLANE3_PITCH_EXT;
+        attribs[idx++] = static_cast<EGLint>(planes[3].stride);
+        attribs[idx++] = EGL_DMA_BUF_PLANE3_OFFSET_EXT;
+        attribs[idx++] = static_cast<EGLint>(planes[3].offset);
+    }
 
-    if (modifier != DRM_FORMAT_MOD_LINEAR) {
+    if (modifier != DRM_FORMAT_MOD_LINEAR && modifier != ((1ULL << 56) - 1)) {
         attribs[idx++] = EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT;
         attribs[idx++] = static_cast<EGLint>(modifier & 0xFFFFFFFF);
         attribs[idx++] = EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT;
@@ -298,6 +310,12 @@ void *import_egl_image(
             attribs[idx++] = EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT;
             attribs[idx++] = static_cast<EGLint>(modifier & 0xFFFFFFFF);
             attribs[idx++] = EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT;
+            attribs[idx++] = static_cast<EGLint>(modifier >> 32);
+        }
+        if (plane_count > 3) {
+            attribs[idx++] = EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT;
+            attribs[idx++] = static_cast<EGLint>(modifier & 0xFFFFFFFF);
+            attribs[idx++] = EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT;
             attribs[idx++] = static_cast<EGLint>(modifier >> 32);
         }
     }
