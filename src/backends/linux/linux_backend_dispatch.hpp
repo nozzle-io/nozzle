@@ -85,6 +85,9 @@ inline void handle_fd_request(int client_fd, linux_sender_state *state) {
     }
 
     if (fd_to_send >= 0) {
+        // Send failure is intentionally not retried or logged here.
+        // The receiver detects missing fd via recv timeout/error and
+        // retries on the next acquire_frame() call.
         linux_backend::send_fd_response(client_fd, fd_to_send);
         close(fd_to_send);
     }
@@ -305,6 +308,9 @@ inline auto lookup_texture(
         return Error{ErrorCode::InvalidArgument, "DMA-BUF slot index out of range"};
     }
 
+    // v0.1: IPC (connect/send/recv) happens under the cache mutex.
+    // Timeout-protected so not a hang risk, but cache miss IPC blocks
+    // concurrent lookups. Future improvement: IPC outside lock, store/get only under lock.
     auto &cache = get_receiver_cache();
     std::lock_guard<std::mutex> lock(cache.mutex_);
 
