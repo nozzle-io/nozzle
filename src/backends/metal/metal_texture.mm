@@ -301,7 +301,8 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
             desc.height,
             actual_fmt,
             static_cast<uint8_t>(desc.swizzle),
-            &native
+            &native,
+            static_cast<uint32_t>(desc.format)
         );
     }
 }

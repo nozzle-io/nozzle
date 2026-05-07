@@ -65,7 +65,8 @@ texture make_texture_from_backend(
     uint32_t height,
     uint32_t pixel_format,
     uint8_t channel_swizzle_val,
-    const native_format_desc *native_desc
+    const native_format_desc *native_desc,
+    uint32_t semantic_format_val
 ) {
     texture t;
     t.impl_ = std::make_unique<texture::Impl>();
@@ -87,6 +88,9 @@ texture make_texture_from_backend(
     }
     t.impl_->desc.swizzle = static_cast<channel_swizzle>(channel_swizzle_val);
     t.impl_->resolved_.swizzle = static_cast<channel_swizzle>(channel_swizzle_val);
+    t.impl_->resolved_.semantic_format = semantic_format_val != 0
+        ? static_cast<texture_format>(semantic_format_val)
+        : storage_fmt;
     t.impl_->valid = (backend_texture != nullptr);
     return t;
 }

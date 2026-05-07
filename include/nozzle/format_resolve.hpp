@@ -13,5 +13,6 @@ uint8_t resolve_channel_count(texture_format fmt);
 uint8_t resolve_component_bits(texture_format fmt);
 bool is_storage_compatible(texture_format a, texture_format b);
 texture_format get_storage_compatible_fallback(texture_format fmt);
+texture_format get_channel_expansion_fallback(texture_format fmt);
 
 } // namespace nozzle

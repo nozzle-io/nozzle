@@ -256,6 +256,13 @@ texture_format get_storage_compatible_fallback(texture_format fmt) {
         return texture_format::bgra8_unorm;
     case texture_format::bgra8_unorm:
         return texture_format::rgba8_unorm;
+    default:
+        return texture_format::unknown;
+    }
+}
+
+texture_format get_channel_expansion_fallback(texture_format fmt) {
+    switch (fmt) {
     case texture_format::rgb8_unorm:
         return texture_format::rgba8_unorm;
     case texture_format::rgb16_unorm:

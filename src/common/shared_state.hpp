@@ -19,7 +19,7 @@ constexpr uint32_t kDirectoryMagic = 0x4E5A4431;
 constexpr uint32_t kSenderMagic = 0x4E5A5331;
 constexpr uint32_t kMaxSenders = 64;
 constexpr uint32_t kMaxRingSlots = 8;
-constexpr uint64_t kSharedMemVersion = 3;
+constexpr uint64_t kSharedMemVersion = 4;
 
 constexpr resource_id64 kInvalidSharedResourceId = 0;
 constexpr process_id64 kInvalidPid = 0;
@@ -78,7 +78,10 @@ struct SenderSharedState {
         uint32_t format{0};
         uint32_t semantic_format{0};
         uint8_t channel_swizzle{0};
-        uint8_t _pad[3]{};
+        uint8_t native_format_kind{0};
+        uint8_t format_source{0};
+        uint8_t _pad{};
+        uint32_t native_format_value{0};
     } slots[kMaxRingSlots]{};
 
     char metadata[kMetadataSize]{};

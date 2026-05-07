@@ -338,6 +338,11 @@ TEST_CASE("get_storage_compatible_fallback: no fallback for other formats", "[fo
     REQUIRE(get_storage_compatible_fallback(texture_format::r32_float) == texture_format::unknown);
     REQUIRE(get_storage_compatible_fallback(texture_format::rgba16_float) == texture_format::unknown);
     REQUIRE(get_storage_compatible_fallback(texture_format::unknown) == texture_format::unknown);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb8_unorm) == texture_format::unknown);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb16_unorm) == texture_format::unknown);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb16_float) == texture_format::unknown);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb32_float) == texture_format::unknown);
+    REQUIRE(get_storage_compatible_fallback(texture_format::rgb32_uint) == texture_format::unknown);
 }
 
 // ---------- resolve_cpu_layout: all formats have valid bytes_per_pixel (P2-T8) ----------
@@ -393,10 +398,17 @@ TEST_CASE("resolve_cpu_layout: 32-bit formats have 4 bytes per component", "[for
     REQUIRE(resolve_cpu_layout(texture_format::depth32_float).bytes_per_pixel == 4);
 }
 
-TEST_CASE("get_storage_compatible_fallback: 3ch formats map to 4ch", "[format_resolve]") {
-    REQUIRE(get_storage_compatible_fallback(texture_format::rgb8_unorm) == texture_format::rgba8_unorm);
-    REQUIRE(get_storage_compatible_fallback(texture_format::rgb16_unorm) == texture_format::rgba16_unorm);
-    REQUIRE(get_storage_compatible_fallback(texture_format::rgb16_float) == texture_format::rgba16_float);
-    REQUIRE(get_storage_compatible_fallback(texture_format::rgb32_float) == texture_format::rgba32_float);
-    REQUIRE(get_storage_compatible_fallback(texture_format::rgb32_uint) == texture_format::rgba32_uint);
+TEST_CASE("get_channel_expansion_fallback: 3ch formats map to 4ch", "[format_resolve]") {
+    REQUIRE(get_channel_expansion_fallback(texture_format::rgb8_unorm) == texture_format::rgba8_unorm);
+    REQUIRE(get_channel_expansion_fallback(texture_format::rgb16_unorm) == texture_format::rgba16_unorm);
+    REQUIRE(get_channel_expansion_fallback(texture_format::rgb16_float) == texture_format::rgba16_float);
+    REQUIRE(get_channel_expansion_fallback(texture_format::rgb32_float) == texture_format::rgba32_float);
+    REQUIRE(get_channel_expansion_fallback(texture_format::rgb32_uint) == texture_format::rgba32_uint);
+}
+
+TEST_CASE("get_channel_expansion_fallback: no fallback for non-rgb formats", "[format_resolve]") {
+    REQUIRE(get_channel_expansion_fallback(texture_format::rgba8_unorm) == texture_format::unknown);
+    REQUIRE(get_channel_expansion_fallback(texture_format::r8_unorm) == texture_format::unknown);
+    REQUIRE(get_channel_expansion_fallback(texture_format::r32_float) == texture_format::unknown);
+    REQUIRE(get_channel_expansion_fallback(texture_format::unknown) == texture_format::unknown);
 }
