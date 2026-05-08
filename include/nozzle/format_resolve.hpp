@@ -55,4 +55,18 @@ Result<fallback_category> classify_observed_format(
     texture_format fallback_target,
     uint32_t fallback_flags);
 
+struct fallback_metadata {
+    texture_format semantic_format{texture_format::unknown};
+    texture_format storage_format{texture_format::unknown};
+    channel_swizzle swizzle{channel_swizzle::identity};
+};
+
+Result<fallback_metadata> resolve_fallback_metadata(
+    texture_format requested,
+    texture_format observed,
+    fallback_category category,
+    texture_format fallback_target);
+
+Result<void> validate_fallback_flags(uint32_t flags);
+
 } // namespace nozzle

@@ -630,3 +630,86 @@ TEST_CASE("classify_observed_format: channel expansion with storage-compatible o
         fallback_allow_channel_expansion);
     REQUIRE_FALSE(r.ok());
 }
+
+// ---------- resolve_fallback_metadata ----------
+
+TEST_CASE("resolve_fallback_metadata: exact match -> identity swizzle", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgba8_unorm, texture_format::rgba8_unorm,
+        fallback_category::none, texture_format::unknown);
+    REQUIRE(r.ok());
+    REQUIRE(r.value().semantic_format == texture_format::rgba8_unorm);
+    REQUIRE(r.value().storage_format == texture_format::rgba8_unorm);
+    REQUIRE(r.value().swizzle == channel_swizzle::identity);
+}
+
+TEST_CASE("resolve_fallback_metadata: storage-compatible -> swap_rb", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::storage_compatible, texture_format::unknown);
+    REQUIRE(r.ok());
+    REQUIRE(r.value().semantic_format == texture_format::rgba8_unorm);
+    REQUIRE(r.value().storage_format == texture_format::bgra8_unorm);
+    REQUIRE(r.value().swizzle == channel_swizzle::swap_rb);
+}
+
+TEST_CASE("resolve_fallback_metadata: channel expansion exact target -> identity", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgb8_unorm, texture_format::rgba8_unorm,
+        fallback_category::channel_expansion, texture_format::rgba8_unorm);
+    REQUIRE(r.ok());
+    REQUIRE(r.value().semantic_format == texture_format::rgb8_unorm);
+    REQUIRE(r.value().storage_format == texture_format::rgba8_unorm);
+    REQUIRE(r.value().swizzle == channel_swizzle::identity);
+}
+
+TEST_CASE("resolve_fallback_metadata: channel expansion + storage observed -> swap_rb", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgb8_unorm, texture_format::bgra8_unorm,
+        fallback_category::channel_expansion, texture_format::rgba8_unorm);
+    REQUIRE(r.ok());
+    REQUIRE(r.value().semantic_format == texture_format::rgb8_unorm);
+    REQUIRE(r.value().storage_format == texture_format::bgra8_unorm);
+    REQUIRE(r.value().swizzle == channel_swizzle::swap_rb);
+}
+
+TEST_CASE("resolve_fallback_metadata: none with mismatch -> error", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::none, texture_format::unknown);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("resolve_fallback_metadata: quality loss with storage observed -> swap_rb", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgba16_float, texture_format::bgra8_unorm,
+        fallback_category::quality_loss, texture_format::rgba8_unorm);
+    REQUIRE(r.ok());
+    REQUIRE(r.value().semantic_format == texture_format::rgba16_float);
+    REQUIRE(r.value().storage_format == texture_format::bgra8_unorm);
+    REQUIRE(r.value().swizzle == channel_swizzle::swap_rb);
+}
+
+// ---------- validate_fallback_flags ----------
+
+TEST_CASE("validate_fallback_flags: safe defaults -> ok", "[format_resolve]") {
+    auto r = validate_fallback_flags(fallback_safe_defaults);
+    REQUIRE(r.ok());
+}
+
+TEST_CASE("validate_fallback_flags: none -> ok", "[format_resolve]") {
+    auto r = validate_fallback_flags(fallback_none);
+    REQUIRE(r.ok());
+}
+
+TEST_CASE("validate_fallback_flags: unknown bits -> error", "[format_resolve]") {
+    auto r = validate_fallback_flags(0x80000000u | fallback_allow_storage_compatible);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("validate_fallback_flags: only unknown bits -> error", "[format_resolve]") {
+    auto r = validate_fallback_flags(0xFF000000u);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}

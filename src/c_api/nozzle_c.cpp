@@ -11,6 +11,7 @@
 #include <nozzle/pixel_access.hpp>
 #include <nozzle/channel_swizzle.hpp>
 #include <nozzle/format_convert.hpp>
+#include <nozzle/format_resolve.hpp>
 
 #if NOZZLE_HAS_OPENGL
 #include <nozzle/backends/opengl.hpp>
@@ -220,13 +221,8 @@ NozzleErrorCode nozzle_resolve_fallback_flags(
     if (!desc || !out_flags) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
     if (desc->fallback_flags_valid != 0) {
-        constexpr uint32_t known_mask = NOZZLE_FALLBACK_STORAGE_COMPATIBLE
-                                      | NOZZLE_FALLBACK_CHANNEL_EXPANSION
-                                      | NOZZLE_FALLBACK_QUALITY_LOSS;
-        uint32_t unknown = desc->fallback_flags & ~known_mask;
-        if (unknown != 0) {
-            return NOZZLE_ERROR_INVALID_ARGUMENT;
-        }
+        auto vr = nozzle::validate_fallback_flags(desc->fallback_flags);
+        if (!vr.ok()) return to_c_error(vr.error().code);
         *out_flags = desc->fallback_flags;
     } else {
         if (desc->allow_format_fallback != 0) {

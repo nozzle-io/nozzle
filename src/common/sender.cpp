@@ -126,6 +126,10 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 	s.impl_->info_.backend = detail::backend::get_backend_type();
 	s.impl_->metadata_ = desc.metadata;
+	auto flag_result = validate_fallback_flags(desc.fallback_flags);
+	if (!flag_result.ok()) {
+		return flag_result.error();
+	}
 	s.impl_->fallback_flags_ = desc.fallback_flags;
 	s.impl_->valid_ = true;
 

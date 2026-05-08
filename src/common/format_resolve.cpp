@@ -387,4 +387,53 @@ Result<fallback_category> classify_observed_format(
         "observed format does not match requested or any permitted fallback"};
 }
 
+Result<fallback_metadata> resolve_fallback_metadata(
+    texture_format requested,
+    texture_format observed,
+    fallback_category category,
+    texture_format fallback_target)
+{
+    fallback_metadata meta;
+    meta.semantic_format = requested;
+    meta.storage_format = observed;
+
+    switch (category) {
+    case fallback_category::none:
+        if (requested != observed) {
+            return Error{ErrorCode::BackendError,
+                "observed format does not match requested with no fallback"};
+        }
+        meta.swizzle = channel_swizzle::identity;
+        break;
+    case fallback_category::channel_expansion:
+    case fallback_category::quality_loss:
+        if (observed == fallback_target) {
+            meta.swizzle = channel_swizzle::identity;
+        } else {
+            auto sw = derive_swizzle(fallback_target, observed);
+            if (!sw.ok()) return sw.error();
+            meta.swizzle = sw.value();
+        }
+        break;
+    case fallback_category::storage_compatible: {
+        auto sw = derive_swizzle(requested, observed);
+        if (!sw.ok()) return sw.error();
+        meta.swizzle = sw.value();
+        break;
+    }
+    }
+    return meta;
+}
+
+Result<void> validate_fallback_flags(uint32_t flags) {
+    constexpr uint32_t known_mask = fallback_allow_storage_compatible
+                                  | fallback_allow_channel_expansion
+                                  | fallback_allow_quality_loss;
+    if ((flags & ~known_mask) != 0) {
+        return Error{ErrorCode::InvalidArgument,
+            "unknown fallback_flags bits"};
+    }
+    return {};
+}
+
 } // namespace nozzle

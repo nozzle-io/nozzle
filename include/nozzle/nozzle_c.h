@@ -183,6 +183,21 @@ typedef struct NozzleFrameInfo {
 } NozzleFrameInfo;
 
 // ========== Sender Descriptor Validation ==========
+//
+// Resolve and validate fallback fields in a NozzleSenderDesc without
+// creating a sender.  Backend-independent; useful for migration and
+// pre-flight validation.
+//
+// Resolution rules:
+//   fallback_flags_valid != 0  ->  fallback_flags used as-is.
+//     Unknown bits -> NOZZLE_ERROR_INVALID_ARGUMENT.
+//   fallback_flags_valid == 0 && allow_format_fallback != 0
+//     -> legacy all: SAFE_DEFAULTS | QUALITY_LOSS.
+//   fallback_flags_valid == 0 && allow_format_fallback == 0
+//     -> NOZZLE_FALLBACK_NONE (covers {0} init).
+//
+// On success *out_flags is set to the resolved mask.
+// On failure *out_flags is unchanged.
 
 NozzleErrorCode nozzle_resolve_fallback_flags(
     const NozzleSenderDesc *desc,
