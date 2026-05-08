@@ -502,8 +502,8 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				impl_->state->slots[slot].shared_resource_id = resource_id;
 				impl_->state->slots[slot].width = width;
 				impl_->state->slots[slot].height = height;
-				impl_->state->slots[slot].format = static_cast<uint32_t>(wrapped.desc().format);
-				impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(texture_format::unknown);
+			impl_->state->slots[slot].format = static_cast<uint32_t>(wrapped.desc().format);
+			impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(format);
 				impl_->state->slots[slot].channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 				const auto &wr = wrapped.resolved();
 				impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(wr.native.kind);
@@ -517,8 +517,8 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				}
 				impl_->state->width = width;
 				impl_->state->height = height;
-				impl_->state->format = static_cast<uint32_t>(wrapped.desc().format);
-				impl_->state->semantic_format = static_cast<uint32_t>(texture_format::unknown);
+		impl_->state->format = static_cast<uint32_t>(wrapped.desc().format);
+		impl_->state->semantic_format = static_cast<uint32_t>(format);
 				impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 				detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 				detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
@@ -574,7 +574,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		impl_->state->width = width;
 		impl_->state->height = height;
 		impl_->state->format = static_cast<uint32_t>(ring_actual);
-		impl_->state->semantic_format = static_cast<uint32_t>(texture_format::unknown);
+		impl_->state->semantic_format = static_cast<uint32_t>(format);
 		impl_->state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
@@ -590,7 +590,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		impl_->state->slots[slot].width = width;
 		impl_->state->slots[slot].height = height;
 		impl_->state->slots[slot].format = static_cast<uint32_t>(ring_actual);
-		impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(texture_format::unknown);
+		impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(format);
 		impl_->state->slots[slot].channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
 		const auto &rr = impl_->ring_textures_[slot].resolved();
 		impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(rr.native.kind);
