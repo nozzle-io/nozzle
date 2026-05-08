@@ -1,5 +1,6 @@
 // nozzle - receiver.cpp - Texture receiver implementation
 
+#include <nozzle/config.hpp>
 #include <nozzle/receiver.hpp>
 
 #include "backends/backend_dispatch.hpp"
@@ -205,11 +206,11 @@ Result<receiver> receiver::create(const receiver_desc &desc) {
     }
 
     receiver recv;
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
     try {
 #endif
         recv.impl_ = std::make_unique<Impl>();
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
     } catch (const std::exception &) {
         return Error{ErrorCode::ResourceCreationFailed,
             "receiver allocation failed"};

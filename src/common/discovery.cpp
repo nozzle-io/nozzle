@@ -1,5 +1,6 @@
 // nozzle - discovery.cpp - Sender discovery for receivers
 
+#include <nozzle/config.hpp>
 #include <nozzle/discovery.hpp>
 #include <nozzle/types.hpp>
 
@@ -15,7 +16,7 @@ namespace nozzle {
 std::vector<sender_info> enumerate_senders() {
     std::vector<sender_info> result;
 
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
     try {
 #endif
 
@@ -68,7 +69,7 @@ std::vector<sender_info> enumerate_senders() {
     detail::ipc::shm_unmap(mapped, total_size);
     detail::ipc::shm_close(shm_result.value());
 
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
     } catch (const std::exception &) {
         result.clear();
     }

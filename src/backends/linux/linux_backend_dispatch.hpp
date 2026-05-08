@@ -5,6 +5,7 @@
 #include "linux_helpers.hpp"
 #include "linux_fd_transfer.hpp"
 #include <nozzle/backends/linux.hpp>
+#include <nozzle/config.hpp>
 
 #include <algorithm>
 #include <array>
@@ -102,11 +103,11 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 
     if (!state) {
         linux_sender_state *new_state = nullptr;
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
         try {
 #endif
             new_state = new linux_sender_state{};
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
         } catch (const std::exception &) {
             return Error{ErrorCode::BackendError,
                 "DMA-BUF sender state allocation failed"};
@@ -163,7 +164,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 
     state->stop_flag_.store(false, std::memory_order_relaxed);
 
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
     try {
 #endif
         state->accept_thread_ = std::thread([state]() {
@@ -185,7 +186,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
                 close(client_fd);
             }
         });
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
     } catch (const std::system_error &) {
         std::lock_guard<std::mutex> lock(state->mutex_);
         close(state->listen_fd_);

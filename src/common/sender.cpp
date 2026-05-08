@@ -7,6 +7,7 @@
 #include <exception>
 #include <mutex>
 
+#include <nozzle/config.hpp>
 #include <nozzle/device.hpp>
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/result.hpp>
@@ -120,11 +121,11 @@ Result<sender> sender::create(const sender_desc &desc) {
 	}
 
 	sender s;
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
 	try {
 #endif
 		s.impl_ = std::make_unique<Impl>();
-#if __cpp_exceptions
+#if NOZZLE_HAS_EXCEPTIONS
 	} catch (const std::exception &) {
 		detail::ipc::shm_unmap(state, sizeof(detail::SenderSharedState));
 		detail::ipc::shm_close(state_shm.value());
