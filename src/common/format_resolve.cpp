@@ -372,6 +372,10 @@ Result<fallback_category> classify_observed_format(
         if (observed == fallback_target) {
             return attempted_category;
         }
+        if ((fallback_flags & fallback_allow_storage_compatible) != 0
+            && is_allowed_storage_fallback(fallback_target, observed)) {
+            return attempted_category;
+        }
     }
 
     if ((fallback_flags & fallback_allow_storage_compatible) != 0

@@ -182,12 +182,14 @@ typedef struct NozzleFrameInfo {
     uint32_t dropped_frame_count;
 } NozzleFrameInfo;
 
-// ========== Sender API ==========
+// ========== Sender Descriptor Validation ==========
 
 NozzleErrorCode nozzle_resolve_fallback_flags(
     const NozzleSenderDesc *desc,
     uint32_t *out_flags
 );
+
+// ========== Sender API ==========
 
 NozzleErrorCode nozzle_sender_create(
     const NozzleSenderDesc *desc,

@@ -141,7 +141,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 namespace {
 
 Result<void> apply_format_metadata(detail::SenderSharedState *state,
-    texture_format requested, texture_format actual, fallback_category category) {
+    texture_format requested, texture_format actual,
+    fallback_category category, texture_format fallback_target) {
     state->format = static_cast<uint32_t>(actual);
     state->semantic_format = static_cast<uint32_t>(requested);
 
@@ -155,7 +156,15 @@ Result<void> apply_format_metadata(detail::SenderSharedState *state,
         break;
     case fallback_category::channel_expansion:
     case fallback_category::quality_loss:
-        state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
+        if (actual == fallback_target) {
+            state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
+        } else {
+            auto swizzle_result = derive_swizzle(fallback_target, actual);
+            if (!swizzle_result.ok()) {
+                return swizzle_result.error();
+            }
+            state->channel_swizzle = static_cast<uint8_t>(swizzle_result.value());
+        }
         break;
     case fallback_category::storage_compatible: {
         auto swizzle_result = derive_swizzle(requested, actual);
@@ -337,7 +346,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
-		auto meta_result = apply_format_metadata(impl_->state, tdesc.format, observed_format, final_category);
+		auto meta_result = apply_format_metadata(impl_->state, tdesc.format, observed_format, final_category, fallback_target);
 		if (!meta_result.ok()) {
 			return meta_result.error();
 		}
@@ -365,7 +374,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	}
 	fallback_category reuse_category = category_result.value();
 
-	auto meta_result = apply_format_metadata(impl_->state, tdesc.format, reused_format, reuse_category);
+	auto meta_result = apply_format_metadata(impl_->state, tdesc.format, reused_format, reuse_category, texture_format::unknown);
 	if (!meta_result.ok()) {
 		return meta_result.error();
 	}

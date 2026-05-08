@@ -605,3 +605,28 @@ TEST_CASE("classify_observed_format: storage not allowed when flag absent -> err
         fallback_allow_channel_expansion);
     REQUIRE_FALSE(r.ok());
 }
+
+TEST_CASE("classify_observed_format: channel expansion with storage-compatible observed (rgb8->rgba8->bgra8)", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgb8_unorm, texture_format::bgra8_unorm,
+        fallback_category::channel_expansion, texture_format::rgba8_unorm,
+        fallback_safe_defaults);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == fallback_category::channel_expansion);
+}
+
+TEST_CASE("classify_observed_format: channel expansion with storage-incompatible observed -> error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgb8_unorm, texture_format::rgba16_float,
+        fallback_category::channel_expansion, texture_format::rgba8_unorm,
+        fallback_safe_defaults);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("classify_observed_format: channel expansion with storage-compatible observed but storage flag absent -> error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgb8_unorm, texture_format::bgra8_unorm,
+        fallback_category::channel_expansion, texture_format::rgba8_unorm,
+        fallback_allow_channel_expansion);
+    REQUIRE_FALSE(r.ok());
+}
