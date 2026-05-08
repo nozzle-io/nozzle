@@ -19,6 +19,7 @@ set(UNIT_TEST_SOURCES
     unit/test_format_resolve.cpp
     unit/test_resolved_format.cpp
     unit/test_format_convert.cpp
+    unit/test_sender_metadata.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp

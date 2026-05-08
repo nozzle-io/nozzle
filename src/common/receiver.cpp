@@ -329,6 +329,10 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         info.sync_mode_val = sync_mode::none;
         info.dropped_frame_count = dropped;
 
+        impl_->connected_info_.width = si.width;
+        impl_->connected_info_.height = si.height;
+        impl_->connected_info_.format = static_cast<texture_format>(si.format);
+        impl_->connected_info_.semantic_format = static_cast<texture_format>(si.semantic_format);
         impl_->connected_info_.native_format_value = si.native_format_value;
         impl_->connected_info_.native_format_kind = si.native_format_kind;
         impl_->connected_info_.format_source_ = si.format_source;

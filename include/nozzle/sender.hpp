@@ -22,7 +22,8 @@ public:
 
     Result<void> publish_external_texture(const texture &tex);
 
-    Result<void> publish_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format format, texture_format semantic_format = texture_format::unknown);
+    Result<void> publish_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format format);
+    Result<void> publish_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format storage_format, texture_format semantic_format);
 
     Result<writable_frame> acquire_writable_frame(const texture_desc &desc);
     Result<void> commit_frame(writable_frame &frame);

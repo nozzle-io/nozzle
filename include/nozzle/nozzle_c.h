@@ -286,12 +286,22 @@ void nozzle_device_destroy(NozzleDevice *device);
 
 // ========== Native Texture Interop (GPU) ==========
 
+// 4-argument compat: semantic_format = format (storage == semantic).
 NozzleErrorCode nozzle_sender_publish_native_texture(
     NozzleSender *sender,
     void *native_texture,
     uint32_t width,
     uint32_t height,
-    NozzleTextureFormat format,
+    NozzleTextureFormat format
+);
+
+// 5-argument: explicit storage + semantic format.
+NozzleErrorCode nozzle_sender_publish_native_texture_ex(
+    NozzleSender *sender,
+    void *native_texture,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat storage_format,
     NozzleTextureFormat semantic_format
 );
 
