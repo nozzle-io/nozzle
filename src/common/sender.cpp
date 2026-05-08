@@ -140,13 +140,27 @@ Result<sender> sender::create(const sender_desc &desc) {
 
 namespace {
 
-void apply_format_metadata(detail::SenderSharedState *state,
-    texture_format requested, texture_format actual) {
+Result<void> apply_format_metadata(detail::SenderSharedState *state,
+    texture_format requested, texture_format actual, fallback_category category) {
     state->format = static_cast<uint32_t>(actual);
     state->semantic_format = static_cast<uint32_t>(requested);
-    auto swizzle_result = derive_swizzle(requested, actual);
-    state->channel_swizzle = static_cast<uint8_t>(
-        swizzle_result.ok() ? swizzle_result.value() : channel_swizzle::identity);
+
+    switch (category) {
+    case fallback_category::none:
+    case fallback_category::channel_expansion:
+    case fallback_category::quality_loss:
+        state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
+        break;
+    case fallback_category::storage_compatible: {
+        auto swizzle_result = derive_swizzle(requested, actual);
+        if (!swizzle_result.ok()) {
+            return swizzle_result.error();
+        }
+        state->channel_swizzle = static_cast<uint8_t>(swizzle_result.value());
+        break;
+    }
+    }
+    return {};
 }
 
 } // namespace
@@ -263,6 +277,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		}
 
 		texture_format attempt_format = tdesc.format;
+		fallback_category used_category{fallback_category::none};
 		auto tex_result = detail::backend::create_ring_texture(
 			impl_->native_device_,
 			tdesc.width,
@@ -282,6 +297,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 					slot
 				);
 				if (tex_result.ok()) {
+					used_category = fb.category;
 					LOG_WARNING << "format fallback ["
 						<< fallback_category_name(fb.category) << "]: "
 						<< static_cast<int>(attempt_format)
@@ -302,7 +318,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
-		apply_format_metadata(impl_->state, tdesc.format, observed_format);
+		auto meta_result = apply_format_metadata(impl_->state, tdesc.format, observed_format, used_category);
+		if (!meta_result.ok()) {
+			return meta_result.error();
+		}
 
 		return detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
@@ -317,7 +336,15 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
-	apply_format_metadata(impl_->state, tdesc.format, reused_format);
+
+	fallback_category reuse_category{fallback_category::none};
+	if (reused_format != tdesc.format) {
+		reuse_category = fallback_category::storage_compatible;
+	}
+	auto meta_result = apply_format_metadata(impl_->state, tdesc.format, reused_format, reuse_category);
+	if (!meta_result.ok()) {
+		return meta_result.error();
+	}
 
 	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 

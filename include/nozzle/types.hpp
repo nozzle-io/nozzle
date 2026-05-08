@@ -239,7 +239,6 @@ struct sender_desc {
     std::string application_name{};
     uint32_t ring_buffer_size{3};
     metadata_list metadata{};
-    bool allow_format_fallback{true};
     uint32_t fallback_flags{fallback_safe_defaults};
 };
 
