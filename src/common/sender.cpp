@@ -488,6 +488,10 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 	if (width == 0 || height == 0) {
 		return Error{ErrorCode::InvalidArgument, "dimensions must be non-zero"};
 	}
+	if (storage_format != semantic_format) {
+		return Error{ErrorCode::UnsupportedFormat,
+			"publish_native_texture does not support storage/semantic format mismatch"};
+	}
 
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
@@ -502,10 +506,6 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 					return Error{ErrorCode::UnsupportedFormat,
 						"direct shared path requires exact storage format match"};
 				}
-				if (storage_format != semantic_format) {
-					return Error{ErrorCode::UnsupportedFormat,
-						"direct shared path does not support storage/semantic format mismatch"};
-				}
 				uint32_t ring_size = impl_->state->ring_size;
 				if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
 				uint32_t slot = impl_->next_slot_;
@@ -513,9 +513,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				uint64_t frame_number = ++impl_->frame_counter_;
 				detail::write_slot_metadata(impl_->state->slots[slot],
 					frame_number, resource_id, width, height,
-					wrapped.desc().format, semantic_format, wrapped.resolved());
+					wrapped.desc().format, semantic_format,
+					channel_swizzle::identity, wrapped.resolved());
 				detail::write_global_metadata(*impl_->state,
-					width, height, wrapped.desc().format, semantic_format);
+					width, height, wrapped.desc().format, semantic_format,
+					channel_swizzle::identity);
 				detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 				detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 				return {};
@@ -568,7 +570,8 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 
 		impl_->slot_in_use_[slot] = true;
 		detail::write_global_metadata(*impl_->state,
-			width, height, ring_actual, semantic_format);
+			width, height, ring_actual, semantic_format,
+			channel_swizzle::identity);
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
 		if (resource_id == detail::kInvalidSharedResourceId) {
@@ -579,7 +582,8 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		uint64_t frame_number = ++impl_->frame_counter_;
 		detail::write_slot_metadata(impl_->state->slots[slot],
 			frame_number, resource_id, width, height,
-			ring_actual, semantic_format, impl_->ring_textures_[slot].resolved());
+			ring_actual, semantic_format,
+			channel_swizzle::identity, impl_->ring_textures_[slot].resolved());
 		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 		impl_->slot_in_use_[slot] = false;

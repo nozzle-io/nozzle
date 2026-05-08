@@ -9,7 +9,7 @@
 
 using namespace nozzle;
 
-TEST_CASE("write_slot_metadata: storage == semantic writes identical values", "[metadata]") {
+TEST_CASE("write_slot_metadata: writes all fields with identity swizzle", "[metadata]") {
     detail::SenderSharedState::SlotInfo slot{};
 
     resolved_texture_format resolved{};
@@ -23,7 +23,8 @@ TEST_CASE("write_slot_metadata: storage == semantic writes identical values", "[
     resolved.native.plane_offsets[1] = 3110400;
 
     detail::write_slot_metadata(slot, 100, 999, 1920, 1080,
-        texture_format::rgba8_unorm, texture_format::rgba8_unorm, resolved);
+        texture_format::rgba8_unorm, texture_format::rgba8_unorm,
+        channel_swizzle::identity, resolved);
 
     REQUIRE(slot.frame_number == 100);
     REQUIRE(slot.shared_resource_id == 999);
@@ -42,20 +43,16 @@ TEST_CASE("write_slot_metadata: storage == semantic writes identical values", "[
     REQUIRE(slot.plane_offsets[1] == 3110400);
 }
 
-TEST_CASE("write_slot_metadata: storage != semantic preserves distinction", "[metadata]") {
+TEST_CASE("write_slot_metadata: explicit swizzle parameter is written", "[metadata]") {
     detail::SenderSharedState::SlotInfo slot{};
 
     resolved_texture_format resolved{};
-    resolved.native.kind = native_format_kind::dxgi_format;
-    resolved.native.value = 87;
-    resolved.source = format_source::caller_hint;
 
-    detail::write_slot_metadata(slot, 200, 888, 640, 480,
-        texture_format::bgra8_unorm, texture_format::rgba8_unorm, resolved);
+    detail::write_slot_metadata(slot, 1, 1, 640, 480,
+        texture_format::bgra8_unorm, texture_format::bgra8_unorm,
+        channel_swizzle::swap_rb, resolved);
 
-    REQUIRE(slot.format == static_cast<uint32_t>(texture_format::bgra8_unorm));
-    REQUIRE(slot.semantic_format == static_cast<uint32_t>(texture_format::rgba8_unorm));
-    REQUIRE(slot.format != slot.semantic_format);
+    REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
 }
 
 TEST_CASE("write_slot_metadata: plane_count 0 skips plane arrays", "[metadata]") {
@@ -65,31 +62,34 @@ TEST_CASE("write_slot_metadata: plane_count 0 skips plane arrays", "[metadata]")
     resolved.native.plane_count = 0;
 
     detail::write_slot_metadata(slot, 1, 1, 100, 100,
-        texture_format::r8_unorm, texture_format::r8_unorm, resolved);
+        texture_format::r8_unorm, texture_format::r8_unorm,
+        channel_swizzle::identity, resolved);
 
     REQUIRE(slot.plane_count == 0);
     REQUIRE(slot.plane_strides[0] == 0);
     REQUIRE(slot.plane_offsets[0] == 0);
 }
 
-TEST_CASE("write_global_metadata: writes all fields", "[metadata]") {
+TEST_CASE("write_global_metadata: writes all fields with identity swizzle", "[metadata]") {
     detail::SenderSharedState state{};
 
     detail::write_global_metadata(state, 3840, 2160,
-        texture_format::rgba16_float, texture_format::rgba8_unorm);
+        texture_format::rgba16_float, texture_format::rgba16_float,
+        channel_swizzle::identity);
 
     REQUIRE(state.width == 3840);
     REQUIRE(state.height == 2160);
     REQUIRE(state.format == static_cast<uint32_t>(texture_format::rgba16_float));
-    REQUIRE(state.semantic_format == static_cast<uint32_t>(texture_format::rgba8_unorm));
+    REQUIRE(state.semantic_format == static_cast<uint32_t>(texture_format::rgba16_float));
     REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
 }
 
-TEST_CASE("write_global_metadata: storage == semantic is identity", "[metadata]") {
+TEST_CASE("write_global_metadata: explicit swizzle parameter is written", "[metadata]") {
     detail::SenderSharedState state{};
 
     detail::write_global_metadata(state, 800, 600,
-        texture_format::r32_float, texture_format::r32_float);
+        texture_format::r32_float, texture_format::r32_float,
+        channel_swizzle::swap_rb);
 
-    REQUIRE(state.format == state.semantic_format);
+    REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
 }

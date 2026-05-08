@@ -18,6 +18,7 @@ inline void write_slot_metadata(SenderSharedState::SlotInfo &slot,
                                 uint32_t height,
                                 texture_format storage_format,
                                 texture_format semantic_format,
+                                channel_swizzle swizzle,
                                 const resolved_texture_format &resolved) {
 	slot.frame_number = frame_number;
 	slot.shared_resource_id = resource_id;
@@ -25,7 +26,7 @@ inline void write_slot_metadata(SenderSharedState::SlotInfo &slot,
 	slot.height = height;
 	slot.format = static_cast<uint32_t>(storage_format);
 	slot.semantic_format = static_cast<uint32_t>(semantic_format);
-	slot.channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
+	slot.channel_swizzle = static_cast<uint8_t>(swizzle);
 	slot.native_format_kind = static_cast<uint8_t>(resolved.native.kind);
 	slot.format_source = static_cast<uint8_t>(resolved.source);
 	slot.native_format_value = resolved.native.value;
@@ -41,12 +42,13 @@ inline void write_global_metadata(SenderSharedState &state,
                                   uint32_t width,
                                   uint32_t height,
                                   texture_format storage_format,
-                                  texture_format semantic_format) {
+                                  texture_format semantic_format,
+                                  channel_swizzle swizzle) {
 	state.width = width;
 	state.height = height;
 	state.format = static_cast<uint32_t>(storage_format);
 	state.semantic_format = static_cast<uint32_t>(semantic_format);
-	state.channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
+	state.channel_swizzle = static_cast<uint8_t>(swizzle);
 }
 
 } // namespace detail
