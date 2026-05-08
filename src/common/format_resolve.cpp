@@ -357,4 +357,30 @@ Result<channel_swizzle> derive_swizzle(texture_format semantic, texture_format s
         "unhandled format pair for swizzle derivation"};
 }
 
+Result<fallback_category> classify_observed_format(
+    texture_format requested,
+    texture_format observed,
+    fallback_category attempted_category,
+    texture_format fallback_target,
+    uint32_t fallback_flags)
+{
+    if (observed == requested) {
+        return fallback_category::none;
+    }
+
+    if (attempted_category != fallback_category::none && fallback_target != texture_format::unknown) {
+        if (observed == fallback_target) {
+            return attempted_category;
+        }
+    }
+
+    if ((fallback_flags & fallback_allow_storage_compatible) != 0
+        && is_allowed_storage_fallback(requested, observed)) {
+        return fallback_category::storage_compatible;
+    }
+
+    return Error{ErrorCode::BackendError,
+        "observed format does not match requested or any permitted fallback"};
+}
+
 } // namespace nozzle

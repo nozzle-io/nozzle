@@ -147,6 +147,12 @@ Result<void> apply_format_metadata(detail::SenderSharedState *state,
 
     switch (category) {
     case fallback_category::none:
+        if (requested != actual) {
+            return Error{ErrorCode::BackendError,
+                "observed format does not match requested format with no fallback category"};
+        }
+        state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
+        break;
     case fallback_category::channel_expansion:
     case fallback_category::quality_loss:
         state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
@@ -277,7 +283,8 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		}
 
 		texture_format attempt_format = tdesc.format;
-		fallback_category used_category{fallback_category::none};
+		texture_format fallback_target{texture_format::unknown};
+		fallback_category attempted_category{fallback_category::none};
 		auto tex_result = detail::backend::create_ring_texture(
 			impl_->native_device_,
 			tdesc.width,
@@ -289,6 +296,8 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		if (!tex_result.ok()) {
 			auto fb = resolve_fallback(attempt_format, impl_->fallback_flags_);
 			if (fb.valid) {
+				fallback_target = fb.target;
+				attempted_category = fb.category;
 				tex_result = detail::backend::create_ring_texture(
 					impl_->native_device_,
 					tdesc.width,
@@ -297,7 +306,6 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 					slot
 				);
 				if (tex_result.ok()) {
-					used_category = fb.category;
 					LOG_WARNING << "format fallback ["
 						<< fallback_category_name(fb.category) << "]: "
 						<< static_cast<int>(attempt_format)
@@ -313,12 +321,23 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		impl_->ring_textures_[slot] = std::move(tex_result.value());
 
 		texture_format observed_format = impl_->ring_textures_[slot].desc().format;
+
+		auto category_result = classify_observed_format(
+			tdesc.format, observed_format,
+			attempted_category, fallback_target,
+			impl_->fallback_flags_);
+		if (!category_result.ok()) {
+			impl_->ring_textures_[slot] = texture{};
+			return category_result.error();
+		}
+		fallback_category final_category = category_result.value();
+
 		texture_desc actual_desc{tdesc.width, tdesc.height, observed_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 		impl_->slot_in_use_[slot] = true;
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
-		auto meta_result = apply_format_metadata(impl_->state, tdesc.format, observed_format, used_category);
+		auto meta_result = apply_format_metadata(impl_->state, tdesc.format, observed_format, final_category);
 		if (!meta_result.ok()) {
 			return meta_result.error();
 		}
@@ -337,10 +356,15 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
 
-	fallback_category reuse_category{fallback_category::none};
-	if (reused_format != tdesc.format) {
-		reuse_category = fallback_category::storage_compatible;
+	auto category_result = classify_observed_format(
+		tdesc.format, reused_format,
+		fallback_category::none, texture_format::unknown,
+		impl_->fallback_flags_);
+	if (!category_result.ok()) {
+		return category_result.error();
 	}
+	fallback_category reuse_category = category_result.value();
+
 	auto meta_result = apply_format_metadata(impl_->state, tdesc.format, reused_format, reuse_category);
 	if (!meta_result.ok()) {
 		return meta_result.error();

@@ -48,4 +48,11 @@ reuse_match classify_reuse(texture_format existing, texture_format requested, ui
 
 Result<channel_swizzle> derive_swizzle(texture_format semantic, texture_format storage);
 
+Result<fallback_category> classify_observed_format(
+    texture_format requested,
+    texture_format observed,
+    fallback_category attempted_category,
+    texture_format fallback_target,
+    uint32_t fallback_flags);
+
 } // namespace nozzle

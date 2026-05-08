@@ -213,13 +213,12 @@ struct NozzleDevice {
 
 extern "C" {
 
-NozzleErrorCode nozzle_sender_create(
+NozzleErrorCode nozzle_resolve_fallback_flags(
     const NozzleSenderDesc *desc,
-    NozzleSender **out_sender
+    uint32_t *out_flags
 ) {
-    if (!desc || !out_sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (!desc || !out_flags) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    uint32_t fb_flags{0};
     if (desc->fallback_flags_valid != 0) {
         constexpr uint32_t known_mask = NOZZLE_FALLBACK_STORAGE_COMPATIBLE
                                       | NOZZLE_FALLBACK_CHANNEL_EXPANSION
@@ -228,15 +227,29 @@ NozzleErrorCode nozzle_sender_create(
         if (unknown != 0) {
             return NOZZLE_ERROR_INVALID_ARGUMENT;
         }
-        fb_flags = desc->fallback_flags;
+        *out_flags = desc->fallback_flags;
     } else {
         if (desc->allow_format_fallback != 0) {
             LOG_WARNING << "allow_format_fallback is deprecated and enables "
                 << "storage-compatible, channel-expansion, and quality-loss fallback. "
                 << "Set fallback_flags_valid=1 and fallback_flags explicitly.";
-            fb_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS | NOZZLE_FALLBACK_QUALITY_LOSS;
+            *out_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS | NOZZLE_FALLBACK_QUALITY_LOSS;
+        } else {
+            *out_flags = NOZZLE_FALLBACK_NONE;
         }
     }
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_sender_create(
+    const NozzleSenderDesc *desc,
+    NozzleSender **out_sender
+) {
+    if (!desc || !out_sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    uint32_t fb_flags{0};
+    NozzleErrorCode flag_ec = nozzle_resolve_fallback_flags(desc, &fb_flags);
+    if (flag_ec != NOZZLE_OK) return flag_ec;
 
     nozzle::sender_desc cpp_desc{};
     if (desc->name) cpp_desc.name = desc->name;

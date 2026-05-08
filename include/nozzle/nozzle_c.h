@@ -184,6 +184,11 @@ typedef struct NozzleFrameInfo {
 
 // ========== Sender API ==========
 
+NozzleErrorCode nozzle_resolve_fallback_flags(
+    const NozzleSenderDesc *desc,
+    uint32_t *out_flags
+);
+
 NozzleErrorCode nozzle_sender_create(
     const NozzleSenderDesc *desc,
     NozzleSender **out_sender

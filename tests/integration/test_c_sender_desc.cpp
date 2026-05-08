@@ -2,96 +2,100 @@
 
 #include <nozzle/nozzle_c.h>
 
-TEST_CASE("C sender desc: unknown fallback bits rejected", "[c_api]") {
+TEST_CASE("resolve_fallback_flags: unknown bits rejected", "[c_api]") {
     NozzleSenderDesc desc{};
-    desc.name = "test";
-    desc.application_name = "test";
     desc.fallback_flags_valid = 1;
     desc.fallback_flags = 0x80000000u;
 
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    REQUIRE(ec == NOZZLE_ERROR_INVALID_ARGUMENT);
-    REQUIRE(sender == nullptr);
+    uint32_t flags{0xFFFFFFFFu};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    REQUIRE(flags == 0xFFFFFFFFu);
 }
 
-TEST_CASE("C sender desc: unknown bits with valid bits rejected", "[c_api]") {
+TEST_CASE("resolve_fallback_flags: unknown bits with valid bits rejected", "[c_api]") {
     NozzleSenderDesc desc{};
-    desc.name = "test";
-    desc.application_name = "test";
     desc.fallback_flags_valid = 1;
     desc.fallback_flags = 0x80000000u | NOZZLE_FALLBACK_STORAGE_COMPATIBLE;
 
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    REQUIRE(ec == NOZZLE_ERROR_INVALID_ARGUMENT);
-    REQUIRE(sender == nullptr);
+    uint32_t flags{0};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
-TEST_CASE("C sender desc: fallback_flags_valid=1, flags=NONE succeeds", "[c_api]") {
+TEST_CASE("resolve_fallback_flags: new API flags=SAFE_DEFAULTS", "[c_api]") {
     NozzleSenderDesc desc{};
-    desc.name = "test_c_none";
-    desc.application_name = "test";
-    desc.fallback_flags_valid = 1;
-    desc.fallback_flags = NOZZLE_FALLBACK_NONE;
-
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    if (ec == NOZZLE_OK && sender) {
-        nozzle_sender_destroy(sender);
-    }
-}
-
-TEST_CASE("C sender desc: fallback_flags_valid=1, flags=SAFE_DEFAULTS succeeds", "[c_api]") {
-    NozzleSenderDesc desc{};
-    desc.name = "test_c_safe";
-    desc.application_name = "test";
     desc.fallback_flags_valid = 1;
     desc.fallback_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS;
 
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    if (ec == NOZZLE_OK && sender) {
-        nozzle_sender_destroy(sender);
-    }
+    uint32_t flags{0};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == NOZZLE_FALLBACK_SAFE_DEFAULTS);
 }
 
-TEST_CASE("C sender desc: legacy allow=1, flags_valid=0 succeeds", "[c_api]") {
+TEST_CASE("resolve_fallback_flags: new API flags=NONE ignores allow_format_fallback", "[c_api]") {
     NozzleSenderDesc desc{};
-    desc.name = "test_c_legacy_all";
-    desc.application_name = "test";
+    desc.fallback_flags_valid = 1;
+    desc.fallback_flags = NOZZLE_FALLBACK_NONE;
+    desc.allow_format_fallback = 1;
+
+    uint32_t flags{0xFF};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == NOZZLE_FALLBACK_NONE);
+}
+
+TEST_CASE("resolve_fallback_flags: new API flags=QUALITY_LOSS only", "[c_api]") {
+    NozzleSenderDesc desc{};
+    desc.fallback_flags_valid = 1;
+    desc.fallback_flags = NOZZLE_FALLBACK_QUALITY_LOSS;
+
+    uint32_t flags{0};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == NOZZLE_FALLBACK_QUALITY_LOSS);
+}
+
+TEST_CASE("resolve_fallback_flags: new API flags=STORAGE|QUALITY_LOSS", "[c_api]") {
+    NozzleSenderDesc desc{};
+    desc.fallback_flags_valid = 1;
+    desc.fallback_flags = NOZZLE_FALLBACK_STORAGE_COMPATIBLE | NOZZLE_FALLBACK_QUALITY_LOSS;
+
+    uint32_t flags{0};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == (NOZZLE_FALLBACK_STORAGE_COMPATIBLE | NOZZLE_FALLBACK_QUALITY_LOSS));
+}
+
+TEST_CASE("resolve_fallback_flags: legacy allow=1, flags_valid=0 -> legacy all", "[c_api]") {
+    NozzleSenderDesc desc{};
     desc.allow_format_fallback = 1;
     desc.fallback_flags_valid = 0;
 
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    if (ec == NOZZLE_OK && sender) {
-        nozzle_sender_destroy(sender);
-    }
+    uint32_t flags{0};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == (NOZZLE_FALLBACK_SAFE_DEFAULTS | NOZZLE_FALLBACK_QUALITY_LOSS));
 }
 
-TEST_CASE("C sender desc: legacy allow=0, flags_valid=0 succeeds", "[c_api]") {
+TEST_CASE("resolve_fallback_flags: legacy allow=0, flags_valid=0 -> no fallback", "[c_api]") {
     NozzleSenderDesc desc{};
-    desc.name = "test_c_legacy_none";
-    desc.application_name = "test";
     desc.allow_format_fallback = 0;
     desc.fallback_flags_valid = 0;
 
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    if (ec == NOZZLE_OK && sender) {
-        nozzle_sender_destroy(sender);
-    }
+    uint32_t flags{0xFF};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == NOZZLE_FALLBACK_NONE);
 }
 
-TEST_CASE("C sender desc: {0} init succeeds (no fallback)", "[c_api]") {
+TEST_CASE("resolve_fallback_flags: {0} init -> no fallback", "[c_api]") {
     NozzleSenderDesc desc{};
-    desc.name = "test_c_zero_init";
-    desc.application_name = "test";
 
-    NozzleSender *sender{nullptr};
-    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
-    if (ec == NOZZLE_OK && sender) {
-        nozzle_sender_destroy(sender);
-    }
+    uint32_t flags{0xFF};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, &flags) == NOZZLE_OK);
+    REQUIRE(flags == NOZZLE_FALLBACK_NONE);
+}
+
+TEST_CASE("resolve_fallback_flags: null desc -> INVALID_ARGUMENT", "[c_api]") {
+    uint32_t flags{0};
+    REQUIRE(nozzle_resolve_fallback_flags(nullptr, &flags) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("resolve_fallback_flags: null out_flags -> INVALID_ARGUMENT", "[c_api]") {
+    NozzleSenderDesc desc{};
+    REQUIRE(nozzle_resolve_fallback_flags(&desc, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }

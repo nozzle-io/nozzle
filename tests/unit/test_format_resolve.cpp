@@ -552,3 +552,56 @@ TEST_CASE("fallback_category_name: all categories", "[format_resolve]") {
     REQUIRE(std::string(fallback_category_name(fallback_category::channel_expansion)) == "channel-expansion");
     REQUIRE(std::string(fallback_category_name(fallback_category::quality_loss)) == "quality-loss");
 }
+
+// ---------- classify_observed_format ----------
+
+TEST_CASE("classify_observed_format: exact match -> none", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba8_unorm, texture_format::rgba8_unorm,
+        fallback_category::none, texture_format::unknown,
+        fallback_safe_defaults);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == fallback_category::none);
+}
+
+TEST_CASE("classify_observed_format: fallback target matches observed", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::storage_compatible, texture_format::bgra8_unorm,
+        fallback_safe_defaults);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == fallback_category::storage_compatible);
+}
+
+TEST_CASE("classify_observed_format: backend returns allowed storage without explicit fallback", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::none, texture_format::unknown,
+        fallback_safe_defaults);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == fallback_category::storage_compatible);
+}
+
+TEST_CASE("classify_observed_format: backend returns unexpected format -> error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba8_unorm, texture_format::rgba16_float,
+        fallback_category::none, texture_format::unknown,
+        fallback_safe_defaults);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("classify_observed_format: fallback target mismatch -> error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba8_unorm, texture_format::rgba16_float,
+        fallback_category::storage_compatible, texture_format::bgra8_unorm,
+        fallback_safe_defaults);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("classify_observed_format: storage not allowed when flag absent -> error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::none, texture_format::unknown,
+        fallback_allow_channel_expansion);
+    REQUIRE_FALSE(r.ok());
+}
