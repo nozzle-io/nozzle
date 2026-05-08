@@ -683,12 +683,13 @@ NozzleErrorCode nozzle_sender_publish_native_texture(
     void *native_texture,
     uint32_t width,
     uint32_t height,
-    NozzleTextureFormat format
+    NozzleTextureFormat format,
+    NozzleTextureFormat semantic_format
 ) {
     if (!sender || !native_texture) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
     auto result = sender->obj->publish_native_texture(
-        native_texture, width, height, to_cpp_format(format));
+        native_texture, width, height, to_cpp_format(format), to_cpp_format(semantic_format));
     if (!result.ok()) return to_c_error(result.error().code);
     return NOZZLE_OK;
 }

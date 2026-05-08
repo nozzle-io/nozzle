@@ -291,7 +291,8 @@ NozzleErrorCode nozzle_sender_publish_native_texture(
     void *native_texture,
     uint32_t width,
     uint32_t height,
-    NozzleTextureFormat format
+    NozzleTextureFormat format,
+    NozzleTextureFormat semantic_format
 );
 
 NozzleErrorCode nozzle_frame_copy_to_native_texture(
