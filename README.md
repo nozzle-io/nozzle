@@ -187,6 +187,8 @@ To build nozzle itself with strict `-fno-exceptions` enforcement:
 cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
 ```
 
+`NOZZLE_STRICT_NO_EXCEPTIONS` is a compile-compatibility profile. In this mode, standard-library failures that would normally be caught and converted to `Error` (e.g. `std::thread` creation, allocation) cannot be intercepted and will terminate the process. Normal host builds should leave exceptions enabled.
+
 ## Design Decisions
 
 | Decision | Resolution |
