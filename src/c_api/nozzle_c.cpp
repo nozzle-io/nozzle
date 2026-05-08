@@ -23,6 +23,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+
+#include <plog/Log.h>
 #include <new>
 
 namespace {
@@ -217,11 +219,30 @@ NozzleErrorCode nozzle_sender_create(
 ) {
     if (!desc || !out_sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
+    uint32_t fb_flags{0};
+    if (desc->fallback_flags_valid != 0) {
+        constexpr uint32_t known_mask = NOZZLE_FALLBACK_STORAGE_COMPATIBLE
+                                      | NOZZLE_FALLBACK_CHANNEL_EXPANSION
+                                      | NOZZLE_FALLBACK_QUALITY_LOSS;
+        uint32_t unknown = desc->fallback_flags & ~known_mask;
+        if (unknown != 0) {
+            return NOZZLE_ERROR_INVALID_ARGUMENT;
+        }
+        fb_flags = desc->fallback_flags;
+    } else {
+        if (desc->allow_format_fallback != 0) {
+            LOG_WARNING << "allow_format_fallback is deprecated and enables "
+                << "storage-compatible, channel-expansion, and quality-loss fallback. "
+                << "Set fallback_flags_valid=1 and fallback_flags explicitly.";
+            fb_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS | NOZZLE_FALLBACK_QUALITY_LOSS;
+        }
+    }
+
     nozzle::sender_desc cpp_desc{};
     if (desc->name) cpp_desc.name = desc->name;
     if (desc->application_name) cpp_desc.application_name = desc->application_name;
     cpp_desc.ring_buffer_size = desc->ring_buffer_size;
-    cpp_desc.allow_format_fallback = desc->allow_format_fallback != 0;
+    cpp_desc.fallback_flags = fb_flags;
 
     auto result = nozzle::sender::create(cpp_desc);
     if (!result.ok()) return to_c_error(result.error().code);

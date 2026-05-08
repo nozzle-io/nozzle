@@ -412,3 +412,143 @@ TEST_CASE("get_channel_expansion_fallback: no fallback for non-rgb formats", "[f
     REQUIRE(get_channel_expansion_fallback(texture_format::r32_float) == texture_format::unknown);
     REQUIRE(get_channel_expansion_fallback(texture_format::unknown) == texture_format::unknown);
 }
+
+// ---------- resolve_fallback (#31) ----------
+
+TEST_CASE("resolve_fallback: storage compatible rgba8->bgra8", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgba8_unorm, fallback_allow_storage_compatible);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::bgra8_unorm);
+    REQUIRE(fb.category == fallback_category::storage_compatible);
+}
+
+TEST_CASE("resolve_fallback: storage compatible bgra8->rgba8", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::bgra8_unorm, fallback_allow_storage_compatible);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba8_unorm);
+    REQUIRE(fb.category == fallback_category::storage_compatible);
+}
+
+TEST_CASE("resolve_fallback: channel expansion rgb8->rgba8", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgb8_unorm, fallback_allow_channel_expansion);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba8_unorm);
+    REQUIRE(fb.category == fallback_category::channel_expansion);
+}
+
+TEST_CASE("resolve_fallback: channel expansion rgb32_float->rgba32_float", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgb32_float, fallback_allow_channel_expansion);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba32_float);
+    REQUIRE(fb.category == fallback_category::channel_expansion);
+}
+
+TEST_CASE("resolve_fallback: quality loss r32_float->r16_float with flag", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::r32_float, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::r16_float);
+    REQUIRE(fb.category == fallback_category::quality_loss);
+}
+
+TEST_CASE("resolve_fallback: quality loss rejected without flag", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::r32_float, fallback_none);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::r32_float, fallback_allow_storage_compatible);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::r32_float, fallback_allow_channel_expansion);
+    REQUIRE_FALSE(fb.valid);
+}
+
+TEST_CASE("resolve_fallback: no chain — rgb32_float with expansion+quality_loss stays at rgba32_float", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgb32_float,
+        fallback_allow_channel_expansion | fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba32_float);
+    REQUIRE(fb.category == fallback_category::channel_expansion);
+}
+
+TEST_CASE("resolve_fallback: r8_unorm has no storage or expansion fallback", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::r8_unorm, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+}
+
+TEST_CASE("resolve_fallback: no fallback for unknown format", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::unknown, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+}
+
+// ---------- is_allowed_storage_fallback ----------
+
+TEST_CASE("is_allowed_storage_fallback: rgba8<->bgra8", "[format_resolve]") {
+    REQUIRE(is_allowed_storage_fallback(texture_format::rgba8_unorm, texture_format::bgra8_unorm));
+    REQUIRE(is_allowed_storage_fallback(texture_format::bgra8_unorm, texture_format::rgba8_unorm));
+}
+
+TEST_CASE("is_allowed_storage_fallback: rejects srgb pair", "[format_resolve]") {
+    REQUIRE_FALSE(is_allowed_storage_fallback(texture_format::rgba8_unorm, texture_format::rgba8_srgb));
+    REQUIRE_FALSE(is_allowed_storage_fallback(texture_format::rgba8_unorm, texture_format::bgra8_srgb));
+}
+
+TEST_CASE("is_allowed_storage_fallback: rejects unknown", "[format_resolve]") {
+    REQUIRE_FALSE(is_allowed_storage_fallback(texture_format::unknown, texture_format::rgba8_unorm));
+}
+
+// ---------- classify_reuse ----------
+
+TEST_CASE("classify_reuse: exact match", "[format_resolve]") {
+    auto m = classify_reuse(texture_format::rgba8_unorm, texture_format::rgba8_unorm, fallback_safe_defaults);
+    REQUIRE(m == reuse_match::exact);
+}
+
+TEST_CASE("classify_reuse: storage compatible with flag", "[format_resolve]") {
+    auto m = classify_reuse(texture_format::bgra8_unorm, texture_format::rgba8_unorm, fallback_allow_storage_compatible);
+    REQUIRE(m == reuse_match::storage_compatible);
+}
+
+TEST_CASE("classify_reuse: storage compatible rejected without flag", "[format_resolve]") {
+    auto m = classify_reuse(texture_format::bgra8_unorm, texture_format::rgba8_unorm, fallback_none);
+    REQUIRE(m == reuse_match::disallowed);
+
+    m = classify_reuse(texture_format::bgra8_unorm, texture_format::rgba8_unorm, fallback_allow_channel_expansion);
+    REQUIRE(m == reuse_match::disallowed);
+}
+
+TEST_CASE("classify_reuse: different bit depth disallowed", "[format_resolve]") {
+    auto m = classify_reuse(texture_format::rgba8_unorm, texture_format::rgba16_float, fallback_safe_defaults);
+    REQUIRE(m == reuse_match::disallowed);
+}
+
+// ---------- derive_swizzle ----------
+
+TEST_CASE("derive_swizzle: identity for same format", "[format_resolve]") {
+    auto r = derive_swizzle(texture_format::rgba8_unorm, texture_format::rgba8_unorm);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == channel_swizzle::identity);
+}
+
+TEST_CASE("derive_swizzle: swap_rb for rgba8<->bgra8", "[format_resolve]") {
+    auto r = derive_swizzle(texture_format::rgba8_unorm, texture_format::bgra8_unorm);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == channel_swizzle::swap_rb);
+
+    r = derive_swizzle(texture_format::bgra8_unorm, texture_format::rgba8_unorm);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == channel_swizzle::swap_rb);
+}
+
+TEST_CASE("derive_swizzle: error for unhandled pair", "[format_resolve]") {
+    auto r = derive_swizzle(texture_format::rgba8_unorm, texture_format::rgba16_float);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
+}
+
+// ---------- fallback_category_name ----------
+
+TEST_CASE("fallback_category_name: all categories", "[format_resolve]") {
+    REQUIRE(std::string(fallback_category_name(fallback_category::none)) == "none");
+    REQUIRE(std::string(fallback_category_name(fallback_category::storage_compatible)) == "storage-compatible");
+    REQUIRE(std::string(fallback_category_name(fallback_category::channel_expansion)) == "channel-expansion");
+    REQUIRE(std::string(fallback_category_name(fallback_category::quality_loss)) == "quality-loss");
+}

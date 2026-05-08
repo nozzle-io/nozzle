@@ -278,4 +278,83 @@ texture_format get_channel_expansion_fallback(texture_format fmt) {
     }
 }
 
+// -- fallback policy (#31) --
+
+static texture_format get_quality_loss_fallback(texture_format fmt) {
+    switch (fmt) {
+    case texture_format::r32_float:     return texture_format::r16_float;
+    case texture_format::rg32_float:    return texture_format::rg16_float;
+    case texture_format::rgba32_float:  return texture_format::rgba16_float;
+    case texture_format::r16_unorm:     return texture_format::r8_unorm;
+    case texture_format::rg16_unorm:    return texture_format::rg8_unorm;
+    case texture_format::rgba16_unorm:  return texture_format::rgba8_unorm;
+    case texture_format::r16_float:     return texture_format::r8_unorm;
+    case texture_format::rg16_float:    return texture_format::rg8_unorm;
+    case texture_format::rgba16_float:  return texture_format::rgba8_unorm;
+    default:                            return texture_format::unknown;
+    }
+}
+
+fallback_result resolve_fallback(texture_format requested, uint32_t fallback_flags) {
+    if (fallback_flags & fallback_allow_storage_compatible) {
+        auto fb = get_storage_compatible_fallback(requested);
+        if (fb != texture_format::unknown) {
+            return {fb, fallback_category::storage_compatible, true};
+        }
+    }
+
+    if (fallback_flags & fallback_allow_channel_expansion) {
+        auto fb = get_channel_expansion_fallback(requested);
+        if (fb != texture_format::unknown) {
+            return {fb, fallback_category::channel_expansion, true};
+        }
+    }
+
+    if (fallback_flags & fallback_allow_quality_loss) {
+        auto fb = get_quality_loss_fallback(requested);
+        if (fb != texture_format::unknown) {
+            return {fb, fallback_category::quality_loss, true};
+        }
+    }
+
+    return {texture_format::unknown, fallback_category::none, false};
+}
+
+const char *fallback_category_name(fallback_category cat) noexcept {
+    switch (cat) {
+    case fallback_category::none:               return "none";
+    case fallback_category::storage_compatible: return "storage-compatible";
+    case fallback_category::channel_expansion:  return "channel-expansion";
+    case fallback_category::quality_loss:       return "quality-loss";
+    }
+    return "unknown";
+}
+
+bool is_allowed_storage_fallback(texture_format a, texture_format b) {
+    return get_storage_compatible_fallback(a) == b
+        || get_storage_compatible_fallback(b) == a;
+}
+
+reuse_match classify_reuse(texture_format existing, texture_format requested, uint32_t fallback_flags) {
+    if (existing == requested) {
+        return reuse_match::exact;
+    }
+    if ((fallback_flags & fallback_allow_storage_compatible) != 0
+        && is_allowed_storage_fallback(existing, requested)) {
+        return reuse_match::storage_compatible;
+    }
+    return reuse_match::disallowed;
+}
+
+Result<channel_swizzle> derive_swizzle(texture_format semantic, texture_format storage) {
+    if (semantic == storage) {
+        return channel_swizzle::identity;
+    }
+    if (is_allowed_storage_fallback(semantic, storage)) {
+        return channel_swizzle::swap_rb;
+    }
+    return Error{ErrorCode::UnsupportedFormat,
+        "unhandled format pair for swizzle derivation"};
+}
+
 } // namespace nozzle

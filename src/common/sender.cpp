@@ -33,7 +33,7 @@ struct sender::Impl {
 	uint64_t frame_counter_{0};
 	sender_info info_{};
 	metadata_list metadata_{};
-	bool allow_format_fallback_{true};
+	uint32_t fallback_flags_{fallback_safe_defaults};
 	bool owns_socket_{false};
 	bool valid_{false};
 	std::mutex mutex_;
@@ -126,7 +126,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 	s.impl_->info_.backend = detail::backend::get_backend_type();
 	s.impl_->metadata_ = desc.metadata;
-	s.impl_->allow_format_fallback_ = desc.allow_format_fallback;
+	s.impl_->fallback_flags_ = desc.fallback_flags;
 	s.impl_->valid_ = true;
 
 	auto notify_result = detail::backend::notify_sender_uuid(reg.uuid);
@@ -140,36 +140,13 @@ Result<sender> sender::create(const sender_desc &desc) {
 
 namespace {
 
-texture_format get_next_fallback(texture_format fmt) {
-    switch (fmt) {
-        case texture_format::r8_unorm:      return texture_format::rg8_unorm;
-        case texture_format::rg8_unorm:     return texture_format::rgba8_unorm;
-        case texture_format::rgba8_unorm:   return texture_format::bgra8_unorm;
-        case texture_format::bgra8_unorm:   return texture_format::unknown;
-        case texture_format::r16_float:     return texture_format::rg16_float;
-        case texture_format::rg16_float:    return texture_format::rgba16_float;
-        case texture_format::rgba16_float:  return texture_format::rgba8_unorm;
-        case texture_format::r32_float:     return texture_format::r16_float;
-        case texture_format::rg32_float:    return texture_format::rg16_float;
-        case texture_format::rgba32_float:  return texture_format::rgba16_float;
-        case texture_format::r16_unorm:     return texture_format::rg16_unorm;
-        case texture_format::rg16_unorm:    return texture_format::rgba16_unorm;
-        case texture_format::rgba16_unorm:  return texture_format::rgba8_unorm;
-        case texture_format::rgb8_unorm:    return texture_format::rgba8_unorm;
-        case texture_format::rgb16_unorm:   return texture_format::rgba16_unorm;
-        case texture_format::rgb16_float:   return texture_format::rgba16_float;
-        case texture_format::rgb32_float:   return texture_format::rgba32_float;
-        case texture_format::rgb32_uint:    return texture_format::rgba32_uint;
-        default:                            return texture_format::unknown;
-    }
-}
-
-bool is_same_cpu_layout(texture_format a, texture_format b) {
-    if (a == texture_format::unknown || b == texture_format::unknown) return false;
-    if (a == b) return true;
-    return resolve_bytes_per_pixel(a) == resolve_bytes_per_pixel(b)
-        && resolve_component_bits(a) == resolve_component_bits(b)
-        && resolve_component_type(a) == resolve_component_type(b);
+void apply_format_metadata(detail::SenderSharedState *state,
+    texture_format requested, texture_format actual) {
+    state->format = static_cast<uint32_t>(actual);
+    state->semantic_format = static_cast<uint32_t>(requested);
+    auto swizzle_result = derive_swizzle(requested, actual);
+    state->channel_swizzle = static_cast<uint8_t>(
+        swizzle_result.ok() ? swizzle_result.value() : channel_swizzle::identity);
 }
 
 } // namespace
@@ -269,8 +246,15 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 	bool needs_create = !impl_->ring_textures_[slot].valid() ||
 		impl_->ring_textures_[slot].desc().width != tdesc.width ||
-		impl_->ring_textures_[slot].desc().height != tdesc.height ||
-		!is_same_cpu_layout(impl_->ring_textures_[slot].desc().format, tdesc.format);
+		impl_->ring_textures_[slot].desc().height != tdesc.height;
+
+	if (!needs_create) {
+		auto match = classify_reuse(
+			impl_->ring_textures_[slot].desc().format,
+			tdesc.format,
+			impl_->fallback_flags_);
+		needs_create = (match == reuse_match::disallowed);
+	}
 
 	if (needs_create) {
 		if (!impl_->native_device_) {
@@ -287,23 +271,22 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			slot
 		);
 
-		if (!tex_result.ok() && impl_->allow_format_fallback_) {
-			texture_format fallback = get_next_fallback(attempt_format);
-			while (fallback != texture_format::unknown) {
+		if (!tex_result.ok()) {
+			auto fb = resolve_fallback(attempt_format, impl_->fallback_flags_);
+			if (fb.valid) {
 				tex_result = detail::backend::create_ring_texture(
 					impl_->native_device_,
 					tdesc.width,
 					tdesc.height,
-					static_cast<uint32_t>(fallback),
+					static_cast<uint32_t>(fb.target),
 					slot
 				);
 				if (tex_result.ok()) {
-					LOG_WARNING << "format fallback: "
-						<< static_cast<int>(tdesc.format)
-						<< " -> " << static_cast<int>(fallback);
-					break;
+					LOG_WARNING << "format fallback ["
+						<< fallback_category_name(fb.category) << "]: "
+						<< static_cast<int>(attempt_format)
+						<< " -> " << static_cast<int>(fb.target);
 				}
-				fallback = get_next_fallback(fallback);
 			}
 		}
 
@@ -319,9 +302,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 		impl_->state->width = tdesc.width;
 		impl_->state->height = tdesc.height;
-		impl_->state->format = static_cast<uint32_t>(observed_format);
-		impl_->state->semantic_format = static_cast<uint32_t>(tdesc.semantic_format);
-		impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
+		apply_format_metadata(impl_->state, tdesc.format, observed_format);
 
 		return detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
@@ -336,9 +317,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 	impl_->state->width = tdesc.width;
 	impl_->state->height = tdesc.height;
-	impl_->state->format = static_cast<uint32_t>(reused_format);
-	impl_->state->semantic_format = static_cast<uint32_t>(tdesc.semantic_format);
-	impl_->state->channel_swizzle = static_cast<uint8_t>(tdesc.swizzle);
+	apply_format_metadata(impl_->state, tdesc.format, reused_format);
 
 	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 

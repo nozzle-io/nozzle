@@ -115,6 +115,14 @@ typedef enum NozzleNativeFormatKind {
     NOZZLE_NATIVE_KIND_GL_INTERNAL_FORMAT = 4,
 } NozzleNativeFormatKind;
 
+// ========== Fallback Flags ==========
+
+#define NOZZLE_FALLBACK_NONE              0u
+#define NOZZLE_FALLBACK_STORAGE_COMPATIBLE (1u << 0)
+#define NOZZLE_FALLBACK_CHANNEL_EXPANSION  (1u << 1)
+#define NOZZLE_FALLBACK_QUALITY_LOSS       (1u << 2)
+#define NOZZLE_FALLBACK_SAFE_DEFAULTS      (NOZZLE_FALLBACK_STORAGE_COMPATIBLE | NOZZLE_FALLBACK_CHANNEL_EXPANSION)
+
 // ========== Descriptor Structs ==========
 
 typedef struct NozzleSenderDesc {
@@ -122,6 +130,8 @@ typedef struct NozzleSenderDesc {
     const char *application_name;
     uint32_t ring_buffer_size;
     int allow_format_fallback;
+    uint32_t fallback_flags;
+    int fallback_flags_valid;
 } NozzleSenderDesc;
 
 typedef struct NozzleReceiverDesc {

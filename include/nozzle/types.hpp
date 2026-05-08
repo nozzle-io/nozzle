@@ -228,12 +228,19 @@ struct key_value {
 
 using metadata_list = std::vector<key_value>;
 
+constexpr uint32_t fallback_none{0};
+constexpr uint32_t fallback_allow_storage_compatible{1u << 0};
+constexpr uint32_t fallback_allow_channel_expansion{1u << 1};
+constexpr uint32_t fallback_allow_quality_loss{1u << 2};
+constexpr uint32_t fallback_safe_defaults{fallback_allow_storage_compatible | fallback_allow_channel_expansion};
+
 struct sender_desc {
     std::string name{};
     std::string application_name{};
     uint32_t ring_buffer_size{3};
     metadata_list metadata{};
     bool allow_format_fallback{true};
+    uint32_t fallback_flags{fallback_safe_defaults};
 };
 
 struct receiver_desc {
