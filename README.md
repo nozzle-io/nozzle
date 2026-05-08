@@ -164,11 +164,28 @@ examples/                    Minimal sender/receiver examples
 
 ## Requirements
 
-- C++17 compiler (no exceptions, no RTTI required)
+- C++17 compiler (no RTTI required)
 - macOS 12+ (Metal backend)
 - Windows 10+ (D3D11 backend)
 - Linux (DMA-BUF backend, glibc 2.31+)
 - CMake 3.20+
+
+## Exception Policy
+
+Nozzle does not throw C++ exceptions across API boundaries.
+
+- Public C++ API returns `Result<T>` / `Error`
+- C API returns `NozzleErrorCode`
+- Backend errors are converted to nozzle errors internally
+- Destructors and cleanup paths do not throw
+
+Nozzle does not require `-fno-exceptions` in host applications. If a narrow integration point encounters a throwing API, the exception is caught locally and converted to a nozzle `Error`.
+
+To build nozzle itself with strict `-fno-exceptions` enforcement:
+
+```bash
+cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
+```
 
 ## Design Decisions
 
@@ -176,7 +193,7 @@ examples/                    Minimal sender/receiver examples
 |----------|------------|
 | Namespace | `nozzle` |
 | Naming | All snake_case in library, `Nozzle` prefix for C API |
-| Error handling | `Result<T>` — no exceptions |
+| Error handling | `Result<T>` — no exceptions across API boundaries |
 | Thread safety | Object-level (same sender/receiver callable from multiple threads) |
 | Logging | plog (header-only, submodule) |
 | Crash cleanup | Lazy — receiver detects dead sender on access failure |

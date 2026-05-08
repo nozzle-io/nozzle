@@ -11,6 +11,8 @@ project(nozzle
     LANGUAGES CXX
 )
 
+option(NOZZLE_STRICT_NO_EXCEPTIONS "Build with -fno-exceptions (strict mode)" OFF)
+
 # --- C++ standard & compile options ---
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,10 +22,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(nozzle STATIC)
 
+set(NOZZLE_EXCEPTION_FLAGS "")
+if(NOZZLE_STRICT_NO_EXCEPTIONS)
+    set(NOZZLE_EXCEPTION_FLAGS
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions>
+        $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions>
+        $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->
+    )
+endif()
+
 target_compile_options(nozzle PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions -fno-rtti>
-    $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions -fno-rtti>
-    $<$<CXX_COMPILER_ID:MSVC>:/EHs-c- /GR->
+    ${NOZZLE_EXCEPTION_FLAGS}
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-rtti>
+    $<$<CXX_COMPILER_ID:GNU>:-fno-rtti>
+    $<$<CXX_COMPILER_ID:MSVC>:/GR->
 )
 
 # --- Platform detection ---

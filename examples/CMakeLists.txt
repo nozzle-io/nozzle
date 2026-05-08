@@ -14,9 +14,15 @@ function(add_nozzle_example NAME)
         ${plog_SOURCE_DIR}/include
     )
     target_compile_options(${NAME} PRIVATE
-        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions -fno-rtti>
-        $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions -fno-rtti>
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-rtti>
+        $<$<CXX_COMPILER_ID:GNU>:-fno-rtti>
     )
+    if(NOZZLE_STRICT_NO_EXCEPTIONS)
+        target_compile_options(${NAME} PRIVATE
+            $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions>
+            $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions>
+        )
+    endif()
 endfunction()
 
 add_nozzle_example(example_sender)

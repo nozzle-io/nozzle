@@ -105,9 +105,15 @@ target_include_directories(nozzle_integration_tests PRIVATE
 )
 
 target_compile_options(nozzle_integration_tests PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions -fno-rtti>
-    $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions -fno-rtti>
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-rtti>
+    $<$<CXX_COMPILER_ID:GNU>:-fno-rtti>
 )
+if(NOZZLE_STRICT_NO_EXCEPTIONS)
+    target_compile_options(nozzle_integration_tests PRIVATE
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions>
+        $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions>
+    )
+endif()
 
 include(CTest)
 include(Catch)

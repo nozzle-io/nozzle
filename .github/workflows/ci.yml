@@ -7,6 +7,13 @@ on:
     branches: [main]
 
 jobs:
+  check-no-exceptions:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check exception policy
+        run: bash scripts/check_no_exceptions.sh .
+
   build-macos:
     runs-on: macos-14
     steps:
@@ -46,6 +53,25 @@ jobs:
       # Integration tests require D3D11/GPU — may fail on headless CI
       - name: Integration tests
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact || true
+
+  build-linux-strict:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Configure
+        run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Unit tests
+        run: ./build/tests/nozzle_tests --reporter compact
 
   build-linux:
     runs-on: ubuntu-22.04
