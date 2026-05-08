@@ -54,6 +54,22 @@ jobs:
       - name: Integration tests
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact || true
 
+  build-windows-strict:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Unit tests
+        run: ./build/tests/Debug/nozzle_tests.exe --reporter compact
+
   build-linux-strict:
     runs-on: ubuntu-22.04
     steps:
