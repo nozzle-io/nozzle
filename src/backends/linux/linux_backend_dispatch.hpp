@@ -101,7 +101,17 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     auto *state = g_sender_state.load(std::memory_order_relaxed);
 
     if (!state) {
-        auto *new_state = new linux_sender_state{};
+        linux_sender_state *new_state = nullptr;
+#if __cpp_exceptions
+        try {
+#endif
+            new_state = new linux_sender_state{};
+#if __cpp_exceptions
+        } catch (const std::exception &) {
+            return Error{ErrorCode::BackendError,
+                "DMA-BUF sender state allocation failed"};
+        }
+#endif
         linux_sender_state *expected = nullptr;
         if (!g_sender_state.compare_exchange_strong(expected, new_state,
                 std::memory_order_release, std::memory_order_relaxed)) {
@@ -153,25 +163,39 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 
     state->stop_flag_.store(false, std::memory_order_relaxed);
 
-    state->accept_thread_ = std::thread([state]() {
-        while (!state->stop_flag_.load(std::memory_order_relaxed)) {
-            int client_fd = accept(state->listen_fd_, nullptr, nullptr);
-            if (client_fd < 0) {
-                if (state->stop_flag_.load(std::memory_order_relaxed)) break;
-                continue;
-            }
-            struct timeval tv{};
-            tv.tv_sec = 2;
-            tv.tv_usec = 0;
-            if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
-                setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+#if __cpp_exceptions
+    try {
+#endif
+        state->accept_thread_ = std::thread([state]() {
+            while (!state->stop_flag_.load(std::memory_order_relaxed)) {
+                int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+                if (client_fd < 0) {
+                    if (state->stop_flag_.load(std::memory_order_relaxed)) break;
+                    continue;
+                }
+                struct timeval tv{};
+                tv.tv_sec = 2;
+                tv.tv_usec = 0;
+                if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
+                    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+                    close(client_fd);
+                    continue;
+                }
+                handle_fd_request(client_fd, state);
                 close(client_fd);
-                continue;
             }
-            handle_fd_request(client_fd, state);
-            close(client_fd);
-        }
-    });
+        });
+#if __cpp_exceptions
+    } catch (const std::system_error &) {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        close(state->listen_fd_);
+        state->listen_fd_ = -1;
+        state->socket_path_.clear();
+        state->uuid_.clear();
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF fd broker accept thread creation failed"};
+    }
+#endif
 
     return {};
 }

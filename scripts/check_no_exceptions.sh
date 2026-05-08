@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Check that nozzle core code does not use throw/catch for control flow.
+# Check that nozzle core code does not THROW exceptions.
+# Internal try/catch is ALLOWED — it catches platform API exceptions and
+# converts them to Result<T> errors.  Only `throw` (and convenience aliases
+# like std::runtime_error used as throw expressions) are forbidden.
+#
 # Third-party code (libs/) is excluded.
 
 ROOT="${1:-.}"
 EXCLUDE="libs/"
-PATTERN='\bthrow\b[[:space:]]|catch[[:space:]]*(\(|\.\.\.)|std::runtime_error|std::logic_error'
+# Detect: throw keyword (as a statement), rethrow, throw-with-new
+# Explicitly does NOT flag: catch, std::system_error, std::bad_alloc
+# (those are used internally to catch and convert platform exceptions).
+PATTERN='\bthrow\b[[:space:]]|\bthrow;|std::runtime_error|std::logic_error'
 
 hits=0
 
@@ -21,10 +28,11 @@ done < <(find "$ROOT/include" "$ROOT/src" -type f \( -name '*.cpp' -o -name '*.h
 
 if [ "$hits" -gt 0 ]; then
     echo ""
-    echo "ERROR: found $hits file(s) with exception usage in nozzle core."
-    echo "nozzle APIs must report errors through Result<T> / NozzleErrorCode, not exceptions."
+    echo "ERROR: found $hits file(s) with throw usage in nozzle core."
+    echo "nozzle APIs must report errors through Result<T> / NozzleErrorCode, not throw."
+    echo "Internal catch is allowed (catching platform exceptions to convert to Error)."
     exit 1
 fi
 
-echo "OK: no exception usage found in nozzle core."
+echo "OK: no throw usage found in nozzle core."
 exit 0

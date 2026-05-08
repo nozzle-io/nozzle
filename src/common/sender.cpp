@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstring>
+#include <exception>
 #include <mutex>
 
 #include <nozzle/device.hpp>
@@ -119,7 +120,19 @@ Result<sender> sender::create(const sender_desc &desc) {
 	}
 
 	sender s;
-	s.impl_ = std::make_unique<Impl>();
+#if __cpp_exceptions
+	try {
+#endif
+		s.impl_ = std::make_unique<Impl>();
+#if __cpp_exceptions
+	} catch (const std::exception &) {
+		detail::ipc::shm_unmap(state, sizeof(detail::SenderSharedState));
+		detail::ipc::shm_close(state_shm.value());
+		detail::registry::unregister_sender(reg.uuid);
+		return Error{ErrorCode::ResourceCreationFailed,
+			"sender allocation failed"};
+	}
+#endif
 	s.impl_->registration_ = std::move(reg);
 	s.impl_->state = state;
 	s.impl_->state_handle = std::move(state_shm.value());

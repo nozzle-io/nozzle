@@ -7,12 +7,17 @@
 #include "shared_state.hpp"
 
 #include <cstring>
+#include <exception>
 #include <vector>
 
 namespace nozzle {
 
 std::vector<sender_info> enumerate_senders() {
     std::vector<sender_info> result;
+
+#if __cpp_exceptions
+    try {
+#endif
 
     auto shm_result = detail::ipc::shm_open_ro(detail::kDirectoryShmName);
     if (!shm_result.ok()) {
@@ -62,6 +67,13 @@ std::vector<sender_info> enumerate_senders() {
 
     detail::ipc::shm_unmap(mapped, total_size);
     detail::ipc::shm_close(shm_result.value());
+
+#if __cpp_exceptions
+    } catch (const std::exception &) {
+        result.clear();
+    }
+#endif
+
     return result;
 }
 

@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <exception>
 #include <string>
 #include <thread>
 
@@ -204,7 +205,16 @@ Result<receiver> receiver::create(const receiver_desc &desc) {
     }
 
     receiver recv;
-    recv.impl_ = std::make_unique<Impl>();
+#if __cpp_exceptions
+    try {
+#endif
+        recv.impl_ = std::make_unique<Impl>();
+#if __cpp_exceptions
+    } catch (const std::exception &) {
+        return Error{ErrorCode::ResourceCreationFailed,
+            "receiver allocation failed"};
+    }
+#endif
     recv.impl_->sender_name_ = desc.name;
     recv.impl_->state_view_ = std::move(setup.value().state_view);
     recv.impl_->sender_pid_ = setup.value().sender_pid;
