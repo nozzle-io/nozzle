@@ -76,6 +76,7 @@ endif()
 set(INTEGRATION_TEST_SOURCES
     integration/test_cross_process.cpp
     integration/test_c_sender_desc.cpp
+    integration/test_cpp_sender_desc.cpp
 )
 
 if(APPLE)

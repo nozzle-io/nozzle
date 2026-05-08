@@ -65,6 +65,11 @@ Result<sender> sender::create(const sender_desc &desc) {
 		return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
 	}
 
+	auto flag_result = validate_fallback_flags(desc.fallback_flags);
+	if (!flag_result.ok()) {
+		return flag_result.error();
+	}
+
 	const char *app_name = desc.application_name.empty()
 		? "unknown"
 		: desc.application_name.c_str();
@@ -126,10 +131,6 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 	s.impl_->info_.backend = detail::backend::get_backend_type();
 	s.impl_->metadata_ = desc.metadata;
-	auto flag_result = validate_fallback_flags(desc.fallback_flags);
-	if (!flag_result.ok()) {
-		return flag_result.error();
-	}
 	s.impl_->fallback_flags_ = desc.fallback_flags;
 	s.impl_->valid_ = true;
 
@@ -147,38 +148,13 @@ namespace {
 Result<void> apply_format_metadata(detail::SenderSharedState *state,
     texture_format requested, texture_format actual,
     fallback_category category, texture_format fallback_target) {
-    state->format = static_cast<uint32_t>(actual);
-    state->semantic_format = static_cast<uint32_t>(requested);
-
-    switch (category) {
-    case fallback_category::none:
-        if (requested != actual) {
-            return Error{ErrorCode::BackendError,
-                "observed format does not match requested format with no fallback category"};
-        }
-        state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
-        break;
-    case fallback_category::channel_expansion:
-    case fallback_category::quality_loss:
-        if (actual == fallback_target) {
-            state->channel_swizzle = static_cast<uint8_t>(channel_swizzle::identity);
-        } else {
-            auto swizzle_result = derive_swizzle(fallback_target, actual);
-            if (!swizzle_result.ok()) {
-                return swizzle_result.error();
-            }
-            state->channel_swizzle = static_cast<uint8_t>(swizzle_result.value());
-        }
-        break;
-    case fallback_category::storage_compatible: {
-        auto swizzle_result = derive_swizzle(requested, actual);
-        if (!swizzle_result.ok()) {
-            return swizzle_result.error();
-        }
-        state->channel_swizzle = static_cast<uint8_t>(swizzle_result.value());
-        break;
+    auto meta = resolve_fallback_metadata(requested, actual, category, fallback_target);
+    if (!meta.ok()) {
+        return meta.error();
     }
-    }
+    state->format = static_cast<uint32_t>(meta.value().storage_format);
+    state->semantic_format = static_cast<uint32_t>(meta.value().semantic_format);
+    state->channel_swizzle = static_cast<uint8_t>(meta.value().swizzle);
     return {};
 }
 
