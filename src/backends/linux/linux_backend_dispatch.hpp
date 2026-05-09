@@ -14,6 +14,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #include <sys/socket.h>
