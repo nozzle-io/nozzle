@@ -99,20 +99,3 @@ TEST_CASE("resolve_fallback_flags: null out_flags -> INVALID_ARGUMENT", "[c_api]
     NozzleSenderDesc desc{};
     REQUIRE(nozzle_resolve_fallback_flags(&desc, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
-
-TEST_CASE("nozzle_swizzle_channels: RGB formats return UNSUPPORTED_FORMAT", "[c_api][swizzle]") {
-    uint8_t buf[64]{};
-    const uint8_t permute[4] = {3, 2, 1, 0};
-    const NozzleTextureFormat rgb_formats[] = {
-        NOZZLE_FORMAT_RGB8_UNORM,
-        NOZZLE_FORMAT_RGB16_UNORM,
-        NOZZLE_FORMAT_RGB16_FLOAT,
-        NOZZLE_FORMAT_RGB32_FLOAT,
-        NOZZLE_FORMAT_RGB32_UINT,
-    };
-    for (auto fmt : rgb_formats) {
-        INFO("format=" << fmt);
-        REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, 16, 16, fmt, permute)
-                == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
-    }
-}

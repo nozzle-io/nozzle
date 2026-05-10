@@ -30,6 +30,9 @@ jobs:
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
 
+      - name: C API tests
+        run: ./build/tests/nozzle_c_api_tests --reporter compact
+
       # Integration tests require Metal/GPU — may fail on headless CI
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact || true
@@ -49,6 +52,9 @@ jobs:
 
       - name: Unit tests
         run: ./build/tests/Debug/nozzle_tests.exe --reporter compact
+
+      - name: C API tests
+        run: ./build/tests/Debug/nozzle_c_api_tests.exe --reporter compact
 
       # Integration tests require D3D11/GPU — may fail on headless CI
       - name: Integration tests
@@ -89,6 +95,9 @@ jobs:
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
 
+      - name: C API tests
+        run: ./build/tests/nozzle_c_api_tests --reporter compact
+
   build-linux:
     runs-on: ubuntu-22.04
     steps:
@@ -107,6 +116,9 @@ jobs:
 
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
+
+      - name: C API tests
+        run: ./build/tests/nozzle_c_api_tests --reporter compact
 
       # Integration tests require DMA-BUF/GPU — may fail on headless CI
       - name: Integration tests

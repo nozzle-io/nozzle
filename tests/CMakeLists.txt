@@ -121,3 +121,23 @@ include(CTest)
 include(Catch)
 catch_discover_tests(nozzle_tests)
 catch_discover_tests(nozzle_integration_tests)
+
+# --- C API test executable ---
+# Pure C API logic tests that require no GPU/IPC resources.
+# Links against the full nozzle library but runs as gating (no || true).
+add_executable(nozzle_c_api_tests
+    c_api/test_swizzle.cpp
+)
+
+target_link_libraries(nozzle_c_api_tests PRIVATE
+    Catch2::Catch2WithMain
+    ${NOZZLE_FORCE_LOAD_FLAG}
+    nozzle
+)
+
+target_include_directories(nozzle_c_api_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/common
+)
+
+catch_discover_tests(nozzle_c_api_tests)
