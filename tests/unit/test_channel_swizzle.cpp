@@ -73,6 +73,40 @@ TEST_CASE("swizzle_channels: unsupported format returns error", "[swizzle]") {
 	REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
 }
 
+TEST_CASE("swizzle_channels: RGB formats are unsupported", "[swizzle]") {
+	uint8_t buf[64]{};
+	const texture_format rgb_formats[] = {
+		texture_format::rgb8_unorm,
+		texture_format::rgb16_unorm,
+		texture_format::rgb16_float,
+		texture_format::rgb32_float,
+		texture_format::rgb32_uint,
+	};
+	for (auto fmt : rgb_formats) {
+		INFO("format=" << static_cast<int>(fmt));
+		auto r = swizzle_channels(buf, buf, 1, 1, 16, 16, fmt, permute_argb_to_bgra);
+		REQUIRE_FALSE(r.ok());
+		CHECK(r.error().code == ErrorCode::UnsupportedFormat);
+	}
+}
+
+TEST_CASE("swizzle_channels: supported formats succeed", "[swizzle]") {
+	alignas(16) uint8_t src[16]{0xAA, 0xBB, 0xCC, 0xDD, 0,0,0,0, 0,0,0,0, 0,0,0,0};
+	alignas(16) uint8_t dst[16]{};
+	const texture_format supported[] = {
+		texture_format::rgba8_unorm,
+		texture_format::bgra8_unorm,
+		texture_format::rgba8_srgb,
+		texture_format::bgra8_srgb,
+		texture_format::rgba32_float,
+	};
+	for (auto fmt : supported) {
+		INFO("format=" << static_cast<int>(fmt));
+		auto r = swizzle_channels(src, dst, 1, 1, 16, 16, fmt, permute_argb_to_bgra);
+		REQUIRE(r.ok());
+	}
+}
+
 TEST_CASE("swizzle_channels: row_bytes too small returns error", "[swizzle]") {
 	uint8_t buf[32]{};
 	auto r = swizzle_channels(buf, buf, 4, 1, 8, 8,
