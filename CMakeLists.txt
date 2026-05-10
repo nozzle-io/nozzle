@@ -20,7 +20,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # --- Logging (plog - header-only, via submodule) ---
 
-add_library(nozzle STATIC)
+add_library(nozzle)
+
+target_compile_definitions(nozzle
+    PUBLIC
+        $<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>:NOZZLE_SHARED>
+        $<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>:NOZZLE_EXPORTS>
+)
 
 set(NOZZLE_EXCEPTION_FLAGS "")
 if(NOZZLE_STRICT_NO_EXCEPTIONS)
@@ -184,6 +190,8 @@ include(CMakePackageConfigHelpers)
 install(TARGETS nozzle
     EXPORT nozzleTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 install(DIRECTORY include/nozzle

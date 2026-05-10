@@ -3,6 +3,22 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#if defined(NOZZLE_EXPORTS)
+    #ifdef _WIN32
+        #define NOZZLE_C_API __declspec(dllexport)
+    #else
+        #define NOZZLE_C_API __attribute__((visibility("default")))
+    #endif
+#elif defined(NOZZLE_SHARED)
+    #ifdef _WIN32
+        #define NOZZLE_C_API __declspec(dllimport)
+    #else
+        #define NOZZLE_C_API
+    #endif
+#else
+    #define NOZZLE_C_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -199,26 +215,26 @@ typedef struct NozzleFrameInfo {
 // On success *out_flags is set to the resolved mask.
 // On failure *out_flags is unchanged.
 
-NozzleErrorCode nozzle_resolve_fallback_flags(
+NOZZLE_C_API NozzleErrorCode nozzle_resolve_fallback_flags(
     const NozzleSenderDesc *desc,
     uint32_t *out_flags
 );
 
 // ========== Sender API ==========
 
-NozzleErrorCode nozzle_sender_create(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_create(
     const NozzleSenderDesc *desc,
     NozzleSender **out_sender
 );
 
-void nozzle_sender_destroy(NozzleSender *sender);
+NOZZLE_C_API void nozzle_sender_destroy(NozzleSender *sender);
 
-NozzleErrorCode nozzle_sender_publish_texture(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_texture(
     NozzleSender *sender,
     NozzleTexture *texture
 );
 
-NozzleErrorCode nozzle_sender_acquire_writable_frame(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_acquire_writable_frame(
     NozzleSender *sender,
     uint32_t width,
     uint32_t height,
@@ -226,39 +242,39 @@ NozzleErrorCode nozzle_sender_acquire_writable_frame(
     NozzleFrame **out_frame
 );
 
-NozzleErrorCode nozzle_sender_commit_frame(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_commit_frame(
     NozzleSender *sender,
     NozzleFrame *frame
 );
 
-NozzleErrorCode nozzle_sender_get_info(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_get_info(
     NozzleSender *sender,
     NozzleSenderInfo *out_info
 );
 
 // ========== Receiver API ==========
 
-NozzleErrorCode nozzle_receiver_create(
+NOZZLE_C_API NozzleErrorCode nozzle_receiver_create(
     const NozzleReceiverDesc *desc,
     NozzleReceiver **out_receiver
 );
 
-void nozzle_receiver_destroy(NozzleReceiver *receiver);
+NOZZLE_C_API void nozzle_receiver_destroy(NozzleReceiver *receiver);
 
-NozzleErrorCode nozzle_receiver_acquire_frame(
+NOZZLE_C_API NozzleErrorCode nozzle_receiver_acquire_frame(
     NozzleReceiver *receiver,
     const NozzleAcquireDesc *desc,
     NozzleFrame **out_frame
 );
 
-void nozzle_frame_release(NozzleFrame *frame);
+NOZZLE_C_API void nozzle_frame_release(NozzleFrame *frame);
 
-NozzleErrorCode nozzle_receiver_get_connected_info(
+NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info(
     NozzleReceiver *receiver,
     NozzleConnectedSenderInfo *out_info
 );
 
-NozzleErrorCode nozzle_frame_get_info(
+NOZZLE_C_API NozzleErrorCode nozzle_frame_get_info(
     NozzleFrame *frame,
     NozzleFrameInfo *out_info
 );
@@ -270,24 +286,24 @@ typedef struct NozzleSenderInfoArray {
     uint32_t count;
 } NozzleSenderInfoArray;
 
-NozzleErrorCode nozzle_enumerate_senders(
+NOZZLE_C_API NozzleErrorCode nozzle_enumerate_senders(
     NozzleSenderInfoArray *out_array
 );
 
-void nozzle_free_sender_info_array(NozzleSenderInfoArray *array);
+NOZZLE_C_API void nozzle_free_sender_info_array(NozzleSenderInfoArray *array);
 
 // ========== Device API ==========
 
-NozzleErrorCode nozzle_device_get_default(
+NOZZLE_C_API NozzleErrorCode nozzle_device_get_default(
     NozzleDevice **out_device
 );
 
-void nozzle_device_destroy(NozzleDevice *device);
+NOZZLE_C_API void nozzle_device_destroy(NozzleDevice *device);
 
 // ========== Native Texture Interop (GPU) ==========
 
 // 4-argument compat: semantic_format = format (storage == semantic).
-NozzleErrorCode nozzle_sender_publish_native_texture(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_native_texture(
     NozzleSender *sender,
     void *native_texture,
     uint32_t width,
@@ -296,7 +312,7 @@ NozzleErrorCode nozzle_sender_publish_native_texture(
 );
 
 // 5-argument: explicit storage + semantic format.
-NozzleErrorCode nozzle_sender_publish_native_texture_ex(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_native_texture_ex(
     NozzleSender *sender,
     void *native_texture,
     uint32_t width,
@@ -305,7 +321,7 @@ NozzleErrorCode nozzle_sender_publish_native_texture_ex(
     NozzleTextureFormat semantic_format
 );
 
-NozzleErrorCode nozzle_frame_copy_to_native_texture(
+NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_to_native_texture(
     NozzleFrame *frame,
     void *native_texture,
     uint32_t width,
@@ -323,12 +339,12 @@ typedef struct NozzleTextureWrapDesc {
     NozzleBackendType backend;
 } NozzleTextureWrapDesc;
 
-NozzleErrorCode nozzle_texture_wrap(
+NOZZLE_C_API NozzleErrorCode nozzle_texture_wrap(
     const NozzleTextureWrapDesc *desc,
     NozzleTexture **out_texture
 );
 
-void nozzle_texture_destroy(NozzleTexture *texture);
+NOZZLE_C_API void nozzle_texture_destroy(NozzleTexture *texture);
 
 // ========== Resolved Format (Read-Only) ==========
 
@@ -346,7 +362,7 @@ typedef struct NozzleResolvedTextureFormat {
     uint8_t bytes_per_pixel;
 } NozzleResolvedTextureFormat;
 
-NozzleErrorCode nozzle_frame_get_resolved_format(
+NOZZLE_C_API NozzleErrorCode nozzle_frame_get_resolved_format(
     NozzleFrame *frame,
     NozzleResolvedTextureFormat *out_resolved
 );
@@ -362,25 +378,25 @@ typedef struct NozzleMappedPixels {
     NozzleTextureOrigin origin;
 } NozzleMappedPixels;
 
-NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
+NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleFrame *frame,
     NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 );
 
-void nozzle_frame_unlock_pixels(NozzleFrame *frame);
+NOZZLE_C_API void nozzle_frame_unlock_pixels(NozzleFrame *frame);
 
-NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
+NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     NozzleFrame *frame,
     NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 );
 
-void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame);
+NOZZLE_C_API void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame);
 
 // ========== GL Interop ==========
 
-NozzleErrorCode nozzle_sender_publish_gl_texture(
+NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_gl_texture(
     NozzleSender *sender,
     uint32_t gl_texture_name,
     uint32_t gl_target,
@@ -389,7 +405,7 @@ NozzleErrorCode nozzle_sender_publish_gl_texture(
     NozzleTextureFormat format
 );
 
-NozzleErrorCode nozzle_frame_copy_to_gl_texture(
+NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_to_gl_texture(
     NozzleFrame *frame,
     uint32_t gl_texture_name,
     uint32_t gl_target,
@@ -398,7 +414,7 @@ NozzleErrorCode nozzle_frame_copy_to_gl_texture(
     NozzleTextureFormat format
 );
 
-NozzleErrorCode nozzle_swizzle_channels(
+NOZZLE_C_API NozzleErrorCode nozzle_swizzle_channels(
     const void *src,
     void *dst,
     uint32_t width,
@@ -409,7 +425,7 @@ NozzleErrorCode nozzle_swizzle_channels(
     const uint8_t permute_map[4]
 );
 
-NozzleErrorCode nozzle_widen_uint16_to_uint32(
+NOZZLE_C_API NozzleErrorCode nozzle_widen_uint16_to_uint32(
     const void *src,
     void *dst,
     uint32_t width,
@@ -419,7 +435,7 @@ NozzleErrorCode nozzle_widen_uint16_to_uint32(
     uint32_t channels
 );
 
-NozzleErrorCode nozzle_convert_uint32_to_float32(
+NOZZLE_C_API NozzleErrorCode nozzle_convert_uint32_to_float32(
     const void *src,
     void *dst,
     uint32_t width,
@@ -429,7 +445,7 @@ NozzleErrorCode nozzle_convert_uint32_to_float32(
     uint32_t channels
 );
 
-NozzleErrorCode nozzle_widen_half_to_float(
+NOZZLE_C_API NozzleErrorCode nozzle_widen_half_to_float(
     const void *src,
     void *dst,
     uint32_t width,
