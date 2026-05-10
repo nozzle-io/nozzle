@@ -87,40 +87,44 @@ if(APPLE)
     )
 endif()
 
-add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
+if(NOT BUILD_SHARED_LIBS)
+    add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
 
-if(APPLE)
-    set(NOZZLE_FORCE_LOAD_FLAG "-Wl,-force_load")
-else()
-    set(NOZZLE_FORCE_LOAD_FLAG "")
-endif()
+    if(APPLE)
+        set(NOZZLE_FORCE_LOAD_FLAG "-Wl,-force_load")
+    else()
+        set(NOZZLE_FORCE_LOAD_FLAG "")
+    endif()
 
-target_link_libraries(nozzle_integration_tests PRIVATE
-    Catch2::Catch2WithMain
-    ${NOZZLE_FORCE_LOAD_FLAG}
-    nozzle
-)
-
-target_include_directories(nozzle_integration_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/common
-)
-
-target_compile_options(nozzle_integration_tests PRIVATE
-    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-rtti>
-    $<$<CXX_COMPILER_ID:GNU>:-fno-rtti>
-)
-if(NOZZLE_STRICT_NO_EXCEPTIONS)
-    target_compile_options(nozzle_integration_tests PRIVATE
-        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions>
-        $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions>
+    target_link_libraries(nozzle_integration_tests PRIVATE
+        Catch2::Catch2WithMain
+        ${NOZZLE_FORCE_LOAD_FLAG}
+        nozzle
     )
+
+    target_include_directories(nozzle_integration_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/common
+    )
+
+    target_compile_options(nozzle_integration_tests PRIVATE
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-rtti>
+        $<$<CXX_COMPILER_ID:GNU>:-fno-rtti>
+    )
+    if(NOZZLE_STRICT_NO_EXCEPTIONS)
+        target_compile_options(nozzle_integration_tests PRIVATE
+            $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fno-exceptions>
+            $<$<CXX_COMPILER_ID:GNU>:-fno-exceptions>
+        )
+    endif()
 endif()
 
 include(CTest)
 include(Catch)
 catch_discover_tests(nozzle_tests)
-catch_discover_tests(nozzle_integration_tests)
+if(NOT BUILD_SHARED_LIBS)
+    catch_discover_tests(nozzle_integration_tests)
+endif()
 
 # --- C API test executable ---
 # Pure C API logic tests that require no GPU/IPC resources.
@@ -131,7 +135,6 @@ add_executable(nozzle_c_api_tests
 
 target_link_libraries(nozzle_c_api_tests PRIVATE
     Catch2::Catch2WithMain
-    ${NOZZLE_FORCE_LOAD_FLAG}
     nozzle
 )
 
