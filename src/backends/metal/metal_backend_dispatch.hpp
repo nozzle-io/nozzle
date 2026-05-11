@@ -65,6 +65,11 @@ inline auto get_native_surface_from_texture(void *native_texture) -> void * {
     return metal::get_io_surface_from_texture(native_texture);
 }
 
+inline auto get_shared_resource_id_from_surface(void *surface) -> uint64_t {
+    if (!surface) return detail::kInvalidSharedResourceId;
+    return static_cast<uint64_t>(metal::get_iosurface_id(surface));
+}
+
 inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void> {
     return metal::blit_to_texture(device, src, dst, width, height);
 }

@@ -429,6 +429,10 @@ inline auto get_native_surface_from_texture(void * /*native_texture*/) -> void *
     return nullptr;
 }
 
+inline auto get_shared_resource_id_from_surface(void * /*surface*/) -> uint64_t {
+    return detail::kInvalidSharedResourceId;
+}
+
 inline auto blit_textures(void * /*device*/, void * /*src*/, void * /*dst*/, uint32_t /*width*/, uint32_t /*height*/) -> Result<void> {
     return Error{ErrorCode::UnsupportedBackend, "native texture blit not implemented for DMA-BUF backend"};
 }

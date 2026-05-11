@@ -27,6 +27,7 @@ void cleanup_sender_socket();
 
 auto is_native_texture_shared(void *native_texture) -> bool;
 auto get_native_surface_from_texture(void *native_texture) -> void *;
+auto get_shared_resource_id_from_surface(void *surface) -> uint64_t;
 auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void>;
 
 } // namespace backend

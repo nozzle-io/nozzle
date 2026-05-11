@@ -498,14 +498,17 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 	if (detail::backend::is_native_texture_shared(native_texture)) {
 		void *surface = detail::backend::get_native_surface_from_texture(native_texture);
 		if (surface) {
-			auto wrapped = detail::backend::wrap_backend_texture(
-				native_texture, surface, width, height, static_cast<uint32_t>(storage_format));
-			auto resource_id = detail::backend::get_shared_resource_id(wrapped);
+			auto resource_id = detail::backend::get_shared_resource_id_from_surface(surface);
 			if (resource_id != detail::kInvalidSharedResourceId) {
-				if (wrapped.desc().format != storage_format) {
-					return Error{ErrorCode::UnsupportedFormat,
-						"direct shared path requires exact storage format match"};
-				}
+				resolved_texture_format resolved{};
+				resolved.semantic_format = storage_format;
+				resolved.storage_format = storage_format;
+				resolved.cpu_layout = resolve_cpu_layout(storage_format);
+				resolved.sampling = resolve_sampling(storage_format);
+				resolved.native.value = static_cast<uint32_t>(storage_format);
+				resolved.source = format_source::requested;
+				resolved.swizzle = channel_swizzle::identity;
+
 				uint32_t ring_size = impl_->state->ring_size;
 				if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
 				uint32_t slot = impl_->next_slot_;
@@ -513,15 +516,18 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 				uint64_t frame_number = ++impl_->frame_counter_;
 				detail::write_slot_metadata(impl_->state->slots[slot],
 					frame_number, resource_id, width, height,
-					wrapped.desc().format, semantic_format,
-					channel_swizzle::identity, wrapped.resolved());
+					storage_format, semantic_format,
+					channel_swizzle::identity, resolved);
 				detail::write_global_metadata(*impl_->state,
-					width, height, wrapped.desc().format, semantic_format,
+					width, height, storage_format, semantic_format,
 					channel_swizzle::identity);
 				detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 				detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+
+				detail::backend::release_texture_resources(nullptr, surface);
 				return {};
 			}
+			detail::backend::release_texture_resources(nullptr, surface);
 		}
 	}
 
