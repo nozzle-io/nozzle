@@ -429,6 +429,22 @@ bool is_iosurface_backed(void *mtl_texture_ptr) {
     }
 }
 
+bool is_iosurface_globally_shared(void *io_surface_ptr) {
+    @autoreleasepool {
+        IOSurfaceRef surface = (IOSurfaceRef)io_surface_ptr;
+        if (!surface) return false;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        CFDictionaryRef props = IOSurfaceCopyAllValues(surface);
+        if (!props) return false;
+        CFTypeRef val = CFDictionaryGetValue(props, kIOSurfaceIsGlobal);
+        bool result = val && CFBooleanGetValue((CFBooleanRef)val);
+        CFRelease(props);
+        return result;
+#pragma clang diagnostic pop
+    }
+}
+
 void *get_io_surface_from_texture(void *mtl_texture_ptr) {
     @autoreleasepool {
         id<MTLTexture> tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, mtl_texture_ptr);

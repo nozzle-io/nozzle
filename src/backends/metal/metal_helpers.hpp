@@ -47,6 +47,7 @@ Result<texture> lookup_iosurface_texture(
     uint32_t semantic_format = 0);
 
 bool is_iosurface_backed(void *mtl_texture);
+bool is_iosurface_globally_shared(void *io_surface);
 void *get_io_surface_from_texture(void *mtl_texture);
 
 Result<void> blit_to_texture(void *native_device, void *src_texture, void *dst_texture, uint32_t width, uint32_t height);
