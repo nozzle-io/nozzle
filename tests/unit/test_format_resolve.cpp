@@ -825,3 +825,28 @@ TEST_CASE("#35: classify_observed_format accepts quality-loss with storage-compa
     REQUIRE(r.ok());
     REQUIRE(r.value() == fallback_category::quality_loss);
 }
+
+TEST_CASE("#35: resolve_fallback_metadata rejects skipped-step quality-loss (rgba32->rgba8)", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::rgba32_float, texture_format::rgba8_unorm,
+        fallback_category::quality_loss, texture_format::rgba16_float);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("#35: resolve_fallback_metadata rejects skipped-step quality-loss (r32->r8)", "[format_resolve]") {
+    auto r = resolve_fallback_metadata(
+        texture_format::r32_float, texture_format::r8_unorm,
+        fallback_category::quality_loss, texture_format::r16_float);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("#35: quality-loss disabled — all 32F formats stay with fallback_safe_defaults", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::r32_float, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::rg32_float, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::rgba32_float, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+}
