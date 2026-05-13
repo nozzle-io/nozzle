@@ -713,3 +713,115 @@ TEST_CASE("validate_fallback_flags: only unknown bits -> error", "[format_resolv
     REQUIRE_FALSE(r.ok());
     REQUIRE(r.error().code == ErrorCode::InvalidArgument);
 }
+
+// ---------- #35: single-step fallback contract ----------
+
+TEST_CASE("#35: quality-loss opt-in — rgba32_float -> rgba16_float only with flag", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgba32_float, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba16_float);
+    REQUIRE(fb.category == fallback_category::quality_loss);
+
+    fb = resolve_fallback(texture_format::rgba32_float, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::rgba32_float, fallback_none);
+    REQUIRE_FALSE(fb.valid);
+}
+
+TEST_CASE("#35: quality-loss opt-in — rgba16_float -> rgba8_unorm only with flag", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgba16_float, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba8_unorm);
+    REQUIRE(fb.category == fallback_category::quality_loss);
+
+    fb = resolve_fallback(texture_format::rgba16_float, fallback_safe_defaults);
+    REQUIRE_FALSE(fb.valid);
+}
+
+TEST_CASE("#35: no chain — resolve_fallback of quality-loss target returns lower quality, but sender must not apply it", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::r16_float, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::r8_unorm);
+
+    auto fb2 = resolve_fallback(texture_format::rgba16_float, fallback_allow_quality_loss);
+    REQUIRE(fb2.valid);
+    REQUIRE(fb2.target == texture_format::rgba8_unorm);
+}
+
+TEST_CASE("#35: quality-loss maps all supported formats", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rg32_float, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rg16_float);
+    REQUIRE(fb.category == fallback_category::quality_loss);
+
+    fb = resolve_fallback(texture_format::rg16_float, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rg8_unorm);
+
+    fb = resolve_fallback(texture_format::r16_unorm, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::r8_unorm);
+
+    fb = resolve_fallback(texture_format::rg16_unorm, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rg8_unorm);
+
+    fb = resolve_fallback(texture_format::rgba16_unorm, fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba8_unorm);
+}
+
+TEST_CASE("#35: quality-loss returns invalid for formats with no degradation target", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::depth32_float, fallback_allow_quality_loss);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::r8_unorm, fallback_allow_quality_loss);
+    REQUIRE_FALSE(fb.valid);
+
+    fb = resolve_fallback(texture_format::r32_uint, fallback_allow_quality_loss);
+    REQUIRE_FALSE(fb.valid);
+}
+
+TEST_CASE("#35: category priority — storage_compatible wins over quality_loss for rgba8_unorm", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgba8_unorm,
+        fallback_allow_storage_compatible | fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::bgra8_unorm);
+    REQUIRE(fb.category == fallback_category::storage_compatible);
+}
+
+TEST_CASE("#35: category priority — channel_expansion wins over quality_loss for rgb16_float", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::rgb16_float,
+        fallback_allow_channel_expansion | fallback_allow_quality_loss);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba16_float);
+    REQUIRE(fb.category == fallback_category::channel_expansion);
+}
+
+TEST_CASE("#35: category priority — storage_compatible wins over channel_expansion for bgra8_unorm", "[format_resolve]") {
+    auto fb = resolve_fallback(texture_format::bgra8_unorm,
+        fallback_allow_storage_compatible | fallback_allow_channel_expansion);
+    REQUIRE(fb.valid);
+    REQUIRE(fb.target == texture_format::rgba8_unorm);
+    REQUIRE(fb.category == fallback_category::storage_compatible);
+}
+
+TEST_CASE("#35: classify_observed_format rejects quality-loss observed target that skips steps", "[format_resolve]") {
+    // requested=rgba32_float, observed=rgba8_unorm (skipped rgba16_float),
+    // fallback_target=rgba16_float → observed != target, not storage-compatible → error
+    auto r = classify_observed_format(
+        texture_format::rgba32_float, texture_format::rgba8_unorm,
+        fallback_category::quality_loss, texture_format::rgba16_float,
+        fallback_allow_quality_loss);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("#35: classify_observed_format accepts quality-loss with storage-compatible observed", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba16_float, texture_format::bgra8_unorm,
+        fallback_category::quality_loss, texture_format::rgba8_unorm,
+        fallback_allow_quality_loss | fallback_allow_storage_compatible);
+    REQUIRE(r.ok());
+    REQUIRE(r.value() == fallback_category::quality_loss);
+}

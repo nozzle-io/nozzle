@@ -286,6 +286,9 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 				"device has no native handle"};
 		}
 
+		// Single-step fallback policy (#35):
+		//   exact → resolve_fallback() once → error.
+		//   No chaining, no second resolve_fallback() call.
 		texture_format attempt_format = tdesc.format;
 		texture_format fallback_target{texture_format::unknown};
 		fallback_category attempted_category{fallback_category::none};

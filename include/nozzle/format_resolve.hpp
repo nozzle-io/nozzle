@@ -33,6 +33,18 @@ struct fallback_result {
     bool valid{false};
 };
 
+// Single-step fallback policy (#35):
+//   1. Exact format is attempted first (caller responsibility).
+//   2. resolve_fallback() returns at most ONE categorized fallback target.
+//      It does NOT chain: if a fallback target itself is unsupported, the
+//      caller returns an error — resolve_fallback() is never called again.
+//   3. Category priority is fixed: storage_compatible > channel_expansion > quality_loss.
+//      Only one category is returned per call; no category crossing.
+//   4. quality_loss is opt-in only (requires fallback_allow_quality_loss flag).
+//      Without the flag, no format ever downgrades to lower precision.
+//      When enabled: 32F→16F, 16F→8unorm (no 8-bit float exists), unorm16→unorm8.
+//   5. The caller (sender) must attempt at most one call to resolve_fallback()
+//      per frame acquisition. On failure of the fallback target, return error.
 fallback_result resolve_fallback(texture_format requested, uint32_t fallback_flags);
 const char *fallback_category_name(fallback_category cat) noexcept;
 
