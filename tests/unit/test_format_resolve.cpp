@@ -3,7 +3,10 @@
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/types.hpp>
 
+#include "sender_detail.hpp"
+
 using namespace nozzle;
+using namespace nozzle::detail;
 
 // ---------- resolve_cpu_layout ----------
 

@@ -436,16 +436,4 @@ Result<void> validate_fallback_flags(uint32_t flags) {
     return {};
 }
 
-texture_attempt_plan plan_texture_create(texture_format requested, uint32_t fallback_flags) {
-    texture_attempt_plan plan;
-    plan.primary = requested;
-    auto fb = resolve_fallback(requested, fallback_flags);
-    if (fb.valid) {
-        plan.fallback = fb.target;
-        plan.fallback_cat = fb.category;
-        plan.has_fallback = true;
-    }
-    return plan;
-}
-
 } // namespace nozzle

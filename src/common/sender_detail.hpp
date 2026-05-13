@@ -6,10 +6,29 @@
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/texture.hpp>
 
-#include "shared_state.hpp"
+#include "common/shared_state.hpp"
 
 namespace nozzle {
 namespace detail {
+
+struct texture_attempt_plan {
+    texture_format primary{texture_format::unknown};
+    texture_format fallback{texture_format::unknown};
+    fallback_category fallback_cat{fallback_category::none};
+    bool has_fallback{false};
+};
+
+inline texture_attempt_plan plan_texture_create(texture_format requested, uint32_t fallback_flags) {
+    texture_attempt_plan plan;
+    plan.primary = requested;
+    auto fb = resolve_fallback(requested, fallback_flags);
+    if (fb.valid) {
+        plan.fallback = fb.target;
+        plan.fallback_cat = fb.category;
+        plan.has_fallback = true;
+    }
+    return plan;
+}
 
 inline void write_slot_metadata(SenderSharedState::SlotInfo &slot,
                                 uint64_t frame_number,

@@ -287,34 +287,36 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		}
 
 		// Single-step fallback policy (#35):
-		//   exact → resolve_fallback() once → error.
-		//   No chaining, no second resolve_fallback() call.
-		auto plan = plan_texture_create(tdesc.format, impl_->fallback_flags_);
+		//   exact first → fallback once on failure → error.
+		//   No chaining, no second fallback after fallback target failure.
 		texture_format fallback_target{texture_format::unknown};
 		fallback_category attempted_category{fallback_category::none};
 		auto tex_result = detail::backend::create_ring_texture(
 			impl_->native_device_,
 			tdesc.width,
 			tdesc.height,
-			static_cast<uint32_t>(plan.primary),
+			static_cast<uint32_t>(tdesc.format),
 			slot
 		);
 
-		if (!tex_result.ok() && plan.has_fallback) {
-			fallback_target = plan.fallback;
-			attempted_category = plan.fallback_cat;
-			tex_result = detail::backend::create_ring_texture(
-				impl_->native_device_,
-				tdesc.width,
-				tdesc.height,
-				static_cast<uint32_t>(plan.fallback),
-				slot
-			);
-			if (tex_result.ok()) {
-				LOG_WARNING << "format fallback ["
-					<< fallback_category_name(plan.fallback_cat) << "]: "
-					<< static_cast<int>(plan.primary)
-					<< " -> " << static_cast<int>(plan.fallback);
+		if (!tex_result.ok()) {
+			auto plan = detail::plan_texture_create(tdesc.format, impl_->fallback_flags_);
+			if (plan.has_fallback) {
+				fallback_target = plan.fallback;
+				attempted_category = plan.fallback_cat;
+				tex_result = detail::backend::create_ring_texture(
+					impl_->native_device_,
+					tdesc.width,
+					tdesc.height,
+					static_cast<uint32_t>(plan.fallback),
+					slot
+				);
+				if (tex_result.ok()) {
+					LOG_WARNING << "format fallback ["
+						<< fallback_category_name(plan.fallback_cat) << "]: "
+						<< static_cast<int>(tdesc.format)
+						<< " -> " << static_cast<int>(plan.fallback);
+				}
 			}
 		}
 
