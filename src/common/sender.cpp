@@ -19,7 +19,8 @@
 #include "ipc.hpp"
 #include "metadata.hpp"
 #include "registry.hpp"
-#include "sender_detail.hpp"
+#include "sender_fallback.hpp"
+#include "sender_metadata.hpp"
 #include "shared_state.hpp"
 
 namespace nozzle {
@@ -300,7 +301,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		);
 
 		if (!tex_result.ok()) {
-			auto plan = detail::plan_texture_create(tdesc.format, impl_->fallback_flags_);
+			auto plan = detail::make_single_step_texture_attempt_plan(tdesc.format, impl_->fallback_flags_);
 			if (plan.has_fallback) {
 				fallback_target = plan.fallback;
 				attempted_category = plan.fallback_cat;

@@ -3,7 +3,7 @@
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/types.hpp>
 
-#include "sender_detail.hpp"
+#include "sender_fallback.hpp"
 
 using namespace nozzle;
 using namespace nozzle::detail;
@@ -854,16 +854,16 @@ TEST_CASE("#35: quality-loss disabled — all 32F formats stay with fallback_saf
     REQUIRE_FALSE(fb.valid);
 }
 
-// ---------- plan_texture_create (#35 sender attempt plan) ----------
+// ---------- make_single_step_texture_attempt_plan (#35 single-step attempt plan) ----------
 
-TEST_CASE("#35: plan_texture_create — exact only when no fallback available", "[format_resolve]") {
-    auto plan = plan_texture_create(texture_format::r8_unorm, fallback_safe_defaults);
+TEST_CASE("#35: make_single_step_texture_attempt_plan — exact only when no fallback available", "[format_resolve]") {
+    auto plan = make_single_step_texture_attempt_plan(texture_format::r8_unorm, fallback_safe_defaults);
     REQUIRE(plan.primary == texture_format::r8_unorm);
     REQUIRE_FALSE(plan.has_fallback);
 }
 
-TEST_CASE("#35: plan_texture_create — exact + fallback when available", "[format_resolve]") {
-    auto plan = plan_texture_create(texture_format::rgba8_unorm,
+TEST_CASE("#35: make_single_step_texture_attempt_plan — exact + fallback when available", "[format_resolve]") {
+    auto plan = make_single_step_texture_attempt_plan(texture_format::rgba8_unorm,
         fallback_allow_storage_compatible);
     REQUIRE(plan.primary == texture_format::rgba8_unorm);
     REQUIRE(plan.has_fallback);
@@ -871,8 +871,8 @@ TEST_CASE("#35: plan_texture_create — exact + fallback when available", "[form
     REQUIRE(plan.fallback_cat == fallback_category::storage_compatible);
 }
 
-TEST_CASE("#35: plan_texture_create — quality-loss plan is single-step, no chaining", "[format_resolve]") {
-    auto plan = plan_texture_create(texture_format::rgba32_float,
+TEST_CASE("#35: make_single_step_texture_attempt_plan — quality-loss plan is single-step, no chaining", "[format_resolve]") {
+    auto plan = make_single_step_texture_attempt_plan(texture_format::rgba32_float,
         fallback_allow_quality_loss);
     REQUIRE(plan.primary == texture_format::rgba32_float);
     REQUIRE(plan.has_fallback);
@@ -884,24 +884,24 @@ TEST_CASE("#35: plan_texture_create — quality-loss plan is single-step, no cha
     // The plan does NOT include rgba8_unorm.
     // Verify by planning the fallback target — it would give rgba8_unorm,
     // but that is a SEPARATE plan for a SEPARATE decision.
-    auto second_plan = plan_texture_create(plan.fallback, fallback_allow_quality_loss);
+    auto second_plan = make_single_step_texture_attempt_plan(plan.fallback, fallback_allow_quality_loss);
     REQUIRE(second_plan.primary == texture_format::rgba16_float);
     REQUIRE(second_plan.has_fallback);
     REQUIRE(second_plan.fallback == texture_format::rgba8_unorm);
 
     // The sender must never create this second_plan from the same publish.
-    // plan_texture_create is stateless — the contract is enforced by the
+    // make_single_step_texture_attempt_plan is stateless — the contract is enforced by the
     // sender calling it at most once per acquire_writable_frame().
 }
 
-TEST_CASE("#35: plan_texture_create — no fallback when quality-loss flag absent", "[format_resolve]") {
-    auto plan = plan_texture_create(texture_format::rgba32_float, fallback_safe_defaults);
+TEST_CASE("#35: make_single_step_texture_attempt_plan — no fallback when quality-loss flag absent", "[format_resolve]") {
+    auto plan = make_single_step_texture_attempt_plan(texture_format::rgba32_float, fallback_safe_defaults);
     REQUIRE(plan.primary == texture_format::rgba32_float);
     REQUIRE_FALSE(plan.has_fallback);
 }
 
-TEST_CASE("#35: plan_texture_create — priority selects storage over quality-loss", "[format_resolve]") {
-    auto plan = plan_texture_create(texture_format::rgba8_unorm,
+TEST_CASE("#35: make_single_step_texture_attempt_plan — priority selects storage over quality-loss", "[format_resolve]") {
+    auto plan = make_single_step_texture_attempt_plan(texture_format::rgba8_unorm,
         fallback_allow_storage_compatible | fallback_allow_quality_loss);
     REQUIRE(plan.primary == texture_format::rgba8_unorm);
     REQUIRE(plan.has_fallback);

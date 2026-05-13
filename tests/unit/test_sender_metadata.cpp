@@ -4,7 +4,7 @@
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/texture.hpp>
 
-#include "sender_detail.hpp"
+#include "sender_metadata.hpp"
 #include "shared_state.hpp"
 
 using namespace nozzle;
