@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/types.hpp>
 
