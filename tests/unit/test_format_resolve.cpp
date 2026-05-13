@@ -1045,12 +1045,30 @@ TEST_CASE("#36: quality_loss false for channel_expansion category", "[format_res
 
 // ---------- #36: texture_format_name ----------
 
-TEST_CASE("#36: texture_format_name returns correct names", "[format_resolve]") {
+TEST_CASE("#36: texture_format_name returns correct names for all values", "[format_resolve]") {
     REQUIRE(std::string(texture_format_name(texture_format::unknown)) == "unknown");
     REQUIRE(std::string(texture_format_name(texture_format::r8_unorm)) == "r8_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::rg8_unorm)) == "rg8_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::rgb8_unorm)) == "rgb8_unorm");
     REQUIRE(std::string(texture_format_name(texture_format::rgba8_unorm)) == "rgba8_unorm");
     REQUIRE(std::string(texture_format_name(texture_format::bgra8_unorm)) == "bgra8_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::rgba8_srgb)) == "rgba8_srgb");
+    REQUIRE(std::string(texture_format_name(texture_format::bgra8_srgb)) == "bgra8_srgb");
+    REQUIRE(std::string(texture_format_name(texture_format::r16_unorm)) == "r16_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::rg16_unorm)) == "rg16_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::rgb16_unorm)) == "rgb16_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::rgba16_unorm)) == "rgba16_unorm");
+    REQUIRE(std::string(texture_format_name(texture_format::r16_float)) == "r16_float");
+    REQUIRE(std::string(texture_format_name(texture_format::rg16_float)) == "rg16_float");
+    REQUIRE(std::string(texture_format_name(texture_format::rgb16_float)) == "rgb16_float");
+    REQUIRE(std::string(texture_format_name(texture_format::rgba16_float)) == "rgba16_float");
+    REQUIRE(std::string(texture_format_name(texture_format::r32_float)) == "r32_float");
+    REQUIRE(std::string(texture_format_name(texture_format::rg32_float)) == "rg32_float");
+    REQUIRE(std::string(texture_format_name(texture_format::rgb32_float)) == "rgb32_float");
     REQUIRE(std::string(texture_format_name(texture_format::rgba32_float)) == "rgba32_float");
+    REQUIRE(std::string(texture_format_name(texture_format::r32_uint)) == "r32_uint");
+    REQUIRE(std::string(texture_format_name(texture_format::rgba32_uint)) == "rgba32_uint");
+    REQUIRE(std::string(texture_format_name(texture_format::rgb32_uint)) == "rgb32_uint");
     REQUIRE(std::string(texture_format_name(texture_format::depth32_float)) == "depth32_float");
 }
 
@@ -1069,4 +1087,20 @@ TEST_CASE("#36: channel_swizzle_name returns correct names", "[format_resolve]")
 TEST_CASE("#36: channel_swizzle_name returns unknown for invalid value", "[format_resolve]") {
     auto invalid = static_cast<channel_swizzle>(99);
     REQUIRE(std::string(channel_swizzle_name(invalid)) == "unknown");
+}
+
+// ---------- #36: skipped-step rejection ----------
+
+TEST_CASE("#36: resolve_format_fallback_info rejects skipped-step quality-loss (rgba32->rgba8)", "[format_resolve]") {
+    auto r = resolve_format_fallback_info(
+        texture_format::rgba32_float, texture_format::rgba8_unorm,
+        fallback_category::quality_loss, texture_format::rgba16_float);
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("#36: resolve_format_fallback_info rejects skipped-step quality-loss (r32->r8)", "[format_resolve]") {
+    auto r = resolve_format_fallback_info(
+        texture_format::r32_float, texture_format::r8_unorm,
+        fallback_category::quality_loss, texture_format::r16_float);
+    REQUIRE_FALSE(r.ok());
 }
