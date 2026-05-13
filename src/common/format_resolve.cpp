@@ -393,9 +393,29 @@ Result<fallback_metadata> resolve_fallback_metadata(
     fallback_category category,
     texture_format fallback_target)
 {
+    auto info = resolve_format_fallback_info(requested, observed, category, fallback_target);
+    if (!info.ok()) {
+        return info.error();
+    }
     fallback_metadata meta;
-    meta.semantic_format = requested;
-    meta.storage_format = observed;
+    meta.semantic_format = info.value().requested_format;
+    meta.storage_format = info.value().storage_format;
+    meta.swizzle = info.value().swizzle;
+    return meta;
+}
+
+Result<format_fallback_info> resolve_format_fallback_info(
+    texture_format requested,
+    texture_format observed,
+    fallback_category category,
+    texture_format fallback_target)
+{
+    format_fallback_info info;
+    info.requested_format = requested;
+    info.storage_format = observed;
+    info.fallback_target = fallback_target;
+    info.category = category;
+    info.quality_loss = (category == fallback_category::quality_loss);
 
     switch (category) {
     case fallback_category::none:
@@ -403,26 +423,65 @@ Result<fallback_metadata> resolve_fallback_metadata(
             return Error{ErrorCode::BackendError,
                 "observed format does not match requested with no fallback"};
         }
-        meta.swizzle = channel_swizzle::identity;
+        info.swizzle = channel_swizzle::identity;
+        info.fallback_target = texture_format::unknown;
         break;
     case fallback_category::channel_expansion:
     case fallback_category::quality_loss:
         if (observed == fallback_target) {
-            meta.swizzle = channel_swizzle::identity;
+            info.swizzle = channel_swizzle::identity;
         } else {
             auto sw = derive_swizzle(fallback_target, observed);
             if (!sw.ok()) return sw.error();
-            meta.swizzle = sw.value();
+            info.swizzle = sw.value();
         }
         break;
     case fallback_category::storage_compatible: {
         auto sw = derive_swizzle(requested, observed);
         if (!sw.ok()) return sw.error();
-        meta.swizzle = sw.value();
+        info.swizzle = sw.value();
         break;
     }
     }
-    return meta;
+    return info;
+}
+
+const char *texture_format_name(texture_format fmt) noexcept {
+    switch (fmt) {
+    case texture_format::unknown:       return "unknown";
+    case texture_format::r8_unorm:      return "r8_unorm";
+    case texture_format::rg8_unorm:     return "rg8_unorm";
+    case texture_format::rgb8_unorm:    return "rgb8_unorm";
+    case texture_format::rgba8_unorm:   return "rgba8_unorm";
+    case texture_format::bgra8_unorm:   return "bgra8_unorm";
+    case texture_format::rgba8_srgb:    return "rgba8_srgb";
+    case texture_format::bgra8_srgb:    return "bgra8_srgb";
+    case texture_format::r16_unorm:     return "r16_unorm";
+    case texture_format::rg16_unorm:    return "rg16_unorm";
+    case texture_format::rgb16_unorm:   return "rgb16_unorm";
+    case texture_format::rgba16_unorm:  return "rgba16_unorm";
+    case texture_format::r16_float:     return "r16_float";
+    case texture_format::rg16_float:    return "rg16_float";
+    case texture_format::rgb16_float:   return "rgb16_float";
+    case texture_format::rgba16_float:  return "rgba16_float";
+    case texture_format::r32_float:     return "r32_float";
+    case texture_format::rg32_float:    return "rg32_float";
+    case texture_format::rgb32_float:   return "rgb32_float";
+    case texture_format::rgba32_float:  return "rgba32_float";
+    case texture_format::r32_uint:      return "r32_uint";
+    case texture_format::rgba32_uint:   return "rgba32_uint";
+    case texture_format::rgb32_uint:    return "rgb32_uint";
+    case texture_format::depth32_float: return "depth32_float";
+    }
+    return "unknown";
+}
+
+const char *channel_swizzle_name(channel_swizzle sw) noexcept {
+    switch (sw) {
+    case channel_swizzle::identity: return "identity";
+    case channel_swizzle::swap_rb:  return "swap_rb";
+    }
+    return "unknown";
 }
 
 Result<void> validate_fallback_flags(uint32_t flags) {

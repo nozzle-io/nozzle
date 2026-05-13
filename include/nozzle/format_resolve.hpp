@@ -20,13 +20,6 @@ texture_format get_channel_expansion_fallback(texture_format fmt);
 
 // -- fallback policy (#31) --
 
-enum class fallback_category : uint8_t {
-    none = 0,
-    storage_compatible,
-    channel_expansion,
-    quality_loss,
-};
-
 struct fallback_result {
     texture_format target{texture_format::unknown};
     fallback_category category{fallback_category::none};
@@ -78,6 +71,15 @@ Result<fallback_metadata> resolve_fallback_metadata(
     texture_format observed,
     fallback_category category,
     texture_format fallback_target);
+
+Result<format_fallback_info> resolve_format_fallback_info(
+    texture_format requested,
+    texture_format observed,
+    fallback_category category,
+    texture_format fallback_target);
+
+const char *texture_format_name(texture_format fmt) noexcept;
+const char *channel_swizzle_name(channel_swizzle sw) noexcept;
 
 Result<void> validate_fallback_flags(uint32_t flags);
 

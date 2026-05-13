@@ -72,6 +72,13 @@ enum class channel_swizzle : uint8_t {
     swap_rb = 1,
 };
 
+enum class fallback_category : uint8_t {
+    none = 0,
+    storage_compatible = 1,
+    channel_expansion = 2,
+    quality_loss = 3,
+};
+
 enum class texture_origin : uint8_t {
     top_left = 0,
     bottom_left = 1,
@@ -233,6 +240,15 @@ constexpr uint32_t fallback_allow_storage_compatible{1u << 0};
 constexpr uint32_t fallback_allow_channel_expansion{1u << 1};
 constexpr uint32_t fallback_allow_quality_loss{1u << 2};
 constexpr uint32_t fallback_safe_defaults{fallback_allow_storage_compatible | fallback_allow_channel_expansion};
+
+struct format_fallback_info {
+    texture_format requested_format{texture_format::unknown};
+    texture_format storage_format{texture_format::unknown};
+    texture_format fallback_target{texture_format::unknown};
+    fallback_category category{fallback_category::none};
+    channel_swizzle swizzle{channel_swizzle::identity};
+    bool quality_loss{false};
+};
 
 struct sender_desc {
     std::string name{};
