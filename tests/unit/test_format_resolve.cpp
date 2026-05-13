@@ -850,3 +850,66 @@ TEST_CASE("#35: quality-loss disabled — all 32F formats stay with fallback_saf
     fb = resolve_fallback(texture_format::rgba32_float, fallback_safe_defaults);
     REQUIRE_FALSE(fb.valid);
 }
+
+// ---------- plan_texture_create (#35 sender attempt plan) ----------
+
+TEST_CASE("#35: plan_texture_create — exact only when no fallback available", "[format_resolve]") {
+    auto plan = plan_texture_create(texture_format::r8_unorm, fallback_safe_defaults);
+    REQUIRE(plan.primary == texture_format::r8_unorm);
+    REQUIRE_FALSE(plan.has_fallback);
+}
+
+TEST_CASE("#35: plan_texture_create — exact + fallback when available", "[format_resolve]") {
+    auto plan = plan_texture_create(texture_format::rgba8_unorm,
+        fallback_allow_storage_compatible);
+    REQUIRE(plan.primary == texture_format::rgba8_unorm);
+    REQUIRE(plan.has_fallback);
+    REQUIRE(plan.fallback == texture_format::bgra8_unorm);
+    REQUIRE(plan.fallback_cat == fallback_category::storage_compatible);
+}
+
+TEST_CASE("#35: plan_texture_create — quality-loss plan is single-step, no chaining", "[format_resolve]") {
+    auto plan = plan_texture_create(texture_format::rgba32_float,
+        fallback_allow_quality_loss);
+    REQUIRE(plan.primary == texture_format::rgba32_float);
+    REQUIRE(plan.has_fallback);
+    REQUIRE(plan.fallback == texture_format::rgba16_float);
+    REQUIRE(plan.fallback_cat == fallback_category::quality_loss);
+
+    // The plan has exactly two attempts: primary and one fallback.
+    // Simulate: primary fails, fallback fails. Sender must stop here.
+    // The plan does NOT include rgba8_unorm.
+    // Verify by planning the fallback target — it would give rgba8_unorm,
+    // but that is a SEPARATE plan for a SEPARATE decision.
+    auto second_plan = plan_texture_create(plan.fallback, fallback_allow_quality_loss);
+    REQUIRE(second_plan.primary == texture_format::rgba16_float);
+    REQUIRE(second_plan.has_fallback);
+    REQUIRE(second_plan.fallback == texture_format::rgba8_unorm);
+
+    // The sender must never create this second_plan from the same publish.
+    // plan_texture_create is stateless — the contract is enforced by the
+    // sender calling it at most once per acquire_writable_frame().
+}
+
+TEST_CASE("#35: plan_texture_create — no fallback when quality-loss flag absent", "[format_resolve]") {
+    auto plan = plan_texture_create(texture_format::rgba32_float, fallback_safe_defaults);
+    REQUIRE(plan.primary == texture_format::rgba32_float);
+    REQUIRE_FALSE(plan.has_fallback);
+}
+
+TEST_CASE("#35: plan_texture_create — priority selects storage over quality-loss", "[format_resolve]") {
+    auto plan = plan_texture_create(texture_format::rgba8_unorm,
+        fallback_allow_storage_compatible | fallback_allow_quality_loss);
+    REQUIRE(plan.primary == texture_format::rgba8_unorm);
+    REQUIRE(plan.has_fallback);
+    REQUIRE(plan.fallback == texture_format::bgra8_unorm);
+    REQUIRE(plan.fallback_cat == fallback_category::storage_compatible);
+}
+
+TEST_CASE("#35: classify_observed_format rejects quality-loss observed without storage flag", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::rgba16_float, texture_format::bgra8_unorm,
+        fallback_category::quality_loss, texture_format::rgba8_unorm,
+        fallback_allow_quality_loss);
+    REQUIRE_FALSE(r.ok());
+}

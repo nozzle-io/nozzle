@@ -81,4 +81,15 @@ Result<fallback_metadata> resolve_fallback_metadata(
 
 Result<void> validate_fallback_flags(uint32_t flags);
 
+// -- single-step attempt plan (#35) --
+
+struct texture_attempt_plan {
+    texture_format primary{texture_format::unknown};
+    texture_format fallback{texture_format::unknown};
+    fallback_category fallback_cat{fallback_category::none};
+    bool has_fallback{false};
+};
+
+texture_attempt_plan plan_texture_create(texture_format requested, uint32_t fallback_flags);
+
 } // namespace nozzle
