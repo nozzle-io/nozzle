@@ -484,7 +484,9 @@ NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
 ) {
     if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    receiver->cached_connected_info = receiver->obj->connected_info();
+    if (receiver->obj) {
+        receiver->cached_connected_info = receiver->obj->connected_info();
+    }
     const auto fb = receiver->cached_connected_info.fallback;
 
     return fill_fallback(out_info, fb);

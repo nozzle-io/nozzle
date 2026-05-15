@@ -5,8 +5,6 @@
 #include <nozzle/nozzle_c.h>
 #include <nozzle/types.hpp>
 #include <nozzle/frame.hpp>
-#include <nozzle/sender.hpp>
-#include <nozzle/receiver.hpp>
 
 #include "nozzle_c_types.hpp"
 
@@ -177,66 +175,80 @@ TEST_CASE("getter: channel_expansion with swap_rb", "[c_api][fallback]") {
 
 // ========== Receiver getter: returns connected_sender_info.fallback ==========
 
-TEST_CASE("getter: receiver overwrites pre-set cache from connected_info", "[c_api][fallback]") {
-    auto sender = nozzle::sender::create({
-        .name = "fb_recv_cache_test",
-        .application_name = "test",
-        .ring_buffer_size = 2,
-    });
-    REQUIRE(sender);
+namespace {
 
-    auto recv = nozzle::receiver::create({
-        .name = "fb_recv_cache_test",
-        .application_name = "test",
-    });
-    REQUIRE(recv);
+NozzleReceiver make_test_receiver_with_fallback(const nozzle::format_fallback_info &fb) {
+    NozzleReceiver r{};
+    nozzle::connected_sender_info ci{};
+    ci.fallback = fb;
+    r.cached_connected_info = ci;
+    return r;
+}
 
-    NozzleReceiver c_recv;
-    c_recv.obj = std::make_unique<nozzle::receiver>(std::move(recv.value()));
+} // anonymous namespace
 
-    nozzle::format_fallback_info poison;
-    poison.requested_format = nozzle::texture_format::rgba32_float;
-    poison.storage_format = nozzle::texture_format::rgba16_float;
-    poison.fallback_target = nozzle::texture_format::r8_unorm;
-    poison.category = nozzle::fallback_category::quality_loss;
-    poison.swizzle = nozzle::channel_swizzle::swap_rb;
-    poison.quality_loss = true;
-    c_recv.cached_connected_info.fallback = poison;
+TEST_CASE("getter: receiver returns quality_loss fallback via test hook", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::rgba32_float;
+    fb.storage_format = nozzle::texture_format::rgba16_float;
+    fb.fallback_target = nozzle::texture_format::rgba16_float;
+    fb.category = nozzle::fallback_category::quality_loss;
+    fb.swizzle = nozzle::channel_swizzle::identity;
+    fb.quality_loss = true;
+
+    auto r = make_test_receiver_with_fallback(fb);
 
     NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&c_recv, &out) == NOZZLE_OK);
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out) == NOZZLE_OK);
 
-    CHECK(out.requested_format == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.storage_format == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+    CHECK(out.requested_format == NOZZLE_FORMAT_RGBA32_FLOAT);
+    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA16_FLOAT);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_RGBA16_FLOAT);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_QUALITY_LOSS);
     CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
+    CHECK(out.quality_loss == 1);
+}
+
+TEST_CASE("getter: receiver external edge case (category=none + swap_rb)", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::bgra8_unorm;
+    fb.storage_format = nozzle::texture_format::rgba8_unorm;
+    fb.fallback_target = nozzle::texture_format::unknown;
+    fb.category = nozzle::fallback_category::none;
+    fb.swizzle = nozzle::channel_swizzle::swap_rb;
+    fb.quality_loss = false;
+
+    auto r = make_test_receiver_with_fallback(fb);
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_BGRA8_UNORM);
+    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
     CHECK(out.quality_loss == 0);
 }
 
-TEST_CASE("getter: receiver default connected fallback passes through fill_fallback", "[c_api][fallback]") {
-    auto sender = nozzle::sender::create({
-        .name = "fb_recv_default_test",
-        .application_name = "test",
-        .ring_buffer_size = 2,
-    });
-    REQUIRE(sender);
+TEST_CASE("getter: receiver storage_compatible with swap_rb", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::rgba8_srgb;
+    fb.storage_format = nozzle::texture_format::bgra8_unorm;
+    fb.fallback_target = nozzle::texture_format::bgra8_unorm;
+    fb.category = nozzle::fallback_category::storage_compatible;
+    fb.swizzle = nozzle::channel_swizzle::swap_rb;
+    fb.quality_loss = false;
 
-    auto recv = nozzle::receiver::create({
-        .name = "fb_recv_default_test",
-        .application_name = "test",
-    });
-    REQUIRE(recv);
-
-    NozzleReceiver c_recv;
-    c_recv.obj = std::make_unique<nozzle::receiver>(std::move(recv.value()));
+    auto r = make_test_receiver_with_fallback(fb);
 
     NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&c_recv, &out) == NOZZLE_OK);
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out) == NOZZLE_OK);
 
-    CHECK(out.requested_format == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.storage_format == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
-    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
+    CHECK(out.requested_format == NOZZLE_FORMAT_RGBA8_SRGB);
+    CHECK(out.storage_format == NOZZLE_FORMAT_BGRA8_UNORM);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_BGRA8_UNORM);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_STORAGE_COMPATIBLE);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
     CHECK(out.quality_loss == 0);
 }
