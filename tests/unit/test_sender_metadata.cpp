@@ -24,7 +24,7 @@ TEST_CASE("write_slot_metadata: writes all fields with identity swizzle", "[meta
 
     detail::write_slot_metadata(slot, 100, 999, 1920, 1080,
         texture_format::rgba8_unorm, texture_format::rgba8_unorm,
-        channel_swizzle::identity, resolved);
+        resolved, {});
 
     REQUIRE(slot.frame_number == 100);
     REQUIRE(slot.shared_resource_id == 999);
@@ -33,6 +33,9 @@ TEST_CASE("write_slot_metadata: writes all fields with identity swizzle", "[meta
     REQUIRE(slot.format == static_cast<uint32_t>(texture_format::rgba8_unorm));
     REQUIRE(slot.semantic_format == static_cast<uint32_t>(texture_format::rgba8_unorm));
     REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
+    REQUIRE(slot.fallback_target == 0);
+    REQUIRE(slot.fallback_category == 0);
+    REQUIRE(slot.fallback_quality_loss == 0);
     REQUIRE(slot.native_format_kind == static_cast<uint8_t>(native_format_kind::mtl_pixel_format));
     REQUIRE(slot.format_source == static_cast<uint8_t>(format_source::native_observed));
     REQUIRE(slot.native_format_value == 42);
@@ -43,16 +46,22 @@ TEST_CASE("write_slot_metadata: writes all fields with identity swizzle", "[meta
     REQUIRE(slot.plane_offsets[1] == 3110400);
 }
 
-TEST_CASE("write_slot_metadata: explicit swizzle parameter is written", "[metadata]") {
+TEST_CASE("write_slot_metadata: swizzle from fallback info", "[metadata]") {
     detail::SenderSharedState::SlotInfo slot{};
 
     resolved_texture_format resolved{};
+    format_fallback_info fallback;
+    fallback.swizzle = channel_swizzle::swap_rb;
+    fallback.category = fallback_category::storage_compatible;
+    fallback.fallback_target = texture_format::bgra8_unorm;
 
     detail::write_slot_metadata(slot, 1, 1, 640, 480,
         texture_format::bgra8_unorm, texture_format::bgra8_unorm,
-        channel_swizzle::swap_rb, resolved);
+        resolved, fallback);
 
     REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
+    REQUIRE(slot.fallback_category == static_cast<uint8_t>(fallback_category::storage_compatible));
+    REQUIRE(slot.fallback_target == static_cast<uint32_t>(texture_format::bgra8_unorm));
 }
 
 TEST_CASE("write_slot_metadata: plane_count 0 skips plane arrays", "[metadata]") {
@@ -63,7 +72,7 @@ TEST_CASE("write_slot_metadata: plane_count 0 skips plane arrays", "[metadata]")
 
     detail::write_slot_metadata(slot, 1, 1, 100, 100,
         texture_format::r8_unorm, texture_format::r8_unorm,
-        channel_swizzle::identity, resolved);
+        resolved, {});
 
     REQUIRE(slot.plane_count == 0);
     REQUIRE(slot.plane_strides[0] == 0);
@@ -75,21 +84,32 @@ TEST_CASE("write_global_metadata: writes all fields with identity swizzle", "[me
 
     detail::write_global_metadata(state, 3840, 2160,
         texture_format::rgba16_float, texture_format::rgba16_float,
-        channel_swizzle::identity);
+        {});
 
     REQUIRE(state.width == 3840);
     REQUIRE(state.height == 2160);
     REQUIRE(state.format == static_cast<uint32_t>(texture_format::rgba16_float));
     REQUIRE(state.semantic_format == static_cast<uint32_t>(texture_format::rgba16_float));
     REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
+    REQUIRE(state.fallback_target == 0);
+    REQUIRE(state.fallback_category == 0);
+    REQUIRE(state.fallback_quality_loss == 0);
 }
 
-TEST_CASE("write_global_metadata: explicit swizzle parameter is written", "[metadata]") {
+TEST_CASE("write_global_metadata: swizzle and fallback from fallback info", "[metadata]") {
     detail::SenderSharedState state{};
+
+    format_fallback_info fallback;
+    fallback.swizzle = channel_swizzle::swap_rb;
+    fallback.category = fallback_category::channel_expansion;
+    fallback.fallback_target = texture_format::rgba8_unorm;
 
     detail::write_global_metadata(state, 800, 600,
         texture_format::r32_float, texture_format::r32_float,
-        channel_swizzle::swap_rb);
+        fallback);
 
     REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
+    REQUIRE(state.fallback_category == static_cast<uint8_t>(fallback_category::channel_expansion));
+    REQUIRE(state.fallback_target == static_cast<uint32_t>(texture_format::rgba8_unorm));
+    REQUIRE(state.fallback_quality_loss == 0);
 }

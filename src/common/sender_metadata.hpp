@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include <nozzle/channel_swizzle.hpp>
+#include <nozzle/format_resolve.hpp>
 #include <nozzle/texture.hpp>
 
 #include "common/shared_state.hpp"
@@ -17,15 +17,15 @@ inline void write_slot_metadata(SenderSharedState::SlotInfo &slot,
                                 uint32_t height,
                                 texture_format storage_format,
                                 texture_format semantic_format,
-                                channel_swizzle swizzle,
-                                const resolved_texture_format &resolved) {
+                                const resolved_texture_format &resolved,
+                                const format_fallback_info &fallback) {
 	slot.frame_number = frame_number;
 	slot.shared_resource_id = resource_id;
 	slot.width = width;
 	slot.height = height;
 	slot.format = static_cast<uint32_t>(storage_format);
 	slot.semantic_format = static_cast<uint32_t>(semantic_format);
-	slot.channel_swizzle = static_cast<uint8_t>(swizzle);
+	slot.channel_swizzle = static_cast<uint8_t>(fallback.swizzle);
 	slot.native_format_kind = static_cast<uint8_t>(resolved.native.kind);
 	slot.format_source = static_cast<uint8_t>(resolved.source);
 	slot.native_format_value = resolved.native.value;
@@ -35,6 +35,9 @@ inline void write_slot_metadata(SenderSharedState::SlotInfo &slot,
 		slot.plane_strides[i] = resolved.native.plane_strides[i];
 		slot.plane_offsets[i] = resolved.native.plane_offsets[i];
 	}
+	slot.fallback_target = static_cast<uint32_t>(fallback.fallback_target);
+	slot.fallback_category = static_cast<uint8_t>(fallback.category);
+	slot.fallback_quality_loss = fallback.quality_loss ? 1 : 0;
 }
 
 inline void write_global_metadata(SenderSharedState &state,
@@ -42,12 +45,15 @@ inline void write_global_metadata(SenderSharedState &state,
                                   uint32_t height,
                                   texture_format storage_format,
                                   texture_format semantic_format,
-                                  channel_swizzle swizzle) {
+                                  const format_fallback_info &fallback) {
 	state.width = width;
 	state.height = height;
 	state.format = static_cast<uint32_t>(storage_format);
 	state.semantic_format = static_cast<uint32_t>(semantic_format);
-	state.channel_swizzle = static_cast<uint8_t>(swizzle);
+	state.channel_swizzle = static_cast<uint8_t>(fallback.swizzle);
+	state.fallback_target = static_cast<uint32_t>(fallback.fallback_target);
+	state.fallback_category = static_cast<uint8_t>(fallback.category);
+	state.fallback_quality_loss = fallback.quality_loss ? 1 : 0;
 }
 
 } // namespace detail
