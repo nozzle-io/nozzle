@@ -173,7 +173,18 @@ TEST_CASE("getter: channel_expansion with swap_rb", "[c_api][fallback]") {
     CHECK(out.quality_loss == 0);
 }
 
-// ========== Receiver getter: returns connected_sender_info.fallback ==========
+// ========== Receiver getter: production contract ==========
+
+TEST_CASE("getter: receiver rejects receiver without backing object", "[c_api][fallback]") {
+    NozzleReceiver r{};
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out)
+            == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+// ========== Receiver getter: cached fallback hook (test-only) ==========
+
+#if NOZZLE_ENABLE_TEST_HOOKS
 
 namespace {
 
@@ -188,7 +199,7 @@ NozzleReceiver make_test_receiver_with_fallback(const nozzle::format_fallback_in
 
 } // anonymous namespace
 
-TEST_CASE("getter: receiver returns quality_loss fallback", "[c_api][fallback]") {
+TEST_CASE("getter: receiver cached fallback hook returns quality_loss", "[c_api][fallback]") {
     nozzle::format_fallback_info fb;
     fb.requested_format = nozzle::texture_format::rgba32_float;
     fb.storage_format = nozzle::texture_format::rgba16_float;
@@ -210,7 +221,7 @@ TEST_CASE("getter: receiver returns quality_loss fallback", "[c_api][fallback]")
     CHECK(out.quality_loss == 1);
 }
 
-TEST_CASE("getter: receiver external edge case (category=none + swap_rb)", "[c_api][fallback]") {
+TEST_CASE("getter: receiver cached fallback hook returns external edge case", "[c_api][fallback]") {
     nozzle::format_fallback_info fb;
     fb.requested_format = nozzle::texture_format::bgra8_unorm;
     fb.storage_format = nozzle::texture_format::rgba8_unorm;
@@ -232,7 +243,7 @@ TEST_CASE("getter: receiver external edge case (category=none + swap_rb)", "[c_a
     CHECK(out.quality_loss == 0);
 }
 
-TEST_CASE("getter: receiver storage_compatible with swap_rb", "[c_api][fallback]") {
+TEST_CASE("getter: receiver cached fallback hook returns storage_compatible", "[c_api][fallback]") {
     nozzle::format_fallback_info fb;
     fb.requested_format = nozzle::texture_format::rgba8_srgb;
     fb.storage_format = nozzle::texture_format::bgra8_unorm;
@@ -253,3 +264,5 @@ TEST_CASE("getter: receiver storage_compatible with swap_rb", "[c_api][fallback]
     CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
     CHECK(out.quality_loss == 0);
 }
+
+#endif // NOZZLE_ENABLE_TEST_HOOKS

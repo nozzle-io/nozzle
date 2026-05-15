@@ -22,7 +22,7 @@ jobs:
           submodules: recursive
 
       - name: Configure
-        run: cmake -B build -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+        run: cmake -B build -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
         run: cmake --build build
@@ -45,7 +45,7 @@ jobs:
           submodules: recursive
 
       - name: Configure
-        run: cmake -B build
+        run: cmake -B build -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
         run: cmake --build build --config Debug
@@ -68,7 +68,7 @@ jobs:
           submodules: recursive
 
       - name: Configure
-        run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
+        run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
         run: cmake --build build --config Debug
@@ -87,7 +87,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
 
       - name: Configure
-        run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
+        run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
         run: cmake --build build
@@ -109,7 +109,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
 
       - name: Configure
-        run: cmake -B build
+        run: cmake -B build -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
         run: cmake --build build

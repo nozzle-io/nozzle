@@ -242,8 +242,11 @@ endif()
 
 # --- Tests ---
 option(NOZZLE_BUILD_TESTS "Build nozzle tests" ON)
+option(NOZZLE_ENABLE_TEST_HOOKS "Enable internal test-only C API hooks in nozzle library" OFF)
+if(NOZZLE_ENABLE_TEST_HOOKS)
+    target_compile_definitions(nozzle PRIVATE NOZZLE_ENABLE_TEST_HOOKS=1)
+endif()
 if(NOZZLE_BUILD_TESTS)
-    target_compile_definitions(nozzle PRIVATE NOZZLE_ENABLE_TEST_HOOKS)
     enable_testing()
     add_subdirectory(tests)
 endif()
