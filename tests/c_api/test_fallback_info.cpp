@@ -5,6 +5,8 @@
 #include <nozzle/nozzle_c.h>
 #include <nozzle/types.hpp>
 #include <nozzle/frame.hpp>
+#include <nozzle/sender.hpp>
+#include <nozzle/receiver.hpp>
 
 #include "nozzle_c_types.hpp"
 
@@ -170,5 +172,71 @@ TEST_CASE("getter: channel_expansion with swap_rb", "[c_api][fallback]") {
     CHECK(out.fallback_target == NOZZLE_FORMAT_RGBA8_UNORM);
     CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_CHANNEL_EXPANSION);
     CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
+    CHECK(out.quality_loss == 0);
+}
+
+// ========== Receiver getter: returns connected_sender_info.fallback ==========
+
+TEST_CASE("getter: receiver overwrites pre-set cache from connected_info", "[c_api][fallback]") {
+    auto sender = nozzle::sender::create({
+        .name = "fb_recv_cache_test",
+        .application_name = "test",
+        .ring_buffer_size = 2,
+    });
+    REQUIRE(sender);
+
+    auto recv = nozzle::receiver::create({
+        .name = "fb_recv_cache_test",
+        .application_name = "test",
+    });
+    REQUIRE(recv);
+
+    NozzleReceiver c_recv;
+    c_recv.obj = std::make_unique<nozzle::receiver>(std::move(recv.value()));
+
+    nozzle::format_fallback_info poison;
+    poison.requested_format = nozzle::texture_format::rgba32_float;
+    poison.storage_format = nozzle::texture_format::rgba16_float;
+    poison.fallback_target = nozzle::texture_format::r8_unorm;
+    poison.category = nozzle::fallback_category::quality_loss;
+    poison.swizzle = nozzle::channel_swizzle::swap_rb;
+    poison.quality_loss = true;
+    c_recv.cached_connected_info.fallback = poison;
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&c_recv, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.storage_format == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
+    CHECK(out.quality_loss == 0);
+}
+
+TEST_CASE("getter: receiver default connected fallback passes through fill_fallback", "[c_api][fallback]") {
+    auto sender = nozzle::sender::create({
+        .name = "fb_recv_default_test",
+        .application_name = "test",
+        .ring_buffer_size = 2,
+    });
+    REQUIRE(sender);
+
+    auto recv = nozzle::receiver::create({
+        .name = "fb_recv_default_test",
+        .application_name = "test",
+    });
+    REQUIRE(recv);
+
+    NozzleReceiver c_recv;
+    c_recv.obj = std::make_unique<nozzle::receiver>(std::move(recv.value()));
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&c_recv, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.storage_format == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
     CHECK(out.quality_loss == 0);
 }
