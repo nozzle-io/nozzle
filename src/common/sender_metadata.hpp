@@ -54,3 +54,31 @@ inline void write_global_metadata(SenderSharedState &state,
 
 } // namespace detail
 } // namespace nozzle
+
+namespace nozzle {
+namespace detail {
+
+inline format_fallback_info read_fallback_from_slot(const SenderSharedState::SlotInfo &slot) {
+	format_fallback_info fb;
+	fb.storage_format = static_cast<texture_format>(slot.format);
+	fb.requested_format = static_cast<texture_format>(slot.semantic_format);
+	fb.swizzle = static_cast<channel_swizzle>(slot.channel_swizzle);
+	fb.fallback_target = static_cast<texture_format>(slot.fallback_target);
+	fb.category = static_cast<fallback_category>(slot.fallback_category);
+	fb.quality_loss = (slot.fallback_quality_loss != 0);
+	return fb;
+}
+
+inline format_fallback_info read_fallback_from_global(const SenderSharedState &state) {
+	format_fallback_info fb;
+	fb.storage_format = static_cast<texture_format>(state.format);
+	fb.requested_format = static_cast<texture_format>(state.semantic_format);
+	fb.swizzle = static_cast<channel_swizzle>(state.channel_swizzle);
+	fb.fallback_target = static_cast<texture_format>(state.fallback_target);
+	fb.category = static_cast<fallback_category>(state.fallback_category);
+	fb.quality_loss = (state.fallback_quality_loss != 0);
+	return fb;
+}
+
+} // namespace detail
+} // namespace nozzle

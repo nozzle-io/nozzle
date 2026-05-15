@@ -8,6 +8,7 @@
 #include "frame_helpers.hpp"
 #include "metadata.hpp"
 #include "registry.hpp"
+#include "sender_metadata.hpp"
 #include "shared_state.hpp"
 
 #include <chrono>
@@ -132,6 +133,7 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.info.height = state->height;
     setup.info.format = static_cast<texture_format>(state->format);
     setup.info.semantic_format = static_cast<texture_format>(state->semantic_format);
+    setup.info.fallback = detail::read_fallback_from_global(*state);
     setup.info.frame_counter = detail::ipc::atomic_load_relaxed(&state->committed_frame);
     detail::ipc::atomic_fence_acquire();
     setup.info.last_update_time_ns = detail::ipc::monotonic_ns();
@@ -328,6 +330,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         info.transfer_mode_val = transfer_mode::zero_copy_shared_texture;
         info.sync_mode_val = sync_mode::none;
         info.dropped_frame_count = dropped;
+        info.fallback = detail::read_fallback_from_slot(si);
 
         impl_->connected_info_.width = si.width;
         impl_->connected_info_.height = si.height;
@@ -342,6 +345,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             impl_->connected_info_.plane_strides[i] = si.plane_strides[i];
             impl_->connected_info_.plane_offsets[i] = si.plane_offsets[i];
         }
+        impl_->connected_info_.fallback = detail::read_fallback_from_slot(si);
 
         auto tex_result = create_texture_from_slot(state, slot);
         if (!tex_result.ok()) {

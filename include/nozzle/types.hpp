@@ -79,6 +79,15 @@ enum class fallback_category : uint8_t {
     quality_loss = 3,
 };
 
+struct format_fallback_info {
+    texture_format requested_format{texture_format::unknown};
+    texture_format storage_format{texture_format::unknown};
+    texture_format fallback_target{texture_format::unknown};
+    fallback_category category{fallback_category::none};
+    channel_swizzle swizzle{channel_swizzle::identity};
+    bool quality_loss{false};
+};
+
 enum class texture_origin : uint8_t {
     top_left = 0,
     bottom_left = 1,
@@ -178,6 +187,7 @@ struct frame_info {
     transfer_mode transfer_mode_val{transfer_mode::unknown};
     sync_mode sync_mode_val{sync_mode::none};
     uint32_t dropped_frame_count{0};
+    format_fallback_info fallback{};
 };
 
 struct texture_desc {
@@ -226,6 +236,7 @@ struct connected_sender_info {
     double estimated_fps{0.0};
     uint64_t frame_counter{0};
     uint64_t last_update_time_ns{0};
+    format_fallback_info fallback{};
 };
 
 struct key_value {
@@ -240,15 +251,6 @@ constexpr uint32_t fallback_allow_storage_compatible{1u << 0};
 constexpr uint32_t fallback_allow_channel_expansion{1u << 1};
 constexpr uint32_t fallback_allow_quality_loss{1u << 2};
 constexpr uint32_t fallback_safe_defaults{fallback_allow_storage_compatible | fallback_allow_channel_expansion};
-
-struct format_fallback_info {
-    texture_format requested_format{texture_format::unknown};
-    texture_format storage_format{texture_format::unknown};
-    texture_format fallback_target{texture_format::unknown};
-    fallback_category category{fallback_category::none};
-    channel_swizzle swizzle{channel_swizzle::identity};
-    bool quality_loss{false};
-};
 
 struct sender_desc {
     std::string name{};
