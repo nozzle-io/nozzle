@@ -202,9 +202,7 @@ static_assert(offsetof(NozzleFormatFallbackInfo, category) == 12, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, swizzle) == 16, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, quality_loss) == 20, "");
 
-} // anonymous namespace
-
-NozzleErrorCode nozzle_c_detail_fill_fallback(
+NozzleErrorCode fill_fallback(
     NozzleFormatFallbackInfo *out_info,
     const nozzle::format_fallback_info &fb
 ) {
@@ -219,29 +217,9 @@ NozzleErrorCode nozzle_c_detail_fill_fallback(
     return NOZZLE_OK;
 }
 
-struct NozzleSender {
-    std::unique_ptr<nozzle::sender> obj;
-    nozzle::sender_info cached_info{};
-};
+} // anonymous namespace
 
-struct NozzleReceiver {
-    std::unique_ptr<nozzle::receiver> obj;
-    nozzle::connected_sender_info cached_connected_info{};
-};
-
-struct NozzleFrame {
-    std::unique_ptr<nozzle::frame> obj;
-    std::unique_ptr<nozzle::writable_frame> writable;
-    bool is_writable{false};
-};
-
-struct NozzleTexture {
-    std::unique_ptr<nozzle::texture> obj;
-};
-
-struct NozzleDevice {
-    std::unique_ptr<nozzle::device> obj;
-};
+#include "nozzle_c_types.hpp"
 
 // ========== Sender API ==========
 
@@ -497,7 +475,7 @@ NozzleErrorCode nozzle_frame_get_format_fallback_info(
         fb = frame->obj->info().fallback;
     }
 
-    return nozzle_c_detail_fill_fallback(out_info, fb);
+    return fill_fallback(out_info, fb);
 }
 
 NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
@@ -509,7 +487,7 @@ NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
     receiver->cached_connected_info = receiver->obj->connected_info();
     const auto fb = receiver->cached_connected_info.fallback;
 
-    return nozzle_c_detail_fill_fallback(out_info, fb);
+    return fill_fallback(out_info, fb);
 }
 
 // ========== Discovery ==========

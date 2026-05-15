@@ -1,12 +1,14 @@
-// nozzle - test_c_api_fallback_info.cpp - C API format_fallback_info conversion tests
+// nozzle - test_c_api_fallback_info.cpp - C API format_fallback_info getter tests
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <nozzle/nozzle_c.h>
 #include <nozzle/types.hpp>
-#include "nozzle_c_detail.hpp"
+#include <nozzle/frame.hpp>
 
-// ========== Null-pointer validation (getter boundary) ==========
+#include "nozzle_c_types.hpp"
+
+// ========== Null-pointer validation ==========
 
 TEST_CASE("C API: nozzle_frame_get_format_fallback_info null frame", "[c_api][fallback]") {
     NozzleFormatFallbackInfo info{};
@@ -14,8 +16,8 @@ TEST_CASE("C API: nozzle_frame_get_format_fallback_info null frame", "[c_api][fa
 }
 
 TEST_CASE("C API: nozzle_frame_get_format_fallback_info null out", "[c_api][fallback]") {
-    REQUIRE(nozzle_frame_get_format_fallback_info(
-        reinterpret_cast<NozzleFrame *>(1), nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    NozzleFrame f{};
+    REQUIRE(nozzle_frame_get_format_fallback_info(&f, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
 TEST_CASE("C API: nozzle_receiver_get_connected_format_fallback_info null receiver", "[c_api][fallback]") {
@@ -24,8 +26,8 @@ TEST_CASE("C API: nozzle_receiver_get_connected_format_fallback_info null receiv
 }
 
 TEST_CASE("C API: nozzle_receiver_get_connected_format_fallback_info null out", "[c_api][fallback]") {
-    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(
-        reinterpret_cast<NozzleReceiver *>(1), nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    NozzleReceiver r{};
+    REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
 // ========== Enum value mapping ==========
@@ -42,95 +44,14 @@ TEST_CASE("C API: channel_swizzle enum values match C++", "[c_api][fallback]") {
     CHECK(NOZZLE_CHANNEL_SWIZZLE_SWAP_RB == static_cast<int>(nozzle::channel_swizzle::swap_rb));
 }
 
-// ========== Conversion helper: normal path ==========
+// ========== Writable frame getter: returns default fallback ==========
 
-TEST_CASE("helper: exact match rgba8_unorm", "[c_api][fallback]") {
-    nozzle::format_fallback_info fb;
-    fb.requested_format = nozzle::texture_format::rgba8_unorm;
-    fb.storage_format = nozzle::texture_format::rgba8_unorm;
-    fb.fallback_target = nozzle::texture_format::unknown;
-    fb.category = nozzle::fallback_category::none;
-    fb.swizzle = nozzle::channel_swizzle::identity;
-    fb.quality_loss = false;
+TEST_CASE("getter: writable frame returns default fallback", "[c_api][fallback]") {
+    NozzleFrame f{};
+    f.is_writable = true;
 
     NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_c_detail_fill_fallback(&out, fb) == NOZZLE_OK);
-
-    CHECK(out.requested_format == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
-    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
-    CHECK(out.quality_loss == 0);
-}
-
-TEST_CASE("helper: storage_compatible with quality_loss", "[c_api][fallback]") {
-    nozzle::format_fallback_info fb;
-    fb.requested_format = nozzle::texture_format::rgba8_srgb;
-    fb.storage_format = nozzle::texture_format::rgba8_unorm;
-    fb.fallback_target = nozzle::texture_format::rgba8_unorm;
-    fb.category = nozzle::fallback_category::storage_compatible;
-    fb.swizzle = nozzle::channel_swizzle::identity;
-    fb.quality_loss = true;
-
-    NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_c_detail_fill_fallback(&out, fb) == NOZZLE_OK);
-
-    CHECK(out.requested_format == NOZZLE_FORMAT_RGBA8_SRGB);
-    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.fallback_target == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_STORAGE_COMPATIBLE);
-    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
-    CHECK(out.quality_loss == 1);
-}
-
-TEST_CASE("helper: channel_expansion + swap_rb", "[c_api][fallback]") {
-    nozzle::format_fallback_info fb;
-    fb.requested_format = nozzle::texture_format::bgra8_unorm;
-    fb.storage_format = nozzle::texture_format::rgba8_unorm;
-    fb.fallback_target = nozzle::texture_format::rgba8_unorm;
-    fb.category = nozzle::fallback_category::channel_expansion;
-    fb.swizzle = nozzle::channel_swizzle::swap_rb;
-    fb.quality_loss = false;
-
-    NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_c_detail_fill_fallback(&out, fb) == NOZZLE_OK);
-
-    CHECK(out.requested_format == NOZZLE_FORMAT_BGRA8_UNORM);
-    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.fallback_target == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_CHANNEL_EXPANSION);
-    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
-    CHECK(out.quality_loss == 0);
-}
-
-// ========== Conversion helper: external edge case ==========
-
-TEST_CASE("helper: category=none + swizzle=swap_rb + requested!=storage", "[c_api][fallback]") {
-    nozzle::format_fallback_info fb;
-    fb.requested_format = nozzle::texture_format::bgra8_unorm;
-    fb.storage_format = nozzle::texture_format::rgba8_unorm;
-    fb.fallback_target = nozzle::texture_format::unknown;
-    fb.category = nozzle::fallback_category::none;
-    fb.swizzle = nozzle::channel_swizzle::swap_rb;
-    fb.quality_loss = false;
-
-    NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_c_detail_fill_fallback(&out, fb) == NOZZLE_OK);
-
-    CHECK(out.requested_format == NOZZLE_FORMAT_BGRA8_UNORM);
-    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
-    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
-    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
-    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
-    CHECK(out.quality_loss == 0);
-}
-
-TEST_CASE("helper: default-constructed fallback_info", "[c_api][fallback]") {
-    nozzle::format_fallback_info fb{};
-
-    NozzleFormatFallbackInfo out{};
-    REQUIRE(nozzle_c_detail_fill_fallback(&out, fb) == NOZZLE_OK);
+    REQUIRE(nozzle_frame_get_format_fallback_info(&f, &out) == NOZZLE_OK);
 
     CHECK(out.requested_format == NOZZLE_FORMAT_UNKNOWN);
     CHECK(out.storage_format == NOZZLE_FORMAT_UNKNOWN);
@@ -140,7 +61,114 @@ TEST_CASE("helper: default-constructed fallback_info", "[c_api][fallback]") {
     CHECK(out.quality_loss == 0);
 }
 
-TEST_CASE("helper: null out returns INVALID_ARGUMENT", "[c_api][fallback]") {
-    nozzle::format_fallback_info fb{};
-    REQUIRE(nozzle_c_detail_fill_fallback(nullptr, fb) == NOZZLE_ERROR_INVALID_ARGUMENT);
+// ========== Readable frame getter: returns frame_info.fallback ==========
+
+TEST_CASE("getter: readable frame returns frame_info.fallback (exact match)", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::rgba8_unorm;
+    fb.storage_format = nozzle::texture_format::rgba8_unorm;
+    fb.fallback_target = nozzle::texture_format::unknown;
+    fb.category = nozzle::fallback_category::none;
+    fb.swizzle = nozzle::channel_swizzle::identity;
+    fb.quality_loss = false;
+
+    nozzle::frame_info fi{};
+    fi.fallback = fb;
+
+    NozzleFrame f{};
+    f.obj = std::make_unique<nozzle::frame>(nozzle::detail::make_frame(nozzle::texture{}, fi));
+    f.is_writable = false;
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_frame_get_format_fallback_info(&f, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_RGBA8_UNORM);
+    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
+    CHECK(out.quality_loss == 0);
+}
+
+TEST_CASE("getter: readable frame with quality_loss fallback", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::rgba32_float;
+    fb.storage_format = nozzle::texture_format::rgba16_float;
+    fb.fallback_target = nozzle::texture_format::rgba16_float;
+    fb.category = nozzle::fallback_category::quality_loss;
+    fb.swizzle = nozzle::channel_swizzle::identity;
+    fb.quality_loss = true;
+
+    nozzle::frame_info fi{};
+    fi.fallback = fb;
+
+    NozzleFrame f{};
+    f.obj = std::make_unique<nozzle::frame>(nozzle::detail::make_frame(nozzle::texture{}, fi));
+    f.is_writable = false;
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_frame_get_format_fallback_info(&f, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_RGBA32_FLOAT);
+    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA16_FLOAT);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_RGBA16_FLOAT);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_QUALITY_LOSS);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_IDENTITY);
+    CHECK(out.quality_loss == 1);
+}
+
+// ========== Edge case: category=none, swizzle=swap_rb, requested!=storage ==========
+
+TEST_CASE("getter: external edge case (category=none + swap_rb + requested!=storage)", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::bgra8_unorm;
+    fb.storage_format = nozzle::texture_format::rgba8_unorm;
+    fb.fallback_target = nozzle::texture_format::unknown;
+    fb.category = nozzle::fallback_category::none;
+    fb.swizzle = nozzle::channel_swizzle::swap_rb;
+    fb.quality_loss = false;
+
+    nozzle::frame_info fi{};
+    fi.fallback = fb;
+
+    NozzleFrame f{};
+    f.obj = std::make_unique<nozzle::frame>(nozzle::detail::make_frame(nozzle::texture{}, fi));
+    f.is_writable = false;
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_frame_get_format_fallback_info(&f, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_BGRA8_UNORM);
+    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
+    CHECK(out.quality_loss == 0);
+}
+
+TEST_CASE("getter: channel_expansion with swap_rb", "[c_api][fallback]") {
+    nozzle::format_fallback_info fb;
+    fb.requested_format = nozzle::texture_format::bgra8_unorm;
+    fb.storage_format = nozzle::texture_format::rgba8_unorm;
+    fb.fallback_target = nozzle::texture_format::rgba8_unorm;
+    fb.category = nozzle::fallback_category::channel_expansion;
+    fb.swizzle = nozzle::channel_swizzle::swap_rb;
+    fb.quality_loss = false;
+
+    nozzle::frame_info fi{};
+    fi.fallback = fb;
+
+    NozzleFrame f{};
+    f.obj = std::make_unique<nozzle::frame>(nozzle::detail::make_frame(nozzle::texture{}, fi));
+    f.is_writable = false;
+
+    NozzleFormatFallbackInfo out{};
+    REQUIRE(nozzle_frame_get_format_fallback_info(&f, &out) == NOZZLE_OK);
+
+    CHECK(out.requested_format == NOZZLE_FORMAT_BGRA8_UNORM);
+    CHECK(out.storage_format == NOZZLE_FORMAT_RGBA8_UNORM);
+    CHECK(out.fallback_target == NOZZLE_FORMAT_RGBA8_UNORM);
+    CHECK(out.category == NOZZLE_FALLBACK_CATEGORY_CHANNEL_EXPANSION);
+    CHECK(out.swizzle == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB);
+    CHECK(out.quality_loss == 0);
 }
