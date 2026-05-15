@@ -131,6 +131,29 @@ typedef enum NozzleNativeFormatKind {
     NOZZLE_NATIVE_KIND_GL_INTERNAL_FORMAT = 4,
 } NozzleNativeFormatKind;
 
+// ========== Fallback Category & Swizzle ==========
+
+typedef enum NozzleFallbackCategory {
+    NOZZLE_FALLBACK_CATEGORY_NONE = 0,
+    NOZZLE_FALLBACK_CATEGORY_STORAGE_COMPATIBLE = 1,
+    NOZZLE_FALLBACK_CATEGORY_CHANNEL_EXPANSION = 2,
+    NOZZLE_FALLBACK_CATEGORY_QUALITY_LOSS = 3,
+} NozzleFallbackCategory;
+
+typedef enum NozzleChannelSwizzle {
+    NOZZLE_CHANNEL_SWIZZLE_IDENTITY = 0,
+    NOZZLE_CHANNEL_SWIZZLE_SWAP_RB = 1,
+} NozzleChannelSwizzle;
+
+typedef struct NozzleFormatFallbackInfo {
+    NozzleTextureFormat requested_format;
+    NozzleTextureFormat storage_format;
+    NozzleTextureFormat fallback_target;
+    NozzleFallbackCategory category;
+    NozzleChannelSwizzle swizzle;
+    int quality_loss;
+} NozzleFormatFallbackInfo;
+
 // ========== Fallback Flags ==========
 
 #define NOZZLE_FALLBACK_NONE              0u
@@ -278,6 +301,17 @@ NOZZLE_C_API NozzleErrorCode nozzle_frame_get_info(
     NozzleFrame *frame,
     NozzleFrameInfo *out_info
 );
+
+NOZZLE_C_API NozzleErrorCode nozzle_frame_get_format_fallback_info(
+    NozzleFrame *frame,
+    NozzleFormatFallbackInfo *out_info
+);
+
+NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
+    NozzleReceiver *receiver,
+    NozzleFormatFallbackInfo *out_info
+);
+
 
 // ========== Discovery ==========
 

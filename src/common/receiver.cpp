@@ -8,7 +8,7 @@
 #include "frame_helpers.hpp"
 #include "metadata.hpp"
 #include "registry.hpp"
-#include "sender_metadata.hpp"
+#include "shared_metadata.hpp"
 #include "shared_state.hpp"
 
 #include <chrono>

@@ -20,7 +20,7 @@
 #include "metadata.hpp"
 #include "registry.hpp"
 #include "sender_fallback.hpp"
-#include "sender_metadata.hpp"
+#include "shared_metadata.hpp"
 #include "shared_state.hpp"
 
 namespace nozzle {

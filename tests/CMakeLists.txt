@@ -19,7 +19,7 @@ set(UNIT_TEST_SOURCES
     unit/test_format_resolve.cpp
     unit/test_resolved_format.cpp
     unit/test_format_convert.cpp
-    unit/test_sender_metadata.cpp
+    unit/test_shared_metadata.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp
@@ -131,6 +131,7 @@ endif()
 # Links against the full nozzle library but runs as gating (no || true).
 add_executable(nozzle_c_api_tests
     c_api/test_swizzle.cpp
+    c_api/test_fallback_info.cpp
 )
 
 target_link_libraries(nozzle_c_api_tests PRIVATE

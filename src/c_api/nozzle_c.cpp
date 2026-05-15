@@ -184,6 +184,14 @@ NozzleSyncMode to_c_sync_mode(nozzle::sync_mode sm) {
     }
 }
 
+static_assert(static_cast<uint8_t>(nozzle::fallback_category::none) == NOZZLE_FALLBACK_CATEGORY_NONE, "");
+static_assert(static_cast<uint8_t>(nozzle::fallback_category::storage_compatible) == NOZZLE_FALLBACK_CATEGORY_STORAGE_COMPATIBLE, "");
+static_assert(static_cast<uint8_t>(nozzle::fallback_category::channel_expansion) == NOZZLE_FALLBACK_CATEGORY_CHANNEL_EXPANSION, "");
+static_assert(static_cast<uint8_t>(nozzle::fallback_category::quality_loss) == NOZZLE_FALLBACK_CATEGORY_QUALITY_LOSS, "");
+
+static_assert(static_cast<uint8_t>(nozzle::channel_swizzle::identity) == NOZZLE_CHANNEL_SWIZZLE_IDENTITY, "");
+static_assert(static_cast<uint8_t>(nozzle::channel_swizzle::swap_rb) == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB, "");
+
 } // anonymous namespace
 
 struct NozzleSender {
@@ -448,6 +456,45 @@ NozzleErrorCode nozzle_frame_get_info(
         out_info->sync_mode = to_c_sync_mode(fi.sync_mode_val);
         out_info->dropped_frame_count = fi.dropped_frame_count;
     }
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_frame_get_format_fallback_info(
+    NozzleFrame *frame,
+    NozzleFormatFallbackInfo *out_info
+) {
+    if (!frame || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    nozzle::format_fallback_info fb;
+    if (frame->is_writable) {
+        fb = {}; // writable frames have no fallback metadata
+    } else {
+        fb = frame->obj->info().fallback;
+    }
+
+    out_info->requested_format = to_c_format(fb.requested_format);
+    out_info->storage_format = to_c_format(fb.storage_format);
+    out_info->fallback_target = to_c_format(fb.fallback_target);
+    out_info->category = static_cast<NozzleFallbackCategory>(fb.category);
+    out_info->swizzle = static_cast<NozzleChannelSwizzle>(fb.swizzle);
+    out_info->quality_loss = fb.quality_loss ? 1 : 0;
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
+    NozzleReceiver *receiver,
+    NozzleFormatFallbackInfo *out_info
+) {
+    if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const auto fb = receiver->obj->connected_info().fallback;
+
+    out_info->requested_format = to_c_format(fb.requested_format);
+    out_info->storage_format = to_c_format(fb.storage_format);
+    out_info->fallback_target = to_c_format(fb.fallback_target);
+    out_info->category = static_cast<NozzleFallbackCategory>(fb.category);
+    out_info->swizzle = static_cast<NozzleChannelSwizzle>(fb.swizzle);
+    out_info->quality_loss = fb.quality_loss ? 1 : 0;
     return NOZZLE_OK;
 }
 
