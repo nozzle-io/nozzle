@@ -159,26 +159,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 	return s;
 }
 
-namespace {
 
-Result<void> apply_format_metadata(detail::SenderSharedState *state,
-    texture_format requested, texture_format actual,
-    fallback_category category, texture_format fallback_target) {
-    auto info = resolve_format_fallback_info(requested, actual, category, fallback_target);
-    if (!info.ok()) {
-        return info.error();
-    }
-    const auto &fb = info.value();
-    state->format = static_cast<uint32_t>(fb.storage_format);
-    state->semantic_format = static_cast<uint32_t>(fb.requested_format);
-    state->channel_swizzle = static_cast<uint8_t>(fb.swizzle);
-    state->fallback_target = static_cast<uint32_t>(fb.fallback_target);
-    state->fallback_category = static_cast<uint8_t>(fb.category);
-    state->fallback_quality_loss = fb.quality_loss ? 1 : 0;
-    return {};
-}
-
-} // namespace
 
 Result<void> sender::publish_external_texture(const texture &tex) {
 	if (!impl_ || !impl_->valid_) {
@@ -210,37 +191,20 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	impl_->state->slots[slot].shared_resource_id = resource_id;
 
 	const auto &tex_desc = tex.desc();
-	impl_->state->slots[slot].width = tex_desc.width;
-	impl_->state->slots[slot].height = tex_desc.height;
-	impl_->state->slots[slot].format = static_cast<uint32_t>(tex_desc.format);
-	impl_->state->slots[slot].semantic_format = static_cast<uint32_t>(tex_desc.semantic_format);
-	impl_->state->slots[slot].channel_swizzle = static_cast<uint8_t>(tex_desc.swizzle);
-	impl_->state->slots[slot].fallback_target = 0;
-	impl_->state->slots[slot].fallback_category = 0;
-	impl_->state->slots[slot].fallback_quality_loss = 0;
 
-	const auto &resolved = tex.resolved();
-	impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(resolved.native.kind);
-	impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
-	impl_->state->slots[slot].native_format_value = resolved.native.value;
-	impl_->state->slots[slot].native_format_modifier = resolved.native.modifier;
-	impl_->state->slots[slot].plane_count = resolved.native.plane_count;
-	for (uint32_t i = 0; i < resolved.native.plane_count && i < 4; ++i) {
-		impl_->state->slots[slot].plane_strides[i] = resolved.native.plane_strides[i];
-		impl_->state->slots[slot].plane_offsets[i] = resolved.native.plane_offsets[i];
-	}
+	format_fallback_info ext_fb;
+	ext_fb.storage_format = tex_desc.format;
+	ext_fb.requested_format = tex_desc.semantic_format;
+	ext_fb.swizzle = tex_desc.swizzle;
+	ext_fb.category = fallback_category::none;
+	ext_fb.fallback_target = texture_format::unknown;
+	ext_fb.quality_loss = false;
 
-	impl_->state->semantic_format = static_cast<uint32_t>(tex_desc.semantic_format);
-	impl_->state->fallback_target = 0;
-	impl_->state->fallback_category = 0;
-	impl_->state->fallback_quality_loss = 0;
-	if (		impl_->state->width != tex_desc.width ||
-		impl_->state->height != tex_desc.height ||
-		impl_->state->format != static_cast<uint32_t>(tex_desc.format)) {
-		impl_->state->width = tex_desc.width;
-		impl_->state->height = tex_desc.height;
-		impl_->state->format = static_cast<uint32_t>(tex_desc.format);
-	}
+	detail::write_slot_metadata(impl_->state->slots[slot],
+		frame_number, resource_id, tex_desc.width, tex_desc.height,
+		tex.resolved(), ext_fb);
+	detail::write_global_metadata(*impl_->state,
+		tex_desc.width, tex_desc.height, ext_fb);
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
@@ -352,12 +316,11 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		texture_desc actual_desc{tdesc.width, tdesc.height, observed_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 		impl_->slot_in_use_[slot] = true;
 
-		impl_->state->width = tdesc.width;
-		impl_->state->height = tdesc.height;
-		auto meta_result = apply_format_metadata(impl_->state, tdesc.format, observed_format, final_category, fallback_target);
-		if (!meta_result.ok()) {
-			return meta_result.error();
+		auto fb_result = resolve_format_fallback_info(tdesc.format, observed_format, final_category, fallback_target);
+		if (!fb_result.ok()) {
+			return fb_result.error();
 		}
+		detail::write_global_metadata(*impl_->state, tdesc.width, tdesc.height, fb_result.value());
 
 		return detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
@@ -370,9 +333,6 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 	texture_format reused_format = impl_->ring_textures_[slot].desc().format;
 
-	impl_->state->width = tdesc.width;
-	impl_->state->height = tdesc.height;
-
 	auto category_result = classify_observed_format(
 		tdesc.format, reused_format,
 		fallback_category::none, texture_format::unknown,
@@ -382,10 +342,11 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	}
 	fallback_category reuse_category = category_result.value();
 
-	auto meta_result = apply_format_metadata(impl_->state, tdesc.format, reused_format, reuse_category, texture_format::unknown);
-	if (!meta_result.ok()) {
-		return meta_result.error();
+	auto fb_result = resolve_format_fallback_info(tdesc.format, reused_format, reuse_category, texture_format::unknown);
+	if (!fb_result.ok()) {
+		return fb_result.error();
 	}
+	detail::write_global_metadata(*impl_->state, tdesc.width, tdesc.height, fb_result.value());
 
 	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 
@@ -526,6 +487,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 					resolved.source = format_source::requested;
 					resolved.swizzle = channel_swizzle::identity;
 
+					auto fb_result = resolve_format_fallback_info(
+						storage_format, storage_format,
+						fallback_category::none, texture_format::unknown);
+					if (!fb_result.ok()) return fb_result.error();
+
 					uint32_t ring_size = impl_->state->ring_size;
 					if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
 					uint32_t slot = impl_->next_slot_;
@@ -533,11 +499,9 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 					uint64_t frame_number = ++impl_->frame_counter_;
 					detail::write_slot_metadata(impl_->state->slots[slot],
 						frame_number, resource_id, width, height,
-						storage_format, semantic_format,
-						resolved, {});
+						resolved, fb_result.value());
 					detail::write_global_metadata(*impl_->state,
-						width, height, storage_format, semantic_format,
-						{});
+						width, height, fb_result.value());
 					detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 					detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 
@@ -593,9 +557,16 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		if (!blit_result.ok()) return blit_result.error();
 
 		impl_->slot_in_use_[slot] = true;
+
+		auto fb_result = resolve_format_fallback_info(
+			storage_format, ring_actual,
+			fallback_category::none, texture_format::unknown);
+		if (!fb_result.ok()) {
+			impl_->slot_in_use_[slot] = false;
+			return fb_result.error();
+		}
 		detail::write_global_metadata(*impl_->state,
-			width, height, ring_actual, semantic_format,
-			{});
+			width, height, fb_result.value());
 
 		uint64_t resource_id = detail::backend::get_shared_resource_id(impl_->ring_textures_[slot]);
 		if (resource_id == detail::kInvalidSharedResourceId) {
@@ -606,8 +577,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		uint64_t frame_number = ++impl_->frame_counter_;
 		detail::write_slot_metadata(impl_->state->slots[slot],
 			frame_number, resource_id, width, height,
-			ring_actual, semantic_format,
-			impl_->ring_textures_[slot].resolved(), {});
+			impl_->ring_textures_[slot].resolved(), fb_result.value());
 		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 		impl_->slot_in_use_[slot] = false;
