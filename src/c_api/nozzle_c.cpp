@@ -22,6 +22,7 @@
 #endif
 
 #include <cstdlib>
+#include <cstddef>
 #include <cstring>
 #include <memory>
 
@@ -192,7 +193,31 @@ static_assert(static_cast<uint8_t>(nozzle::fallback_category::quality_loss) == N
 static_assert(static_cast<uint8_t>(nozzle::channel_swizzle::identity) == NOZZLE_CHANNEL_SWIZZLE_IDENTITY, "");
 static_assert(static_cast<uint8_t>(nozzle::channel_swizzle::swap_rb) == NOZZLE_CHANNEL_SWIZZLE_SWAP_RB, "");
 
+static_assert(sizeof(NozzleFormatFallbackInfo) == 24, "");
+static_assert(alignof(NozzleFormatFallbackInfo) == 4, "");
+static_assert(offsetof(NozzleFormatFallbackInfo, requested_format) == 0, "");
+static_assert(offsetof(NozzleFormatFallbackInfo, storage_format) == 4, "");
+static_assert(offsetof(NozzleFormatFallbackInfo, fallback_target) == 8, "");
+static_assert(offsetof(NozzleFormatFallbackInfo, category) == 12, "");
+static_assert(offsetof(NozzleFormatFallbackInfo, swizzle) == 16, "");
+static_assert(offsetof(NozzleFormatFallbackInfo, quality_loss) == 20, "");
+
 } // anonymous namespace
+
+NozzleErrorCode nozzle_c_detail_fill_fallback(
+    NozzleFormatFallbackInfo *out_info,
+    const nozzle::format_fallback_info &fb
+) {
+    if (!out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    out_info->requested_format = to_c_format(fb.requested_format);
+    out_info->storage_format = to_c_format(fb.storage_format);
+    out_info->fallback_target = to_c_format(fb.fallback_target);
+    out_info->category = static_cast<NozzleFallbackCategory>(fb.category);
+    out_info->swizzle = static_cast<NozzleChannelSwizzle>(fb.swizzle);
+    out_info->quality_loss = fb.quality_loss ? 1 : 0;
+    return NOZZLE_OK;
+}
 
 struct NozzleSender {
     std::unique_ptr<nozzle::sender> obj;
@@ -467,18 +492,12 @@ NozzleErrorCode nozzle_frame_get_format_fallback_info(
 
     nozzle::format_fallback_info fb;
     if (frame->is_writable) {
-        fb = {}; // writable frames have no fallback metadata
+        fb = {};
     } else {
         fb = frame->obj->info().fallback;
     }
 
-    out_info->requested_format = to_c_format(fb.requested_format);
-    out_info->storage_format = to_c_format(fb.storage_format);
-    out_info->fallback_target = to_c_format(fb.fallback_target);
-    out_info->category = static_cast<NozzleFallbackCategory>(fb.category);
-    out_info->swizzle = static_cast<NozzleChannelSwizzle>(fb.swizzle);
-    out_info->quality_loss = fb.quality_loss ? 1 : 0;
-    return NOZZLE_OK;
+    return nozzle_c_detail_fill_fallback(out_info, fb);
 }
 
 NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
@@ -487,15 +506,10 @@ NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
 ) {
     if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    const auto fb = receiver->obj->connected_info().fallback;
+    receiver->cached_connected_info = receiver->obj->connected_info();
+    const auto fb = receiver->cached_connected_info.fallback;
 
-    out_info->requested_format = to_c_format(fb.requested_format);
-    out_info->storage_format = to_c_format(fb.storage_format);
-    out_info->fallback_target = to_c_format(fb.fallback_target);
-    out_info->category = static_cast<NozzleFallbackCategory>(fb.category);
-    out_info->swizzle = static_cast<NozzleChannelSwizzle>(fb.swizzle);
-    out_info->quality_loss = fb.quality_loss ? 1 : 0;
-    return NOZZLE_OK;
+    return nozzle_c_detail_fill_fallback(out_info, fb);
 }
 
 // ========== Discovery ==========

@@ -142,6 +142,7 @@ target_link_libraries(nozzle_c_api_tests PRIVATE
 target_include_directories(nozzle_c_api_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/common
+    ${CMAKE_SOURCE_DIR}/src/c_api
 )
 
 catch_discover_tests(nozzle_c_api_tests)
