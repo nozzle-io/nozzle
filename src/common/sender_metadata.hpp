@@ -52,12 +52,6 @@ inline void write_global_metadata(SenderSharedState &state,
 	state.fallback_quality_loss = fallback.quality_loss ? 1 : 0;
 }
 
-} // namespace detail
-} // namespace nozzle
-
-namespace nozzle {
-namespace detail {
-
 inline format_fallback_info read_fallback_from_slot(const SenderSharedState::SlotInfo &slot) {
 	format_fallback_info fb;
 	fb.storage_format = static_cast<texture_format>(slot.format);
@@ -78,6 +72,50 @@ inline format_fallback_info read_fallback_from_global(const SenderSharedState &s
 	fb.category = static_cast<fallback_category>(state.fallback_category);
 	fb.quality_loss = (state.fallback_quality_loss != 0);
 	return fb;
+}
+
+inline frame_info construct_frame_info_from_slot(
+	const SenderSharedState::SlotInfo &si,
+	uint64_t frame_index,
+	uint32_t dropped) {
+	frame_info info{};
+	info.frame_index = frame_index;
+	info.width = si.width;
+	info.height = si.height;
+	info.format = static_cast<texture_format>(si.format);
+	info.semantic_format = static_cast<texture_format>(si.semantic_format);
+	info.transfer_mode_val = transfer_mode::zero_copy_shared_texture;
+	info.sync_mode_val = sync_mode::none;
+	info.dropped_frame_count = dropped;
+	info.fallback = read_fallback_from_slot(si);
+	return info;
+}
+
+inline void update_connected_info_from_slot(
+	connected_sender_info &info,
+	const SenderSharedState::SlotInfo &si) {
+	info.width = si.width;
+	info.height = si.height;
+	info.format = static_cast<texture_format>(si.format);
+	info.semantic_format = static_cast<texture_format>(si.semantic_format);
+	info.native_format_value = si.native_format_value;
+	info.native_format_kind = si.native_format_kind;
+	info.format_source_ = si.format_source;
+	info.native_format_modifier = si.native_format_modifier;
+	info.plane_count = si.plane_count;
+	for (uint32_t i = 0; i < si.plane_count && i < 4; ++i) {
+		info.plane_strides[i] = si.plane_strides[i];
+		info.plane_offsets[i] = si.plane_offsets[i];
+	}
+	info.fallback = read_fallback_from_slot(si);
+}
+
+inline void update_connected_info_from_global(
+	connected_sender_info &info,
+	const SenderSharedState &state) {
+	info.format = static_cast<texture_format>(state.format);
+	info.semantic_format = static_cast<texture_format>(state.semantic_format);
+	info.fallback = read_fallback_from_global(state);
 }
 
 } // namespace detail

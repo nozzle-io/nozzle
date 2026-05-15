@@ -109,6 +109,102 @@ TEST_CASE("write_global_metadata: writes all fields with identity swizzle", "[me
     REQUIRE(state.fallback_quality_loss == 0);
 }
 
+TEST_CASE("write_global_metadata: swizzle and fallback from fallback info", "[metadata]") {
+    detail::SenderSharedState state{};
+
+    auto fb = resolve_format_fallback_info(
+        texture_format::r8_unorm, texture_format::rgba8_unorm,
+        fallback_category::channel_expansion, texture_format::rgba8_unorm);
+    REQUIRE(fb.ok());
+
+    detail::write_global_metadata(state, 800, 600, fb.value());
+
+    REQUIRE(state.format == static_cast<uint32_t>(texture_format::rgba8_unorm));
+    REQUIRE(state.semantic_format == static_cast<uint32_t>(texture_format::r8_unorm));
+    REQUIRE(state.channel_swizzle == static_cast<uint8_t>(fb.value().swizzle));
+    REQUIRE(state.fallback_category == static_cast<uint8_t>(fallback_category::channel_expansion));
+    REQUIRE(state.fallback_target == static_cast<uint32_t>(texture_format::rgba8_unorm));
+    REQUIRE(state.fallback_quality_loss == 0);
+}
+
+TEST_CASE("write_global_metadata: fallback then exact resets fallback fields", "[metadata][stale]") {
+    detail::SenderSharedState state{};
+
+    auto fallback_fb = resolve_format_fallback_info(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::storage_compatible, texture_format::bgra8_unorm);
+    REQUIRE(fallback_fb.ok());
+    detail::write_global_metadata(state, 640, 480, fallback_fb.value());
+
+    REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
+    REQUIRE(state.fallback_category == static_cast<uint8_t>(fallback_category::storage_compatible));
+
+    auto exact_fb = resolve_format_fallback_info(
+        texture_format::rgba16_float, texture_format::rgba16_float,
+        fallback_category::none, texture_format::unknown);
+    REQUIRE(exact_fb.ok());
+    detail::write_global_metadata(state, 1920, 1080, exact_fb.value());
+
+    REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
+    REQUIRE(state.fallback_target == static_cast<uint32_t>(texture_format::unknown));
+    REQUIRE(state.fallback_category == static_cast<uint8_t>(fallback_category::none));
+    REQUIRE(state.fallback_quality_loss == 0);
+    REQUIRE(state.format == static_cast<uint32_t>(texture_format::rgba16_float));
+    REQUIRE(state.semantic_format == static_cast<uint32_t>(texture_format::rgba16_float));
+}
+
+TEST_CASE("write_slot_metadata: fallback then exact resets fallback fields", "[metadata][stale]") {
+    detail::SenderSharedState::SlotInfo slot{};
+    resolved_texture_format resolved{};
+
+    auto fallback_fb = resolve_format_fallback_info(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::storage_compatible, texture_format::bgra8_unorm);
+    REQUIRE(fallback_fb.ok());
+    detail::write_slot_metadata(slot, 1, 100, 640, 480, resolved, fallback_fb.value());
+
+    REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
+    REQUIRE(slot.fallback_category == static_cast<uint8_t>(fallback_category::storage_compatible));
+
+    auto exact_fb = resolve_format_fallback_info(
+        texture_format::rgba16_float, texture_format::rgba16_float,
+        fallback_category::none, texture_format::unknown);
+    REQUIRE(exact_fb.ok());
+    detail::write_slot_metadata(slot, 2, 200, 1920, 1080, resolved, exact_fb.value());
+
+    REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
+    REQUIRE(slot.fallback_target == static_cast<uint32_t>(texture_format::unknown));
+    REQUIRE(slot.fallback_category == static_cast<uint8_t>(fallback_category::none));
+    REQUIRE(slot.fallback_quality_loss == 0);
+    REQUIRE(slot.format == static_cast<uint32_t>(texture_format::rgba16_float));
+}
+
+TEST_CASE("write_global_metadata: external texture clears stale fallback from previous frame", "[metadata][stale]") {
+    detail::SenderSharedState state{};
+
+    auto fallback_fb = resolve_format_fallback_info(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::storage_compatible, texture_format::bgra8_unorm);
+    REQUIRE(fallback_fb.ok());
+    detail::write_global_metadata(state, 640, 480, fallback_fb.value());
+
+    REQUIRE(state.channel_swizzle != static_cast<uint8_t>(channel_swizzle::identity));
+
+    format_fallback_info ext_fb;
+    ext_fb.storage_format = texture_format::rgba8_unorm;
+    ext_fb.requested_format = texture_format::rgba8_unorm;
+    ext_fb.swizzle = channel_swizzle::identity;
+    ext_fb.category = fallback_category::none;
+    ext_fb.fallback_target = texture_format::unknown;
+    ext_fb.quality_loss = false;
+    detail::write_global_metadata(state, 800, 600, ext_fb);
+
+    REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
+    REQUIRE(state.fallback_target == static_cast<uint32_t>(texture_format::unknown));
+    REQUIRE(state.fallback_category == static_cast<uint8_t>(fallback_category::none));
+    REQUIRE(state.fallback_quality_loss == 0);
+}
+
 TEST_CASE("read_fallback_from_slot: constructs fallback from slot fields", "[metadata][read]") {
     detail::SenderSharedState::SlotInfo slot{};
     slot.format = static_cast<uint32_t>(texture_format::bgra8_unorm);
@@ -216,54 +312,103 @@ TEST_CASE("read_fallback_from_slot: external texture with category=none and swiz
     REQUIRE(fb.quality_loss == false);
 }
 
-TEST_CASE("write_slot_metadata: fallback then exact resets fallback fields", "[metadata][stale]") {
+TEST_CASE("construct_frame_info_from_slot: fallback from slot populates frame_info", "[receiver]") {
     detail::SenderSharedState::SlotInfo slot{};
-    resolved_texture_format resolved{};
 
-    auto fallback_fb = resolve_format_fallback_info(
+    auto fb = resolve_format_fallback_info(
         texture_format::rgba8_unorm, texture_format::bgra8_unorm,
         fallback_category::storage_compatible, texture_format::bgra8_unorm);
-    REQUIRE(fallback_fb.ok());
-    detail::write_slot_metadata(slot, 1, 100, 640, 480, resolved, fallback_fb.value());
+    REQUIRE(fb.ok());
+    detail::write_slot_metadata(slot, 42, 999, 640, 480,
+        resolved_texture_format{}, fb.value());
 
-    REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::swap_rb));
-    REQUIRE(slot.fallback_category == static_cast<uint8_t>(fallback_category::storage_compatible));
+    frame_info info = detail::construct_frame_info_from_slot(slot, 42, 0);
 
-    auto exact_fb = resolve_format_fallback_info(
-        texture_format::rgba16_float, texture_format::rgba16_float,
-        fallback_category::none, texture_format::unknown);
-    REQUIRE(exact_fb.ok());
-    detail::write_slot_metadata(slot, 2, 200, 1920, 1080, resolved, exact_fb.value());
-
-    REQUIRE(slot.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
-    REQUIRE(slot.fallback_target == static_cast<uint32_t>(texture_format::unknown));
-    REQUIRE(slot.fallback_category == static_cast<uint8_t>(fallback_category::none));
-    REQUIRE(slot.fallback_quality_loss == 0);
-    REQUIRE(slot.format == static_cast<uint32_t>(texture_format::rgba16_float));
+    REQUIRE(info.frame_index == 42);
+    REQUIRE(info.width == 640);
+    REQUIRE(info.height == 480);
+    REQUIRE(info.format == texture_format::bgra8_unorm);
+    REQUIRE(info.semantic_format == texture_format::rgba8_unorm);
+    REQUIRE(info.fallback.storage_format == texture_format::bgra8_unorm);
+    REQUIRE(info.fallback.requested_format == texture_format::rgba8_unorm);
+    REQUIRE(info.fallback.swizzle == channel_swizzle::swap_rb);
+    REQUIRE(info.fallback.fallback_target == texture_format::bgra8_unorm);
+    REQUIRE(info.fallback.category == fallback_category::storage_compatible);
+    REQUIRE(info.fallback.quality_loss == false);
 }
 
-TEST_CASE("write_global_metadata: external texture clears stale fallback from previous frame", "[metadata][stale]") {
+TEST_CASE("update_connected_info_from_global: initial connection reads global fallback", "[receiver]") {
     detail::SenderSharedState state{};
 
-    auto fallback_fb = resolve_format_fallback_info(
+    auto fb = resolve_format_fallback_info(
         texture_format::rgba8_unorm, texture_format::bgra8_unorm,
         fallback_category::storage_compatible, texture_format::bgra8_unorm);
-    REQUIRE(fallback_fb.ok());
-    detail::write_global_metadata(state, 640, 480, fallback_fb.value());
+    REQUIRE(fb.ok());
+    detail::write_global_metadata(state, 1920, 1080, fb.value());
 
-    REQUIRE(state.channel_swizzle != static_cast<uint8_t>(channel_swizzle::identity));
+    connected_sender_info info{};
+    detail::update_connected_info_from_global(info, state);
+
+    REQUIRE(info.format == texture_format::bgra8_unorm);
+    REQUIRE(info.semantic_format == texture_format::rgba8_unorm);
+    REQUIRE(info.fallback.storage_format == texture_format::bgra8_unorm);
+    REQUIRE(info.fallback.requested_format == texture_format::rgba8_unorm);
+    REQUIRE(info.fallback.swizzle == channel_swizzle::swap_rb);
+    REQUIRE(info.fallback.category == fallback_category::storage_compatible);
+}
+
+TEST_CASE("update_connected_info_from_slot: overrides global with slot data", "[receiver]") {
+    detail::SenderSharedState state{};
+    detail::SenderSharedState::SlotInfo slot{};
+
+    auto global_fb = resolve_format_fallback_info(
+        texture_format::rgba8_unorm, texture_format::bgra8_unorm,
+        fallback_category::storage_compatible, texture_format::bgra8_unorm);
+    REQUIRE(global_fb.ok());
+    detail::write_global_metadata(state, 1920, 1080, global_fb.value());
+
+    connected_sender_info info{};
+    detail::update_connected_info_from_global(info, state);
+
+    REQUIRE(info.fallback.category == fallback_category::storage_compatible);
+    REQUIRE(info.fallback.swizzle == channel_swizzle::swap_rb);
+
+    auto slot_fb = resolve_format_fallback_info(
+        texture_format::rgba16_float, texture_format::rgba16_float,
+        fallback_category::none, texture_format::unknown);
+    REQUIRE(slot_fb.ok());
+    detail::write_slot_metadata(slot, 1, 100, 1920, 1080,
+        resolved_texture_format{}, slot_fb.value());
+
+    detail::update_connected_info_from_slot(info, slot);
+
+    REQUIRE(info.format == texture_format::rgba16_float);
+    REQUIRE(info.semantic_format == texture_format::rgba16_float);
+    REQUIRE(info.fallback.category == fallback_category::none);
+    REQUIRE(info.fallback.swizzle == channel_swizzle::identity);
+    REQUIRE(info.fallback.fallback_target == texture_format::unknown);
+    REQUIRE(info.fallback.quality_loss == false);
+}
+
+TEST_CASE("construct_frame_info_from_slot: external texture with category=none and swizzle!=identity", "[receiver]") {
+    detail::SenderSharedState::SlotInfo slot{};
 
     format_fallback_info ext_fb;
-    ext_fb.storage_format = texture_format::rgba8_unorm;
+    ext_fb.storage_format = texture_format::bgra8_unorm;
     ext_fb.requested_format = texture_format::rgba8_unorm;
-    ext_fb.swizzle = channel_swizzle::identity;
+    ext_fb.swizzle = channel_swizzle::swap_rb;
     ext_fb.category = fallback_category::none;
     ext_fb.fallback_target = texture_format::unknown;
     ext_fb.quality_loss = false;
-    detail::write_global_metadata(state, 800, 600, ext_fb);
+    detail::write_slot_metadata(slot, 1, 100, 640, 480,
+        resolved_texture_format{}, ext_fb);
 
-    REQUIRE(state.channel_swizzle == static_cast<uint8_t>(channel_swizzle::identity));
-    REQUIRE(state.fallback_target == static_cast<uint32_t>(texture_format::unknown));
-    REQUIRE(state.fallback_category == static_cast<uint8_t>(fallback_category::none));
-    REQUIRE(state.fallback_quality_loss == 0);
+    frame_info info = detail::construct_frame_info_from_slot(slot, 1, 0);
+
+    REQUIRE(info.fallback.storage_format == texture_format::bgra8_unorm);
+    REQUIRE(info.fallback.requested_format == texture_format::rgba8_unorm);
+    REQUIRE(info.fallback.swizzle == channel_swizzle::swap_rb);
+    REQUIRE(info.fallback.category == fallback_category::none);
+    REQUIRE(info.fallback.fallback_target == texture_format::unknown);
+    REQUIRE(info.fallback.quality_loss == false);
 }
