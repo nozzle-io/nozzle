@@ -484,12 +484,16 @@ NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
 ) {
     if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    if (receiver->obj) {
-        receiver->cached_connected_info = receiver->obj->connected_info();
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (receiver->use_cached_connected_info_for_tests) {
+        return fill_fallback(out_info, receiver->cached_connected_info.fallback);
     }
-    const auto fb = receiver->cached_connected_info.fallback;
+#endif
 
-    return fill_fallback(out_info, fb);
+    if (!receiver->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    receiver->cached_connected_info = receiver->obj->connected_info();
+    return fill_fallback(out_info, receiver->cached_connected_info.fallback);
 }
 
 // ========== Discovery ==========

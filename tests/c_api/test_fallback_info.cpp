@@ -179,6 +179,7 @@ namespace {
 
 NozzleReceiver make_test_receiver_with_fallback(const nozzle::format_fallback_info &fb) {
     NozzleReceiver r{};
+    r.use_cached_connected_info_for_tests = true;
     nozzle::connected_sender_info ci{};
     ci.fallback = fb;
     r.cached_connected_info = ci;
@@ -187,7 +188,7 @@ NozzleReceiver make_test_receiver_with_fallback(const nozzle::format_fallback_in
 
 } // anonymous namespace
 
-TEST_CASE("getter: receiver returns quality_loss fallback via test hook", "[c_api][fallback]") {
+TEST_CASE("getter: receiver returns quality_loss fallback", "[c_api][fallback]") {
     nozzle::format_fallback_info fb;
     fb.requested_format = nozzle::texture_format::rgba32_float;
     fb.storage_format = nozzle::texture_format::rgba16_float;

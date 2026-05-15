@@ -146,4 +146,8 @@ target_include_directories(nozzle_c_api_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/c_api
 )
 
+if(NOZZLE_BUILD_TESTS)
+    target_compile_definitions(nozzle_c_api_tests PRIVATE NOZZLE_ENABLE_TEST_HOOKS)
+endif()
+
 catch_discover_tests(nozzle_c_api_tests)

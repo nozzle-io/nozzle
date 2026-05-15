@@ -14,6 +14,9 @@ struct NozzleSender {
 struct NozzleReceiver {
     std::unique_ptr<nozzle::receiver> obj;
     nozzle::connected_sender_info cached_connected_info{};
+#if NOZZLE_ENABLE_TEST_HOOKS
+    bool use_cached_connected_info_for_tests{false};
+#endif
 };
 
 struct NozzleFrame {

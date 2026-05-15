@@ -243,6 +243,7 @@ endif()
 # --- Tests ---
 option(NOZZLE_BUILD_TESTS "Build nozzle tests" ON)
 if(NOZZLE_BUILD_TESTS)
+    target_compile_definitions(nozzle PRIVATE NOZZLE_ENABLE_TEST_HOOKS)
     enable_testing()
     add_subdirectory(tests)
 endif()
