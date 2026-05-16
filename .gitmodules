@@ -1,3 +1,6 @@
 [submodule "libs/plog"]
 	path = libs/plog
 	url = https://github.com/SergiusTheBest/plog.git
+[submodule "repos/ofxNozzle"]
+	path = repos/ofxNozzle
+	url = git@github.com:2bbb/ofxNozzle.git
