@@ -99,3 +99,25 @@ TEST_CASE("resolve_fallback_flags: null out_flags -> INVALID_ARGUMENT", "[c_api]
     NozzleSenderDesc desc{};
     REQUIRE(nozzle_resolve_fallback_flags(&desc, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
+
+TEST_CASE("C API: nozzle_sender_get_native_device null checks", "[c_api][native_device]") {
+    NozzleNativeDevice nd{};
+    REQUIRE(nozzle_sender_get_native_device(nullptr, &nd) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: nozzle_sender_get_native_device returns default device", "[c_api][native_device]") {
+    NozzleSenderDesc desc{};
+    desc.name = "test_c_native_default";
+
+    NozzleSender *sender = nullptr;
+    NozzleErrorCode ec = nozzle_sender_create(&desc, &sender);
+    if (ec != NOZZLE_OK) { return; }
+
+    NozzleNativeDevice nd{};
+    ec = nozzle_sender_get_native_device(sender, &nd);
+    REQUIRE(ec == NOZZLE_OK);
+    REQUIRE(nd.device != nullptr);
+    REQUIRE(nd.backend == NOZZLE_BACKEND_METAL);
+
+    nozzle_sender_destroy(sender);
+}

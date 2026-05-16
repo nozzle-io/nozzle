@@ -164,6 +164,12 @@ typedef struct NozzleFormatFallbackInfo {
 
 // ========== Descriptor Structs ==========
 
+typedef struct NozzleNativeDevice {
+    NozzleBackendType backend;
+    void *device;
+    void *context;
+} NozzleNativeDevice;
+
 typedef struct NozzleSenderDesc {
     const char *name;
     const char *application_name;
@@ -171,6 +177,7 @@ typedef struct NozzleSenderDesc {
     int allow_format_fallback;
     uint32_t fallback_flags;
     int fallback_flags_valid;
+    NozzleNativeDevice native_device;
 } NozzleSenderDesc;
 
 typedef struct NozzleReceiverDesc {
@@ -273,6 +280,11 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_commit_frame(
 NOZZLE_C_API NozzleErrorCode nozzle_sender_get_info(
     NozzleSender *sender,
     NozzleSenderInfo *out_info
+);
+
+NOZZLE_C_API NozzleErrorCode nozzle_sender_get_native_device(
+    NozzleSender *sender,
+    NozzleNativeDevice *out_device
 );
 
 // ========== Receiver API ==========

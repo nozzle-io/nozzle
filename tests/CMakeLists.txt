@@ -85,6 +85,13 @@ set(INTEGRATION_TEST_SOURCES
 if(APPLE)
     list(APPEND INTEGRATION_TEST_SOURCES
         integration/test_metal_format_mapping.cpp
+        integration/test_metal_device_injection.mm
+    )
+endif()
+
+if(APPLE)
+    list(APPEND INTEGRATION_TEST_SOURCES
+        integration/test_metal_format_mapping.cpp
     )
 endif()
 

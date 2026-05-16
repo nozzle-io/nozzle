@@ -252,12 +252,19 @@ constexpr uint32_t fallback_allow_channel_expansion{1u << 1};
 constexpr uint32_t fallback_allow_quality_loss{1u << 2};
 constexpr uint32_t fallback_safe_defaults{fallback_allow_storage_compatible | fallback_allow_channel_expansion};
 
+struct native_device_desc {
+    backend_type backend{backend_type::unknown};
+    void *device{nullptr};
+    void *context{nullptr};
+};
+
 struct sender_desc {
     std::string name{};
     std::string application_name{};
     uint32_t ring_buffer_size{3};
     metadata_list metadata{};
     uint32_t fallback_flags{fallback_safe_defaults};
+    native_device_desc native_device{};
 };
 
 struct receiver_desc {

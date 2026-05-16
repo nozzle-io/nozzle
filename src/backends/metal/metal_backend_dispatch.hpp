@@ -80,6 +80,7 @@ inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, ui
 
 inline auto notify_sender_uuid(const char * /*uuid*/) -> Result<void> { return {}; }
 inline void cleanup_sender_socket() {}
+inline void release_device(void *device) { metal::release_mtl_device(device); }
 
 } // namespace backend
 } // namespace detail

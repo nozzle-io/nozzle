@@ -33,3 +33,16 @@ TEST_CASE("C++ sender_desc: valid fallback_flags passes descriptor validation", 
         REQUIRE(r.error().code != nozzle::ErrorCode::InvalidArgument);
     }
 }
+
+TEST_CASE("C++ sender: native_device() returns default device when none injected", "[native_device]") {
+    nozzle::sender_desc desc{};
+    desc.name = "test_native_default";
+    desc.native_device = {};
+
+    auto r = nozzle::sender::create(desc);
+    if (!r.ok()) { return; }
+
+    auto nd = r.value().native_device();
+    REQUIRE(nd.device != nullptr);
+    REQUIRE(nd.backend == nozzle::backend_type::metal);
+}

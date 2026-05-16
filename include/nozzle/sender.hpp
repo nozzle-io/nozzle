@@ -29,6 +29,8 @@ public:
     Result<void> commit_frame(writable_frame &frame);
 
     sender_info info() const;
+    native_device_desc native_device() const;
+
     Result<void> set_metadata(const metadata_list &metadata);
 
     bool valid() const;

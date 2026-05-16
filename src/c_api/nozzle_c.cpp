@@ -60,6 +60,17 @@ NozzleBackendType to_c_backend_type(nozzle::backend_type bt) {
     }
 }
 
+nozzle::backend_type to_cpp_backend_type(NozzleBackendType bt) {
+    switch (bt) {
+        case NOZZLE_BACKEND_D3D11: return nozzle::backend_type::d3d11;
+        case NOZZLE_BACKEND_METAL: return nozzle::backend_type::metal;
+        case NOZZLE_BACKEND_OPENGL: return nozzle::backend_type::opengl;
+        case NOZZLE_BACKEND_DMA_BUF: return nozzle::backend_type::dma_buf;
+        case NOZZLE_BACKEND_UNKNOWN:
+        default: return nozzle::backend_type::unknown;
+    }
+}
+
 NozzleTextureFormat to_c_format(nozzle::texture_format fmt) {
     switch (fmt) {
         case nozzle::texture_format::r8_unorm: return NOZZLE_FORMAT_R8_UNORM;
@@ -263,6 +274,11 @@ NozzleErrorCode nozzle_sender_create(
     if (desc->application_name) cpp_desc.application_name = desc->application_name;
     cpp_desc.ring_buffer_size = desc->ring_buffer_size;
     cpp_desc.fallback_flags = fb_flags;
+    if (desc->native_device.device != nullptr) {
+        cpp_desc.native_device.backend = to_cpp_backend_type(desc->native_device.backend);
+        cpp_desc.native_device.device = desc->native_device.device;
+        cpp_desc.native_device.context = desc->native_device.context;
+    }
 
     auto result = nozzle::sender::create(cpp_desc);
     if (!result.ok()) return to_c_error(result.error().code);
@@ -338,6 +354,19 @@ NozzleErrorCode nozzle_sender_get_info(
     out_info->application_name = sender->cached_info.application_name.c_str();
     out_info->id = sender->cached_info.id.c_str();
     out_info->backend = to_c_backend_type(sender->cached_info.backend);
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_sender_get_native_device(
+    NozzleSender *sender,
+    NozzleNativeDevice *out_device
+) {
+    if (!sender || !out_device) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    auto nd = sender->obj->native_device();
+    out_device->backend = to_c_backend_type(nd.backend);
+    out_device->device = nd.device;
+    out_device->context = nd.context;
     return NOZZLE_OK;
 }
 

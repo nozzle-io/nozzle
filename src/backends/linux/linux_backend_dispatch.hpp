@@ -441,6 +441,8 @@ inline auto blit_textures(void * /*device*/, void * /*src*/, void * /*dst*/, uin
     return Error{ErrorCode::UnsupportedBackend, "native texture blit not implemented for DMA-BUF backend"};
 }
 
+inline void release_device(void * /*device*/) {}
+
 } // namespace backend
 } // namespace detail
 } // namespace nozzle

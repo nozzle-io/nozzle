@@ -31,6 +31,8 @@ struct sender::Impl {
 	detail::ipc::shm_handle state_handle{};
 	device device_{};
 	void *native_device_{nullptr};
+	native_device_desc native_device_info_{};
+	bool owns_native_device_{false};
 	std::array<texture, detail::kMaxRingSlots> ring_textures_{};
 	std::array<bool, detail::kMaxRingSlots> slot_in_use_{};
 	uint32_t next_slot_{0};
@@ -56,6 +58,10 @@ struct sender::Impl {
 		}
 		detail::ipc::shm_close(state_handle);
 		detail::registry::unregister_sender(registration_.uuid);
+		if (owns_native_device_ && native_device_) {
+			detail::backend::release_device(native_device_);
+			native_device_ = nullptr;
+		}
 	}
 };
 
@@ -140,7 +146,19 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->state = state;
 	s.impl_->state_handle = std::move(state_shm.value());
 	s.impl_->device_ = std::move(dev);
-	s.impl_->native_device_ = detail::backend::get_default_device();
+	if (desc.native_device.device != nullptr) {
+		s.impl_->native_device_ = desc.native_device.device;
+		s.impl_->native_device_info_ = desc.native_device;
+		s.impl_->owns_native_device_ = false;
+	} else {
+		s.impl_->native_device_ = detail::backend::get_default_device();
+		s.impl_->native_device_info_ = native_device_desc{
+			detail::backend::get_backend_type(),
+			s.impl_->native_device_,
+			nullptr
+		};
+		s.impl_->owns_native_device_ = true;
+	}
 	s.impl_->slot_in_use_.fill(false);
 	s.impl_->info_.name = desc.name;
 	s.impl_->info_.application_name = desc.application_name;
@@ -429,6 +447,13 @@ sender_info sender::info() const {
 		return {};
 	}
 	return impl_->info_;
+}
+
+native_device_desc sender::native_device() const {
+	if (!impl_) {
+		return {};
+	}
+	return impl_->native_device_info_;
 }
 
 Result<void> sender::set_metadata(const metadata_list &metadata) {
