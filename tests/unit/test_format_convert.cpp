@@ -720,3 +720,39 @@ TEST_CASE("widen_half_to_float: negative stride rejected", "[format_convert]") {
 	REQUIRE_FALSE(r.ok());
 	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
 }
+
+TEST_CASE("widen_uint16_to_uint32: stride > UINT32_MAX rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	int64_t huge = static_cast<int64_t>(UINT32_MAX) + 16;
+	auto r = widen_uint16_to_uint32(buf, buf, 1, 1, huge, 4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+
+	r = widen_uint16_to_uint32(buf, buf, 1, 1, 4, huge, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("convert_uint32_to_float32: stride > UINT32_MAX rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	int64_t huge = static_cast<int64_t>(UINT32_MAX) + 16;
+	auto r = convert_uint32_to_float32(buf, buf, 1, 1, huge, 4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+
+	r = convert_uint32_to_float32(buf, buf, 1, 1, 4, huge, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("widen_half_to_float: stride > UINT32_MAX rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	int64_t huge = static_cast<int64_t>(UINT32_MAX) + 16;
+	auto r = widen_half_to_float(buf, buf, 1, 1, huge, 4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+
+	r = widen_half_to_float(buf, buf, 1, 1, 4, huge, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}

@@ -80,6 +80,8 @@ Result<void> swizzle_channels(
 
 	if (src_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "src_row_bytes must be non-negative"};
 	if (dst_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "dst_row_bytes must be non-negative"};
+	if (src_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "src_row_bytes exceeds uint32_t range"};
+	if (dst_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "dst_row_bytes exceeds uint32_t range"};
 
 	int64_t min_row = static_cast<int64_t>(width) * bpp;
 	if (src_row_bytes < min_row || dst_row_bytes < min_row)

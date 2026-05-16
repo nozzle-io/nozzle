@@ -84,3 +84,19 @@ TEST_CASE("C API: negative dst_row_bytes rejected", "[c_api][swizzle]") {
 	REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, 4, -4,
 		NOZZLE_FORMAT_RGBA8_UNORM, permute) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
+
+TEST_CASE("C API: src_row_bytes > UINT32_MAX rejected", "[c_api][swizzle]") {
+	uint8_t buf[64]{};
+	const uint8_t permute[4] = {3, 2, 1, 0};
+	int64_t huge = static_cast<int64_t>(UINT32_MAX) + 16;
+	REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, huge, 4,
+		NOZZLE_FORMAT_RGBA8_UNORM, permute) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: dst_row_bytes > UINT32_MAX rejected", "[c_api][swizzle]") {
+	uint8_t buf[64]{};
+	const uint8_t permute[4] = {3, 2, 1, 0};
+	int64_t huge = static_cast<int64_t>(UINT32_MAX) + 16;
+	REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, 4, huge,
+		NOZZLE_FORMAT_RGBA8_UNORM, permute) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}

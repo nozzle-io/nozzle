@@ -165,6 +165,8 @@ Result<void> widen_uint16_to_uint32(
 	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
 	if (src_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "src_row_bytes must be non-negative"};
 	if (dst_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "dst_row_bytes must be non-negative"};
+	if (src_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "src_row_bytes exceeds uint32_t range"};
+	if (dst_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "dst_row_bytes exceeds uint32_t range"};
 
 	uint32_t min_src{};
 	uint32_t min_dst{};
@@ -203,6 +205,8 @@ Result<void> convert_uint32_to_float32(
 	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
 	if (src_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "src_row_bytes must be non-negative"};
 	if (dst_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "dst_row_bytes must be non-negative"};
+	if (src_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "src_row_bytes exceeds uint32_t range"};
+	if (dst_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "dst_row_bytes exceeds uint32_t range"};
 
 	uint32_t min_row{};
 	uint32_t row_el{};
@@ -238,6 +242,8 @@ Result<void> widen_half_to_float(
 	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
 	if (src_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "src_row_bytes must be non-negative"};
 	if (dst_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "dst_row_bytes must be non-negative"};
+	if (src_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "src_row_bytes exceeds uint32_t range"};
+	if (dst_row_bytes > UINT32_MAX) return Error{ErrorCode::InvalidArgument, "dst_row_bytes exceeds uint32_t range"};
 
 	uint32_t min_src{};
 	uint32_t min_dst{};
