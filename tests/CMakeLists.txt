@@ -133,6 +133,7 @@ endif()
 add_executable(nozzle_c_api_tests
     c_api/test_swizzle.cpp
     c_api/test_fallback_info.cpp
+    c_api/test_fill_alpha.cpp
 )
 
 target_link_libraries(nozzle_c_api_tests PRIVATE

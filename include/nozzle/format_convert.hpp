@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <nozzle/result.hpp>
 #include <nozzle/types.hpp>
