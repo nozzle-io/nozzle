@@ -490,3 +490,200 @@ TEST_CASE("widen_half_to_float: subnormal to normal boundary", "[format_convert]
 	REQUIRE(r.ok());
 	REQUIRE_THAT(dst, WithinAbs(0.00006103515625f, 1e-12f));
 }
+
+// ---------- fill_opaque_alpha_channel ----------
+
+TEST_CASE("fill_opaque_alpha_channel: null data returns error", "[format_convert]") {
+	auto r = fill_opaque_alpha_channel(nullptr, 1, 1, 4, texture_format::rgba8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: zero width returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 0, 1, 4, texture_format::rgba8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: zero height returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 0, 4, texture_format::rgba8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: zero stride returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 1, 0, texture_format::rgba8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: stride too small returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 2, 1, 4, texture_format::rgba8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: unsupported format rgb8 returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 1, 4, texture_format::rgb8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: unsupported format r8 returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 1, 4, texture_format::r8_unorm);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: unsupported format unknown returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 1, 4, texture_format::unknown);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: unsupported format rgba8_srgb returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 1, 4, texture_format::rgba8_srgb);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: unsupported format bgra8_srgb returns error", "[format_convert]") {
+	uint8_t buf[4]{};
+	auto r = fill_opaque_alpha_channel(buf, 1, 1, 4, texture_format::bgra8_srgb);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: rgba8_unorm writes 0xFF at offset 3", "[format_convert]") {
+	uint8_t pixel[4] = {0x11, 0x22, 0x33, 0x00};
+	auto r = fill_opaque_alpha_channel(pixel, 1, 1, 4, texture_format::rgba8_unorm);
+	REQUIRE(r.ok());
+	REQUIRE(pixel[0] == 0x11);
+	REQUIRE(pixel[1] == 0x22);
+	REQUIRE(pixel[2] == 0x33);
+	REQUIRE(pixel[3] == 0xFF);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: bgra8_unorm writes 0xFF at offset 3", "[format_convert]") {
+	uint8_t pixel[4] = {0x33, 0x22, 0x11, 0x00};
+	auto r = fill_opaque_alpha_channel(pixel, 1, 1, 4, texture_format::bgra8_unorm);
+	REQUIRE(r.ok());
+	REQUIRE(pixel[0] == 0x33);
+	REQUIRE(pixel[1] == 0x22);
+	REQUIRE(pixel[2] == 0x11);
+	REQUIRE(pixel[3] == 0xFF);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: rgba16_unorm writes 0xFFFF at offset 6", "[format_convert]") {
+	uint8_t pixel[8] = {0x11, 0x11, 0x22, 0x22, 0x33, 0x33, 0x00, 0x00};
+	auto r = fill_opaque_alpha_channel(pixel, 1, 1, 8, texture_format::rgba16_unorm);
+	REQUIRE(r.ok());
+	REQUIRE(pixel[0] == 0x11); REQUIRE(pixel[1] == 0x11);
+	REQUIRE(pixel[2] == 0x22); REQUIRE(pixel[3] == 0x22);
+	REQUIRE(pixel[4] == 0x33); REQUIRE(pixel[5] == 0x33);
+	uint16_t alpha;
+	std::memcpy(&alpha, pixel + 6, sizeof(alpha));
+	REQUIRE(alpha == 0xFFFF);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: rgba16_float writes half 1.0 at offset 6", "[format_convert]") {
+	uint8_t pixel[8] = {0x11, 0x11, 0x22, 0x22, 0x33, 0x33, 0x00, 0x00};
+	auto r = fill_opaque_alpha_channel(pixel, 1, 1, 8, texture_format::rgba16_float);
+	REQUIRE(r.ok());
+	REQUIRE(pixel[0] == 0x11); REQUIRE(pixel[1] == 0x11);
+	REQUIRE(pixel[2] == 0x22); REQUIRE(pixel[3] == 0x22);
+	REQUIRE(pixel[4] == 0x33); REQUIRE(pixel[5] == 0x33);
+	uint16_t alpha;
+	std::memcpy(&alpha, pixel + 6, sizeof(alpha));
+	REQUIRE(alpha == 0x3C00);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: rgba32_float writes 1.0f at offset 12", "[format_convert]") {
+	float rgb[3] = {0.25f, 0.5f, 0.75f};
+	float pixel[4] = {rgb[0], rgb[1], rgb[2], 0.0f};
+	auto r = fill_opaque_alpha_channel(pixel, 1, 1, 16, texture_format::rgba32_float);
+	REQUIRE(r.ok());
+	REQUIRE(pixel[0] == rgb[0]);
+	REQUIRE(pixel[1] == rgb[1]);
+	REQUIRE(pixel[2] == rgb[2]);
+	REQUIRE(pixel[3] == 1.0f);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: rgba32_uint writes 1u at offset 12", "[format_convert]") {
+	uint32_t pixel[4] = {100u, 200u, 300u, 0u};
+	auto r = fill_opaque_alpha_channel(pixel, 1, 1, 16, texture_format::rgba32_uint);
+	REQUIRE(r.ok());
+	REQUIRE(pixel[0] == 100u);
+	REQUIRE(pixel[1] == 200u);
+	REQUIRE(pixel[2] == 300u);
+	REQUIRE(pixel[3] == 1u);
+}
+
+TEST_CASE("fill_opaque_alpha_channel: multi-row rgba8 with padded stride", "[format_convert]") {
+	constexpr uint32_t w = 2;
+	constexpr uint32_t h = 3;
+	constexpr uint32_t bpp = 4;
+	constexpr std::ptrdiff_t row_stride = w * bpp + 8;
+
+	std::vector<uint8_t> buf(h * static_cast<size_t>(row_stride), 0);
+	for (uint32_t y = 0; y < h; ++y) {
+		for (uint32_t x = 0; x < w; ++x) {
+			uint8_t *px = buf.data() + y * row_stride + x * bpp;
+			px[0] = static_cast<uint8_t>(y * w + x + 1);
+			px[1] = static_cast<uint8_t>(y * w + x + 10);
+			px[2] = static_cast<uint8_t>(y * w + x + 20);
+			px[3] = 0x00;
+		}
+	}
+
+	auto r = fill_opaque_alpha_channel(buf.data(), w, h, row_stride, texture_format::rgba8_unorm);
+	REQUIRE(r.ok());
+
+	for (uint32_t y = 0; y < h; ++y) {
+		for (uint32_t x = 0; x < w; ++x) {
+			const uint8_t *px = buf.data() + y * row_stride + x * bpp;
+			REQUIRE(px[0] == static_cast<uint8_t>(y * w + x + 1));
+			REQUIRE(px[1] == static_cast<uint8_t>(y * w + x + 10));
+			REQUIRE(px[2] == static_cast<uint8_t>(y * w + x + 20));
+			REQUIRE(px[3] == 0xFF);
+		}
+	}
+}
+
+TEST_CASE("fill_opaque_alpha_channel: negative stride rgba8", "[format_convert]") {
+	constexpr uint32_t w = 2;
+	constexpr uint32_t h = 2;
+	constexpr uint32_t bpp = 4;
+	constexpr uint32_t row_bytes = w * bpp;
+
+	std::vector<uint8_t> buf(h * row_bytes, 0);
+
+	uint8_t *row0 = buf.data();
+	row0[0] = 1; row0[1] = 10; row0[2] = 20; row0[3] = 0;
+	row0[4] = 2; row0[5] = 11; row0[6] = 21; row0[7] = 0;
+
+	uint8_t *row1 = buf.data() + row_bytes;
+	row1[0] = 3; row1[1] = 12; row1[2] = 22; row1[3] = 0;
+	row1[4] = 4; row1[5] = 13; row1[6] = 23; row1[7] = 0;
+
+	auto r = fill_opaque_alpha_channel(row1, w, h, -static_cast<std::ptrdiff_t>(row_bytes), texture_format::rgba8_unorm);
+	REQUIRE(r.ok());
+
+	REQUIRE(row0[3] == 0xFF);
+	REQUIRE(row0[7] == 0xFF);
+	REQUIRE(row1[3] == 0xFF);
+	REQUIRE(row1[7] == 0xFF);
+
+	REQUIRE(row0[0] == 1); REQUIRE(row0[1] == 10); REQUIRE(row0[2] == 20);
+	REQUIRE(row0[4] == 2); REQUIRE(row0[5] == 11); REQUIRE(row0[6] == 21);
+	REQUIRE(row1[0] == 3); REQUIRE(row1[1] == 12); REQUIRE(row1[2] == 22);
+	REQUIRE(row1[4] == 4); REQUIRE(row1[5] == 13); REQUIRE(row1[6] == 23);
+}

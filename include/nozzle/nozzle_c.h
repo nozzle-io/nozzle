@@ -489,6 +489,14 @@ NOZZLE_C_API NozzleErrorCode nozzle_widen_half_to_float(
     uint32_t channels
 );
 
+NOZZLE_C_API NozzleErrorCode nozzle_fill_opaque_alpha_channel(
+    void *data,
+    uint32_t width,
+    uint32_t height,
+    int64_t row_stride_bytes,
+    NozzleTextureFormat storage_format
+);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

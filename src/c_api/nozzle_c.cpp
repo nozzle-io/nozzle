@@ -880,4 +880,17 @@ NozzleErrorCode nozzle_widen_half_to_float(
     return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
 }
 
+NozzleErrorCode nozzle_fill_opaque_alpha_channel(
+    void *data,
+    uint32_t width,
+    uint32_t height,
+    int64_t row_stride_bytes,
+    NozzleTextureFormat storage_format
+) {
+    auto fmt = to_cpp_format(storage_format);
+    auto result = nozzle::fill_opaque_alpha_channel(
+        data, width, height, static_cast<std::ptrdiff_t>(row_stride_bytes), fmt);
+    return to_c_error(result.ok() ? nozzle::ErrorCode::Ok : result.error().code);
+}
+
 } // extern "C"

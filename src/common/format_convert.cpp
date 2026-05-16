@@ -262,4 +262,105 @@ Result<void> widen_half_to_float(
 	return {};
 }
 
+static uint32_t alpha_byte_offset_for_format(texture_format fmt) {
+	switch (fmt) {
+	case texture_format::rgba8_unorm:
+	case texture_format::bgra8_unorm:
+		return 3;
+	case texture_format::rgba16_unorm:
+	case texture_format::rgba16_float:
+		return 6;
+	case texture_format::rgba32_float:
+	case texture_format::rgba32_uint:
+		return 12;
+	default:
+		return 0;
+	}
+}
+
+static uint32_t bpp_for_alpha_format(texture_format fmt) {
+	switch (fmt) {
+	case texture_format::rgba8_unorm:
+	case texture_format::bgra8_unorm:
+		return 4;
+	case texture_format::rgba16_unorm:
+	case texture_format::rgba16_float:
+		return 8;
+	case texture_format::rgba32_float:
+	case texture_format::rgba32_uint:
+		return 16;
+	default:
+		return 0;
+	}
+}
+
+static void write_opaque_alpha(uint8_t *pixel, uint32_t alpha_offset, texture_format fmt) {
+	switch (fmt) {
+	case texture_format::rgba8_unorm:
+	case texture_format::bgra8_unorm:
+		pixel[alpha_offset] = 0xFF;
+		break;
+	case texture_format::rgba16_unorm: {
+		uint16_t val = 0xFFFF;
+		std::memcpy(pixel + alpha_offset, &val, sizeof(val));
+		break;
+	}
+	case texture_format::rgba16_float: {
+		uint16_t val = 0x3C00;
+		std::memcpy(pixel + alpha_offset, &val, sizeof(val));
+		break;
+	}
+	case texture_format::rgba32_float: {
+		float val = 1.0f;
+		std::memcpy(pixel + alpha_offset, &val, sizeof(val));
+		break;
+	}
+	case texture_format::rgba32_uint: {
+		uint32_t val = 1u;
+		std::memcpy(pixel + alpha_offset, &val, sizeof(val));
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+Result<void> fill_opaque_alpha_channel(
+	void *data,
+	uint32_t width,
+	uint32_t height,
+	std::ptrdiff_t row_stride_bytes,
+	texture_format storage_format)
+{
+	if (!data) return Error{ErrorCode::InvalidArgument, "null data"};
+	if (width == 0 || height == 0) return Error{ErrorCode::InvalidArgument, "zero dimensions"};
+	if (row_stride_bytes == 0) return Error{ErrorCode::InvalidArgument, "zero row stride"};
+
+	uint32_t bpp = bpp_for_alpha_format(storage_format);
+	if (bpp == 0) return Error{ErrorCode::UnsupportedFormat, "format not supported for alpha fill"};
+
+	uint32_t alpha_offset = alpha_byte_offset_for_format(storage_format);
+
+	uint32_t min_row{};
+	if (!safe_mul_u32(width, bpp, min_row))
+		return Error{ErrorCode::InvalidArgument, "width * bpp overflow"};
+
+	std::ptrdiff_t abs_stride = row_stride_bytes;
+	if (abs_stride < 0) {
+		if (abs_stride == PTRDIFF_MIN) return Error{ErrorCode::InvalidArgument, "row stride is PTRDIFF_MIN"};
+		abs_stride = -abs_stride;
+	}
+	if (abs_stride < static_cast<std::ptrdiff_t>(min_row))
+		return Error{ErrorCode::InvalidArgument, "row stride too small for width and format"};
+
+	auto *base = static_cast<uint8_t *>(data);
+	for (uint32_t y = 0; y < height; ++y) {
+		uint8_t *row = base + static_cast<std::ptrdiff_t>(y) * row_stride_bytes;
+		for (uint32_t x = 0; x < width; ++x) {
+			write_opaque_alpha(row + x * bpp, alpha_offset, storage_format);
+		}
+	}
+	return {};
+}
+
 } // namespace nozzle

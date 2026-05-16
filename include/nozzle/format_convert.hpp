@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <nozzle/result.hpp>
+#include <nozzle/types.hpp>
 
 namespace nozzle {
 
@@ -31,5 +32,15 @@ Result<void> widen_half_to_float(
 	uint32_t width, uint32_t height,
 	uint32_t src_row_bytes, uint32_t dst_row_bytes,
 	uint32_t channels);
+
+// Fill the alpha channel of a 4-channel pixel buffer with the canonical opaque value.
+// Only whitelisted 4-channel formats are accepted — all others return UnsupportedFormat.
+// row_stride_bytes is signed to support negative strides (bottom-up layouts).
+Result<void> fill_opaque_alpha_channel(
+	void *data,
+	uint32_t width,
+	uint32_t height,
+	std::ptrdiff_t row_stride_bytes,
+	texture_format storage_format);
 
 } // namespace nozzle
