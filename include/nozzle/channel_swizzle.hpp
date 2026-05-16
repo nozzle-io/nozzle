@@ -26,7 +26,7 @@ constexpr channel_permute permute_rgba_to_argb{{3, 0, 1, 2}};
 Result<void> swizzle_channels(
 	const void *src, void *dst,
 	uint32_t width, uint32_t height,
-	uint32_t src_row_bytes, uint32_t dst_row_bytes,
+	int64_t src_row_bytes, int64_t dst_row_bytes,
 	texture_format format,
 	channel_permute permute);
 

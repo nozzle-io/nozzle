@@ -40,13 +40,13 @@ static uint32_t bytes_per_pixel_for_format(texture_format fmt) {
 static void swizzle_scalar(
 	const uint8_t *src, uint8_t *dst,
 	uint32_t width, uint32_t height,
-	uint32_t src_row_bytes, uint32_t dst_row_bytes,
+	int64_t src_row_bytes, int64_t dst_row_bytes,
 	uint32_t bpp,
 	channel_permute permute)
 {
 	for (uint32_t y = 0; y < height; ++y) {
-		const uint8_t *src_row = src + static_cast<uint64_t>(y) * src_row_bytes;
-		uint8_t *dst_row = dst + static_cast<uint64_t>(y) * dst_row_bytes;
+		const uint8_t *src_row = src + static_cast<int64_t>(y) * src_row_bytes;
+		uint8_t *dst_row = dst + static_cast<int64_t>(y) * dst_row_bytes;
 		for (uint32_t x = 0; x < width; ++x) {
 			const uint8_t *sp = src_row + static_cast<uint64_t>(x) * bpp;
 			uint8_t *dp = dst_row + static_cast<uint64_t>(x) * bpp;
@@ -62,7 +62,7 @@ static void swizzle_scalar(
 Result<void> swizzle_channels(
 	const void *src, void *dst,
 	uint32_t width, uint32_t height,
-	uint32_t src_row_bytes, uint32_t dst_row_bytes,
+	int64_t src_row_bytes, int64_t dst_row_bytes,
 	texture_format format,
 	channel_permute permute)
 {
@@ -78,16 +78,18 @@ Result<void> swizzle_channels(
 		return Error{ErrorCode::UnsupportedFormat, "unsupported texture format for swizzle"};
 	}
 
-	uint32_t min_row_bytes{};
-	if (!safe_mul_u32(width, bpp, min_row_bytes))
-		return Error{ErrorCode::InvalidArgument, "width * bpp overflow"};
-	if (src_row_bytes < min_row_bytes || dst_row_bytes < min_row_bytes) {
+	if (src_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "src_row_bytes must be non-negative"};
+	if (dst_row_bytes < 0) return Error{ErrorCode::InvalidArgument, "dst_row_bytes must be non-negative"};
+
+	int64_t min_row = static_cast<int64_t>(width) * bpp;
+	if (src_row_bytes < min_row || dst_row_bytes < min_row)
 		return Error{ErrorCode::InvalidArgument, "row_bytes too small for width and format"};
-	}
 
 #if NOZZLE_PLATFORM_MACOS
 	auto vimage_result = detail::try_swizzle_vimage(
-		src, dst, width, height, src_row_bytes, dst_row_bytes, bpp, permute);
+		src, dst, width, height,
+		static_cast<uint32_t>(src_row_bytes), static_cast<uint32_t>(dst_row_bytes),
+		bpp, permute);
 	if (vimage_result.ok()) {
 		return vimage_result;
 	}

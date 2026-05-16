@@ -453,8 +453,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_swizzle_channels(
     void *dst,
     uint32_t width,
     uint32_t height,
-    uint32_t src_row_bytes,
-    uint32_t dst_row_bytes,
+    int64_t src_row_bytes,
+    int64_t dst_row_bytes,
     NozzleTextureFormat format,
     const uint8_t permute_map[4]
 );
@@ -464,8 +464,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_widen_uint16_to_uint32(
     void *dst,
     uint32_t width,
     uint32_t height,
-    uint32_t src_row_bytes,
-    uint32_t dst_row_bytes,
+    int64_t src_row_bytes,
+    int64_t dst_row_bytes,
     uint32_t channels
 );
 
@@ -474,8 +474,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_convert_uint32_to_float32(
     void *dst,
     uint32_t width,
     uint32_t height,
-    uint32_t src_row_bytes,
-    uint32_t dst_row_bytes,
+    int64_t src_row_bytes,
+    int64_t dst_row_bytes,
     uint32_t channels
 );
 
@@ -484,8 +484,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_widen_half_to_float(
     void *dst,
     uint32_t width,
     uint32_t height,
-    uint32_t src_row_bytes,
-    uint32_t dst_row_bytes,
+    int64_t src_row_bytes,
+    int64_t dst_row_bytes,
     uint32_t channels
 );
 

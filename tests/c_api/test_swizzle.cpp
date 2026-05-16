@@ -70,3 +70,17 @@ TEST_CASE("C API: null permute_map rejected", "[c_api][swizzle]") {
 	REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, 4, 4,
 		NOZZLE_FORMAT_RGBA8_UNORM, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
+
+TEST_CASE("C API: negative src_row_bytes rejected", "[c_api][swizzle]") {
+	uint8_t buf[64]{};
+	const uint8_t permute[4] = {3, 2, 1, 0};
+	REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, -4, 4,
+		NOZZLE_FORMAT_RGBA8_UNORM, permute) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: negative dst_row_bytes rejected", "[c_api][swizzle]") {
+	uint8_t buf[64]{};
+	const uint8_t permute[4] = {3, 2, 1, 0};
+	REQUIRE(nozzle_swizzle_channels(buf, buf, 1, 1, 4, -4,
+		NOZZLE_FORMAT_RGBA8_UNORM, permute) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}

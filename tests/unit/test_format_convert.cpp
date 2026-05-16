@@ -687,3 +687,36 @@ TEST_CASE("fill_opaque_alpha_channel: negative stride rgba8", "[format_convert]"
 	REQUIRE(row1[0] == 3); REQUIRE(row1[1] == 12); REQUIRE(row1[2] == 22);
 	REQUIRE(row1[4] == 4); REQUIRE(row1[5] == 13); REQUIRE(row1[6] == 23);
 }
+
+TEST_CASE("widen_uint16_to_uint32: negative stride rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	auto r = widen_uint16_to_uint32(buf, buf, 1, 1, -4, 4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+
+	r = widen_uint16_to_uint32(buf, buf, 1, 1, 4, -4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("convert_uint32_to_float32: negative stride rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	auto r = convert_uint32_to_float32(buf, buf, 1, 1, -4, 4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+
+	r = convert_uint32_to_float32(buf, buf, 1, 1, 4, -4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("widen_half_to_float: negative stride rejected", "[format_convert]") {
+	uint8_t buf[16]{};
+	auto r = widen_half_to_float(buf, buf, 1, 1, -4, 4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+
+	r = widen_half_to_float(buf, buf, 1, 1, 4, -4, 1);
+	REQUIRE_FALSE(r.ok());
+	REQUIRE(r.error().code == ErrorCode::InvalidArgument);
+}
