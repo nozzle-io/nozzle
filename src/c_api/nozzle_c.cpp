@@ -274,11 +274,38 @@ NozzleErrorCode nozzle_sender_create(
     if (desc->application_name) cpp_desc.application_name = desc->application_name;
     cpp_desc.ring_buffer_size = desc->ring_buffer_size;
     cpp_desc.fallback_flags = fb_flags;
-    if (desc->native_device.device != nullptr) {
-        cpp_desc.native_device.backend = to_cpp_backend_type(desc->native_device.backend);
-        cpp_desc.native_device.device = desc->native_device.device;
-        cpp_desc.native_device.context = desc->native_device.context;
-    }
+
+    auto result = nozzle::sender::create(cpp_desc);
+    if (!result.ok()) return to_c_error(result.error().code);
+
+    auto *wrapper = new (std::nothrow) NozzleSender{};
+    if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+
+    wrapper->obj = std::make_unique<nozzle::sender>(std::move(result.value()));
+    *out_sender = wrapper;
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_sender_create_with_native_device(
+    const NozzleSenderDesc *desc,
+    const NozzleNativeDevice *native_device,
+    NozzleSender **out_sender
+) {
+    if (!desc || !out_sender || !native_device) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (!native_device->device) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    uint32_t fb_flags{0};
+    NozzleErrorCode flag_ec = nozzle_resolve_fallback_flags(desc, &fb_flags);
+    if (flag_ec != NOZZLE_OK) return flag_ec;
+
+    nozzle::sender_desc cpp_desc{};
+    if (desc->name) cpp_desc.name = desc->name;
+    if (desc->application_name) cpp_desc.application_name = desc->application_name;
+    cpp_desc.ring_buffer_size = desc->ring_buffer_size;
+    cpp_desc.fallback_flags = fb_flags;
+    cpp_desc.native_device.backend = to_cpp_backend_type(native_device->backend);
+    cpp_desc.native_device.device = native_device->device;
+    cpp_desc.native_device.context = native_device->context;
 
     auto result = nozzle::sender::create(cpp_desc);
     if (!result.ok()) return to_c_error(result.error().code);

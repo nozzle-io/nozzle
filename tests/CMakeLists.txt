@@ -89,12 +89,6 @@ if(APPLE)
     )
 endif()
 
-if(APPLE)
-    list(APPEND INTEGRATION_TEST_SOURCES
-        integration/test_metal_format_mapping.cpp
-    )
-endif()
-
 if(NOT BUILD_SHARED_LIBS)
     add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
 

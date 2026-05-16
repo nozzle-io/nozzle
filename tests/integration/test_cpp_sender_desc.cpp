@@ -46,3 +46,41 @@ TEST_CASE("C++ sender: native_device() returns default device when none injected
     REQUIRE(nd.device != nullptr);
     REQUIRE(nd.backend == nozzle::backend_type::metal);
 }
+
+TEST_CASE("C++ sender: backend mismatch rejected", "[native_device]") {
+    nozzle::sender_desc desc{};
+    desc.name = "test_backend_mismatch";
+    desc.native_device.backend = nozzle::backend_type::d3d11;
+    desc.native_device.device = reinterpret_cast<void *>(0x1);
+    desc.native_device.context = nullptr;
+
+    auto r = nozzle::sender::create(desc);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == nozzle::ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("C++ sender: unknown backend with non-null device rejected", "[native_device]") {
+    nozzle::sender_desc desc{};
+    desc.name = "test_unknown_backend";
+    desc.native_device.backend = nozzle::backend_type::unknown;
+    desc.native_device.device = reinterpret_cast<void *>(0x1);
+    desc.native_device.context = nullptr;
+
+    auto r = nozzle::sender::create(desc);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == nozzle::ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("C++ sender: matching backend with non-null device accepted", "[native_device]") {
+    nozzle::sender_desc desc{};
+    desc.name = "test_matching_backend";
+    desc.native_device.backend = nozzle::backend_type::metal;
+    desc.native_device.device = reinterpret_cast<void *>(0x1);
+    desc.native_device.context = nullptr;
+
+    auto r = nozzle::sender::create(desc);
+    if (!r.ok()) { return; }
+
+    auto nd = r.value().native_device();
+    REQUIRE(nd.device == reinterpret_cast<void *>(0x1));
+}

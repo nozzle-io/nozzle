@@ -177,7 +177,6 @@ typedef struct NozzleSenderDesc {
     int allow_format_fallback;
     uint32_t fallback_flags;
     int fallback_flags_valid;
-    NozzleNativeDevice native_device;
 } NozzleSenderDesc;
 
 typedef struct NozzleReceiverDesc {
@@ -254,6 +253,12 @@ NOZZLE_C_API NozzleErrorCode nozzle_resolve_fallback_flags(
 
 NOZZLE_C_API NozzleErrorCode nozzle_sender_create(
     const NozzleSenderDesc *desc,
+    NozzleSender **out_sender
+);
+
+NOZZLE_C_API NozzleErrorCode nozzle_sender_create_with_native_device(
+    const NozzleSenderDesc *desc,
+    const NozzleNativeDevice *native_device,
     NozzleSender **out_sender
 );
 

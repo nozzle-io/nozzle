@@ -84,13 +84,20 @@ Result<sender> sender::create(const sender_desc &desc) {
 		? "unknown"
 		: desc.application_name.c_str();
 
-	auto dev_result = device::default_device();
-	if (!dev_result.ok()) {
-		return dev_result.error();
-	}
-	auto dev = std::move(dev_result.value());
+	const auto actual_backend = detail::backend::get_backend_type();
 
-	uint8_t backend = static_cast<uint8_t>(detail::backend::get_backend_type());
+	if (desc.native_device.device != nullptr) {
+		if (desc.native_device.backend == backend_type::unknown) {
+			return Error{ErrorCode::InvalidArgument,
+				"native device backend must not be unknown"};
+		}
+		if (desc.native_device.backend != actual_backend) {
+			return Error{ErrorCode::InvalidArgument,
+				"native device backend mismatch"};
+		}
+	}
+
+	uint8_t backend = static_cast<uint8_t>(actual_backend);
 
 	auto reg_result = detail::registry::register_sender(
 		desc.name.c_str(),
@@ -145,12 +152,16 @@ Result<sender> sender::create(const sender_desc &desc) {
 	s.impl_->registration_ = std::move(reg);
 	s.impl_->state = state;
 	s.impl_->state_handle = std::move(state_shm.value());
-	s.impl_->device_ = std::move(dev);
 	if (desc.native_device.device != nullptr) {
 		s.impl_->native_device_ = desc.native_device.device;
 		s.impl_->native_device_info_ = desc.native_device;
 		s.impl_->owns_native_device_ = false;
 	} else {
+		auto dev_result = device::default_device();
+		if (!dev_result.ok()) {
+			return dev_result.error();
+		}
+		s.impl_->device_ = std::move(dev_result.value());
 		s.impl_->native_device_ = detail::backend::get_default_device();
 		s.impl_->native_device_info_ = native_device_desc{
 			detail::backend::get_backend_type(),

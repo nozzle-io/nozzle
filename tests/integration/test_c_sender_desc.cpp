@@ -121,3 +121,37 @@ TEST_CASE("C API: nozzle_sender_get_native_device returns default device", "[c_a
 
     nozzle_sender_destroy(sender);
 }
+
+TEST_CASE("C API: nozzle_sender_create_with_native_device null args rejected", "[c_api][native_device]") {
+    NozzleSenderDesc desc{};
+    desc.name = "test_null_args";
+    NozzleSender *sender = nullptr;
+    NozzleNativeDevice nd{};
+
+    REQUIRE(nozzle_sender_create_with_native_device(nullptr, &nd, &sender) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    REQUIRE(nozzle_sender_create_with_native_device(&desc, nullptr, &sender) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    REQUIRE(nozzle_sender_create_with_native_device(&desc, &nd, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: nozzle_sender_create_with_native_device null device pointer rejected", "[c_api][native_device]") {
+    NozzleSenderDesc desc{};
+    desc.name = "test_null_device";
+    NozzleNativeDevice nd{};
+    nd.backend = NOZZLE_BACKEND_METAL;
+    nd.device = nullptr;
+
+    NozzleSender *sender = nullptr;
+    REQUIRE(nozzle_sender_create_with_native_device(&desc, &nd, &sender) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: nozzle_sender_create_with_native_device backend mismatch rejected", "[c_api][native_device]") {
+    NozzleSenderDesc desc{};
+    desc.name = "test_backend_mismatch";
+    NozzleNativeDevice nd{};
+    nd.backend = NOZZLE_BACKEND_D3D11;
+    nd.device = reinterpret_cast<void *>(0x1);
+
+    NozzleSender *sender = nullptr;
+    auto ec = nozzle_sender_create_with_native_device(&desc, &nd, &sender);
+    REQUIRE(ec == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
