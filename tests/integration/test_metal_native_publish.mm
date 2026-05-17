@@ -43,6 +43,8 @@ static id<MTLTexture> create_blit_texture(id<MTLDevice> device) {
 
 static id<MTLTexture> create_iosurface_texture(id<MTLDevice> device) {
 	uint32_t bytes_per_row = ((kTestW * kBPP) + 63) & ~63u;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 	NSDictionary *props = @{
 		(id)kIOSurfaceIsGlobal:        @(YES),
 		(id)kIOSurfaceWidth:           @(kTestW),
@@ -51,6 +53,7 @@ static id<MTLTexture> create_iosurface_texture(id<MTLDevice> device) {
 		(id)kIOSurfaceBytesPerRow:     @(bytes_per_row),
 		(id)kIOSurfaceBytesPerElement: @(kBPP),
 	};
+#pragma clang diagnostic pop
 	IOSurfaceRef surface = IOSurfaceCreate((CFDictionaryRef)props);
 	if (!surface) return nil;
 
@@ -132,7 +135,7 @@ TEST_CASE("Metal blit path: receiver gets pixel data published via injected devi
 	}
 }
 
-TEST_CASE("Metal direct path: receiver gets pixel data from IOSurface-backed texture", "[metal][native_publish]") {
+TEST_CASE("Metal direct path: receiver IOSurface ID matches source", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 		REQUIRE(device != nil);
@@ -142,7 +145,10 @@ TEST_CASE("Metal direct path: receiver gets pixel data from IOSurface-backed tex
 		REQUIRE([src iosurface] != nil);
 		fill_texture(src, 0xCD);
 
-		const char *name = "test_metal_direct_data";
+		IOSurfaceID source_iosurface_id = IOSurfaceGetID([src iosurface]);
+		REQUIRE(source_iosurface_id != 0);
+
+		const char *name = "test_metal_direct_iosurface";
 
 		nozzle::sender_desc sdesc{};
 		sdesc.name = name;
@@ -171,6 +177,11 @@ TEST_CASE("Metal direct path: receiver gets pixel data from IOSurface-backed tex
 		REQUIRE(frame_texture.valid());
 		REQUIRE(frame_texture.resolved().native.backend == nozzle::backend_type::metal);
 		REQUIRE(frame_texture.resolved().storage_format == nozzle::texture_format::bgra8_unorm);
+
+		void *recv_surface_ptr = nozzle::metal::get_io_surface(frame_texture);
+		REQUIRE(recv_surface_ptr != nullptr);
+		IOSurfaceID recv_iosurface_id = IOSurfaceGetID(static_cast<IOSurfaceRef>(recv_surface_ptr));
+		REQUIRE(recv_iosurface_id == source_iosurface_id);
 
 		id<MTLTexture> dst = create_blit_texture(device);
 		REQUIRE(dst != nil);
