@@ -82,10 +82,11 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_publish_mismatch.cpp
 )
 
-if(APPLE)
+    if(APPLE)
     list(APPEND INTEGRATION_TEST_SOURCES
         integration/test_metal_format_mapping.cpp
         integration/test_metal_device_injection.mm
+        integration/test_metal_native_publish.mm
     )
 endif()
 
