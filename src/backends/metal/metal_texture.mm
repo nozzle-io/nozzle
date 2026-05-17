@@ -395,12 +395,18 @@ Result<texture> lookup_iosurface_texture(
                                                                  slices:NSMakeRange(0, base_texture.arrayLength)
                                                                 swizzle:swizzle];
             if (!final_texture) {
+#if !__has_feature(objc_arc)
+                [base_texture release];
+#endif
                 CFRelease(surface);
                 return Error{
                     ErrorCode::ResourceCreationFailed,
                     "Failed to create swizzled texture view"
                 };
             }
+#if !__has_feature(objc_arc)
+            [base_texture release];
+#endif
         }
 
         native_format_desc native{};
@@ -473,6 +479,10 @@ Result<void> blit_to_texture(void *mtl_device_ptr, void *src_ptr, void *dst_ptr,
         [blit endEncoding];
         [cmd commit];
         [cmd waitUntilCompleted];
+
+#if !__has_feature(objc_arc)
+        [queue release];
+#endif
 
         return {};
     }
