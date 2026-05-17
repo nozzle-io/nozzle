@@ -8,7 +8,6 @@
 #include <mutex>
 
 #include <nozzle/config.hpp>
-#include <nozzle/device.hpp>
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/result.hpp>
 
@@ -29,7 +28,6 @@ struct sender::Impl {
 	detail::registry::Registration registration_{};
 	detail::SenderSharedState *state{nullptr};
 	detail::ipc::shm_handle state_handle{};
-	device device_{};
 	void *native_device_{nullptr};
 	native_device_desc native_device_info_{};
 	bool owns_native_device_{false};
@@ -99,6 +97,20 @@ Result<sender> sender::create(const sender_desc &desc) {
 
 	uint8_t backend = static_cast<uint8_t>(actual_backend);
 
+	// Device creation before registry registration.
+	// If this fails, no sender entry appears in discovery.
+	void *created_native_dev = nullptr;
+	bool owns_created_dev = false;
+
+	if (desc.native_device.device == nullptr) {
+		created_native_dev = detail::backend::get_default_device();
+		if (!created_native_dev) {
+			return Error{ErrorCode::BackendError,
+				"failed to create default device"};
+		}
+		owns_created_dev = true;
+	}
+
 	auto reg_result = detail::registry::register_sender(
 		desc.name.c_str(),
 		app_name,
@@ -107,6 +119,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 		desc.ring_buffer_size
 	);
 	if (!reg_result.ok()) {
+		if (owns_created_dev) detail::backend::release_device(created_native_dev);
 		return reg_result.error();
 	}
 	auto reg = std::move(reg_result.value());
@@ -114,6 +127,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 	auto state_shm = detail::ipc::shm_open_rw(reg.shm_name);
 	if (!state_shm.ok()) {
 		detail::registry::unregister_sender(reg.uuid);
+		if (owns_created_dev) detail::backend::release_device(created_native_dev);
 		return Error{ErrorCode::ResourceCreationFailed,
 			"failed to reopen sender shared state"};
 	}
@@ -122,6 +136,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 	if (!mapped.ok()) {
 		detail::ipc::shm_close(state_shm.value());
 		detail::registry::unregister_sender(reg.uuid);
+		if (owns_created_dev) detail::backend::release_device(created_native_dev);
 		return Error{ErrorCode::ResourceCreationFailed,
 			"failed to mmap sender shared state"};
 	}
@@ -131,6 +146,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 		detail::ipc::shm_unmap(mapped.value(), sizeof(detail::SenderSharedState));
 		detail::ipc::shm_close(state_shm.value());
 		detail::registry::unregister_sender(reg.uuid);
+		if (owns_created_dev) detail::backend::release_device(created_native_dev);
 		return Error{ErrorCode::BackendError,
 			"sender state has invalid magic"};
 	}
@@ -145,6 +161,7 @@ Result<sender> sender::create(const sender_desc &desc) {
 		detail::ipc::shm_unmap(state, sizeof(detail::SenderSharedState));
 		detail::ipc::shm_close(state_shm.value());
 		detail::registry::unregister_sender(reg.uuid);
+		if (owns_created_dev) detail::backend::release_device(created_native_dev);
 		return Error{ErrorCode::ResourceCreationFailed,
 			"sender allocation failed"};
 	}
@@ -157,15 +174,10 @@ Result<sender> sender::create(const sender_desc &desc) {
 		s.impl_->native_device_info_ = desc.native_device;
 		s.impl_->owns_native_device_ = false;
 	} else {
-		auto dev_result = device::default_device();
-		if (!dev_result.ok()) {
-			return dev_result.error();
-		}
-		s.impl_->device_ = std::move(dev_result.value());
-		s.impl_->native_device_ = detail::backend::get_default_device();
+		s.impl_->native_device_ = created_native_dev;
 		s.impl_->native_device_info_ = native_device_desc{
-			detail::backend::get_backend_type(),
-			s.impl_->native_device_,
+			actual_backend,
+			created_native_dev,
 			nullptr
 		};
 		s.impl_->owns_native_device_ = true;

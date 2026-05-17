@@ -89,6 +89,12 @@ if(APPLE)
     )
 endif()
 
+if(WIN32)
+    list(APPEND INTEGRATION_TEST_SOURCES
+        integration/test_d3d11_device_injection.cpp
+    )
+endif()
+
 if(NOT BUILD_SHARED_LIBS)
     add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
 
@@ -103,6 +109,10 @@ if(NOT BUILD_SHARED_LIBS)
         ${NOZZLE_FORCE_LOAD_FLAG}
         nozzle
     )
+
+    if(WIN32)
+        target_link_libraries(nozzle_integration_tests PRIVATE d3d11 dxgi)
+    endif()
 
     target_include_directories(nozzle_integration_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/src
