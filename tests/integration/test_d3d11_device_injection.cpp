@@ -10,14 +10,22 @@
 #define WIN32_LEAN_AND_MEAN
 #include <d3d11.h>
 
-static bool create_warp_device(ID3D11Device **device, ID3D11DeviceContext **context) {
+static bool create_device(D3D_DRIVER_TYPE type, ID3D11Device **device, ID3D11DeviceContext **context) {
 	D3D_FEATURE_LEVEL feature_level{};
 	HRESULT hr = D3D11CreateDevice(
-		nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+		nullptr, type, nullptr,
 		D3D11_CREATE_DEVICE_BGRA_SUPPORT,
 		nullptr, 0, D3D11_SDK_VERSION,
 		device, &feature_level, context);
 	return SUCCEEDED(hr);
+}
+
+static bool create_hardware_device(ID3D11Device **device, ID3D11DeviceContext **context) {
+	return create_device(D3D_DRIVER_TYPE_HARDWARE, device, context);
+}
+
+static bool create_warp_device(ID3D11Device **device, ID3D11DeviceContext **context) {
+	return create_device(D3D_DRIVER_TYPE_WARP, device, context);
 }
 
 static ID3D11Texture2D *create_bgra8_texture(ID3D11Device *device, uint32_t w, uint32_t h) {
@@ -35,7 +43,7 @@ static ID3D11Texture2D *create_bgra8_texture(ID3D11Device *device, uint32_t w, u
 	return SUCCEEDED(hr) ? texture : nullptr;
 }
 
-// --- C++ API tests ---
+// --- C++ API: device injection (WARP, deterministic) ---
 
 TEST_CASE("D3D11 C++ API: create sender with injected WARP device", "[d3d11][native_device]") {
 	ID3D11Device *device = nullptr;
@@ -61,10 +69,14 @@ TEST_CASE("D3D11 C++ API: create sender with injected WARP device", "[d3d11][nat
 	device->Release();
 }
 
-TEST_CASE("D3D11 C++ API: publish_native_texture with injected WARP device", "[d3d11][native_device][publish]") {
+// --- C++ API: publish_native_texture (hardware required for shared textures) ---
+
+TEST_CASE("D3D11 C++ API: publish_native_texture with injected device", "[d3d11][native_device][publish]") {
 	ID3D11Device *device = nullptr;
 	ID3D11DeviceContext *context = nullptr;
-	REQUIRE(create_warp_device(&device, &context));
+	if (!create_hardware_device(&device, &context)) {
+		SKIP("No D3D11 hardware device available (publish_native_texture requires hardware GPU for shared textures)");
+	}
 
 	nozzle::sender_desc desc{};
 	desc.name = "test_cpp_d3d11_publish";
@@ -89,7 +101,7 @@ TEST_CASE("D3D11 C++ API: publish_native_texture with injected WARP device", "[d
 	device->Release();
 }
 
-// --- C API tests ---
+// --- C API: device injection (WARP, deterministic) ---
 
 TEST_CASE("D3D11 C API: create sender with injected WARP device", "[d3d11][native_device]") {
 	ID3D11Device *device = nullptr;
@@ -122,10 +134,14 @@ TEST_CASE("D3D11 C API: create sender with injected WARP device", "[d3d11][nativ
 	device->Release();
 }
 
-TEST_CASE("D3D11 C API: publish_native_texture with injected WARP device", "[d3d11][native_device][publish]") {
+// --- C API: publish_native_texture (hardware required) ---
+
+TEST_CASE("D3D11 C API: publish_native_texture with injected device", "[d3d11][native_device][publish]") {
 	ID3D11Device *device = nullptr;
 	ID3D11DeviceContext *context = nullptr;
-	REQUIRE(create_warp_device(&device, &context));
+	if (!create_hardware_device(&device, &context)) {
+		SKIP("No D3D11 hardware device available (publish_native_texture requires hardware GPU for shared textures)");
+	}
 
 	NozzleSenderDesc desc{};
 	desc.name = "test_c_d3d11_publish";
@@ -155,7 +171,7 @@ TEST_CASE("D3D11 C API: publish_native_texture with injected WARP device", "[d3d
 	device->Release();
 }
 
-// --- Ownership test ---
+// --- Ownership (WARP, deterministic) ---
 
 TEST_CASE("D3D11: destruction with injected device does not release caller resource", "[d3d11][native_device]") {
 	ID3D11Device *device = nullptr;
