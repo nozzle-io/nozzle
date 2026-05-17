@@ -59,10 +59,6 @@ inline auto get_shared_resource_id_from_surface(void * /*surface*/) -> uint64_t 
     return detail::kInvalidSharedResourceId;
 }
 
-inline auto is_surface_globally_shared(void * /*surface*/) -> bool {
-    return true;
-}
-
 inline auto blit_textures(void * /*device*/, void *src, void *dst, uint32_t /*width*/, uint32_t /*height*/) -> Result<void> {
     return d3d11::blit_to_texture(src, dst);
 }

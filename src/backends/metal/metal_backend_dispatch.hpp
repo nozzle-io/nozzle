@@ -70,10 +70,6 @@ inline auto get_shared_resource_id_from_surface(void *surface) -> uint64_t {
     return static_cast<uint64_t>(metal::get_iosurface_id(surface));
 }
 
-inline auto is_surface_globally_shared(void *surface) -> bool {
-    return metal::is_iosurface_globally_shared(surface);
-}
-
 inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void> {
     return metal::blit_to_texture(device, src, dst, width, height);
 }
