@@ -72,6 +72,7 @@ Result<texture> create_shared_texture(
     desc.SampleDesc.Quality = 0;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+	// SHARED_KEYEDMUTEX is mutually exclusive with SHARED and still provides a shared handle.
 	desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
 
     ID3D11Texture2D *texture = nullptr;

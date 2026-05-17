@@ -2,6 +2,20 @@
 
 #include <nozzle/nozzle_c.h>
 
+#if NOZZLE_HAS_METAL
+static constexpr NozzleBackendType actual_backend = NOZZLE_BACKEND_METAL;
+static constexpr NozzleBackendType mismatch_backend = NOZZLE_BACKEND_D3D11;
+#elif NOZZLE_HAS_D3D11
+static constexpr NozzleBackendType actual_backend = NOZZLE_BACKEND_D3D11;
+static constexpr NozzleBackendType mismatch_backend = NOZZLE_BACKEND_METAL;
+#elif NOZZLE_HAS_DMA_BUF
+static constexpr NozzleBackendType actual_backend = NOZZLE_BACKEND_DMA_BUF;
+static constexpr NozzleBackendType mismatch_backend = NOZZLE_BACKEND_D3D11;
+#else
+static constexpr NozzleBackendType actual_backend = NOZZLE_BACKEND_UNKNOWN;
+static constexpr NozzleBackendType mismatch_backend = NOZZLE_BACKEND_METAL;
+#endif
+
 TEST_CASE("resolve_fallback_flags: unknown bits rejected", "[c_api]") {
     NozzleSenderDesc desc{};
     desc.fallback_flags_valid = 1;
@@ -117,7 +131,7 @@ TEST_CASE("C API: nozzle_sender_get_native_device returns default device", "[c_a
     ec = nozzle_sender_get_native_device(sender, &nd);
     REQUIRE(ec == NOZZLE_OK);
     REQUIRE(nd.device != nullptr);
-    REQUIRE(nd.backend == NOZZLE_BACKEND_METAL);
+    REQUIRE(nd.backend == actual_backend);
 
     nozzle_sender_destroy(sender);
 }
@@ -137,7 +151,7 @@ TEST_CASE("C API: nozzle_sender_create_with_native_device null device pointer re
     NozzleSenderDesc desc{};
     desc.name = "test_null_device";
     NozzleNativeDevice nd{};
-    nd.backend = NOZZLE_BACKEND_METAL;
+    nd.backend = actual_backend;
     nd.device = nullptr;
 
     NozzleSender *sender = nullptr;
@@ -148,7 +162,7 @@ TEST_CASE("C API: nozzle_sender_create_with_native_device backend mismatch rejec
     NozzleSenderDesc desc{};
     desc.name = "test_backend_mismatch";
     NozzleNativeDevice nd{};
-    nd.backend = NOZZLE_BACKEND_D3D11;
+    nd.backend = mismatch_backend;
     nd.device = reinterpret_cast<void *>(0x1);
 
     NozzleSender *sender = nullptr;

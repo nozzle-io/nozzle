@@ -60,6 +60,10 @@ jobs:
       - name: Integration tests
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact || true
 
+      # D3D11 native injection tests — gating, must pass
+      - name: D3D11 native injection tests
+        run: ./build/tests/Debug/nozzle_integration_tests.exe "[d3d11][native_device]" --reporter compact
+
   build-windows-strict:
     runs-on: windows-2022
     steps:
