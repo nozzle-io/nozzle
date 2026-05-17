@@ -161,13 +161,14 @@ Result<texture> lookup_shared_texture(
     );
 }
 
-void release_d3d11_texture_resources(void *texture_ptr, void *shared_handle_ptr) {
+void release_d3d11_texture_resources(void *texture_ptr, void * /*shared_handle_ptr*/) {
     if (texture_ptr) {
         static_cast<ID3D11Texture2D *>(texture_ptr)->Release();
     }
-    if (shared_handle_ptr) {
-        CloseHandle(reinterpret_cast<HANDLE>(shared_handle_ptr));
-    }
+    // GetSharedHandle() returns a legacy non-NT handle — must not call CloseHandle().
+    // The handle is valid as long as the underlying texture exists on any device.
+    // See: https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiresource-getsharedhandle
+    // TODO: migrate to IDXGIResource1::CreateSharedHandle() with SHARED_NTHANDLE for proper CloseHandle support.
 }
 
 Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {

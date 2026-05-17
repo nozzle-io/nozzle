@@ -85,7 +85,7 @@ TEST_CASE("C++ sender: unknown backend with non-null device rejected", "[native_
 	REQUIRE(r.error().code == nozzle::ErrorCode::InvalidArgument);
 }
 
-TEST_CASE("C++ sender: matching backend with non-null device accepted", "[native_device]") {
+TEST_CASE("C++ sender: matching backend descriptor accepted without dereferencing native pointer", "[native_device]") {
 	nozzle::sender_desc desc{};
 	desc.name = "test_matching_backend";
 	desc.native_device.backend = actual_backend;
