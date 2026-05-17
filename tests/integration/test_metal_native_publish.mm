@@ -92,8 +92,7 @@ static nozzle::sender create_sender(const char *name, id<MTLDevice> device) {
 	return std::move(result.value());
 }
 
-// Test 1: non-IOSource blit produces correct pixel data through ring buffer.
-TEST_CASE("Metal blit: receiver gets pixel data from non-IOSource texture", "[metal][native_publish]") {
+TEST_CASE("Metal blit: receiver gets pixel data from non-IOSurface texture", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 		REQUIRE(device != nil);
@@ -116,6 +115,7 @@ TEST_CASE("Metal blit: receiver gets pixel data from non-IOSource texture", "[me
 		REQUIRE(info.frame_index > 0);
 
 		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
 		REQUIRE(frame_result.value().copy_to_native_texture(
 			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
 
@@ -129,8 +129,6 @@ TEST_CASE("Metal blit: receiver gets pixel data from non-IOSource texture", "[me
 	}
 }
 
-// Test 2: IOSurface-backed source is blitted to ring buffer (not shared directly).
-// Receiver gets a sender-owned ring IOSurface, not the source IOSurface.
 TEST_CASE("Metal snapshot: IOSurface-backed source is blitted, not shared directly", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -159,10 +157,10 @@ TEST_CASE("Metal snapshot: IOSurface-backed source is blitted, not shared direct
 		REQUIRE(recv_surface_ptr != nullptr);
 		IOSurfaceID recv_id = IOSurfaceGetID(static_cast<IOSurfaceRef>(recv_surface_ptr));
 
-		// Receiver must get a sender-owned ring IOSurface, not the caller's source.
 		REQUIRE(recv_id != source_id);
 
 		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
 		REQUIRE(frame_result.value().copy_to_native_texture(
 			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
 
@@ -176,8 +174,7 @@ TEST_CASE("Metal snapshot: IOSurface-backed source is blitted, not shared direct
 	}
 }
 
-// Test 3: snapshot semantics — source mutation after publish does not affect receiver.
-TEST_CASE("Metal snapshot: source mutation after publish does not affect receiver", "[metal][native_publish]") {
+TEST_CASE("Metal snapshot: non-IOSurface source mutation after publish does not affect receiver", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 		REQUIRE(device != nil);
@@ -190,7 +187,6 @@ TEST_CASE("Metal snapshot: source mutation after publish does not affect receive
 		REQUIRE(sender.publish_native_texture(
 			static_cast<void *>(src), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
 
-		// Mutate source after publish.
 		fill_texture(src, 0xEE);
 
 		auto recv = create_receiver("test_snapshot_mutation");
@@ -198,12 +194,12 @@ TEST_CASE("Metal snapshot: source mutation after publish does not affect receive
 		REQUIRE(frame_result.ok());
 
 		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
 		REQUIRE(frame_result.value().copy_to_native_texture(
 			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
 
 		uint8_t dst_data[kTestH * kRowBytes];
 		read_texture(dst, dst_data);
-		// Receiver sees the snapshot at publish time (0x42), not the mutated value (0xEE).
 		REQUIRE(verify_fill(dst_data, sizeof(dst_data), 0x42));
 
 		[src release];
@@ -212,7 +208,41 @@ TEST_CASE("Metal snapshot: source mutation after publish does not affect receive
 	}
 }
 
-// Test 4: caller can release source immediately after publish — receiver still reads snapshot.
+TEST_CASE("Metal snapshot: IOSurface-backed source mutation after publish does not affect receiver", "[metal][native_publish]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		REQUIRE(device != nil);
+
+		id<MTLTexture> src = create_iosurface_texture(device);
+		REQUIRE(src != nil);
+		REQUIRE([src iosurface] != nil);
+		fill_texture(src, 0x55);
+
+		auto sender = create_sender("test_snapshot_iosurface_mutation", device);
+		REQUIRE(sender.publish_native_texture(
+			static_cast<void *>(src), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
+
+		fill_texture(src, 0xFF);
+
+		auto recv = create_receiver("test_snapshot_iosurface_mutation");
+		auto frame_result = recv.acquire_frame();
+		REQUIRE(frame_result.ok());
+
+		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
+		REQUIRE(frame_result.value().copy_to_native_texture(
+			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
+
+		uint8_t dst_data[kTestH * kRowBytes];
+		read_texture(dst, dst_data);
+		REQUIRE(verify_fill(dst_data, sizeof(dst_data), 0x55));
+
+		[src release];
+		[dst release];
+		[device release];
+	}
+}
+
 TEST_CASE("Metal snapshot: receiver reads frame after source is released", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -222,7 +252,6 @@ TEST_CASE("Metal snapshot: receiver reads frame after source is released", "[met
 		nozzle::receiver recv{};
 		IOSurfaceID source_id = 0;
 		{
-			// Source texture exists only in this scope.
 			id<MTLTexture> src = create_iosurface_texture(device);
 			REQUIRE(src != nil);
 			fill_texture(src, 0x77);
@@ -248,6 +277,7 @@ TEST_CASE("Metal snapshot: receiver reads frame after source is released", "[met
 		REQUIRE(recv_id != source_id);
 
 		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
 		REQUIRE(frame_result.value().copy_to_native_texture(
 			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
 
@@ -260,7 +290,6 @@ TEST_CASE("Metal snapshot: receiver reads frame after source is released", "[met
 	}
 }
 
-// Test 5: ring rotation — latest frame has correct payload.
 TEST_CASE("Metal ring rotation: receiver gets latest frame with correct payload", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -291,6 +320,7 @@ TEST_CASE("Metal ring rotation: receiver gets latest frame with correct payload"
 		REQUIRE(info.frame_index >= 6);
 
 		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
 		REQUIRE(frame_result.value().copy_to_native_texture(
 			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
 
