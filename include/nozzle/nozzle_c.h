@@ -353,6 +353,10 @@ NOZZLE_C_API void nozzle_device_destroy(NozzleDevice *device);
 
 // ========== Native Texture Interop (GPU) ==========
 
+// The native texture is borrowed only during the call.
+// On return, the caller retains ownership and may release/reuse/modify it.
+// The published frame does not depend on the caller keeping the source texture alive.
+
 // 4-argument compat: semantic_format = format (storage == semantic).
 NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_native_texture(
     NozzleSender *sender,
