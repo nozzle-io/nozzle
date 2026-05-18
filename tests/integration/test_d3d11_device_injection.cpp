@@ -353,6 +353,44 @@ TEST_CASE("D3D11: public receiver acquires frame from another process", "[d3d11]
 	DeleteFileA(ready_file.c_str());
 }
 
+TEST_CASE("D3D11: sender can publish past ring size without receiver", "[d3d11][shared_handle][producer]") {
+	ID3D11Device *device = nullptr;
+	ID3D11DeviceContext *context = nullptr;
+	REQUIRE(create_warp_device(&device, &context));
+
+	nozzle::sender_desc desc{};
+	desc.name = "d3d11_producer_only";
+	desc.application_name = "test";
+	desc.ring_buffer_size = 3;
+	desc.native_device = nozzle::native_device_desc{
+		nozzle::backend_type::d3d11, device, context
+	};
+
+	auto sender_result = nozzle::sender::create(desc);
+	REQUIRE(sender_result.ok());
+	auto sender = std::move(sender_result.value());
+
+	ID3D11Texture2D *source = create_bgra8_texture(device, 4, 4);
+	REQUIRE(source != nullptr);
+
+	uint32_t pixels[16]{};
+	for (uint32_t i = 0; i < 16; ++i) {
+		pixels[i] = 0xFF3366CCu;
+	}
+
+	for (uint32_t frame_index = 0; frame_index < 5; ++frame_index) {
+		context->UpdateSubresource(source, 0, nullptr, pixels, 4 * sizeof(uint32_t), 0);
+		context->Flush();
+		auto publish_result = sender.publish_native_texture(
+			source, 4, 4, nozzle::texture_format::bgra8_unorm);
+		REQUIRE(publish_result.ok());
+	}
+
+	source->Release();
+	context->Release();
+	device->Release();
+}
+
 // --- C++ API: device injection (WARP, deterministic) ---
 
 TEST_CASE("D3D11 C++ API: create sender with injected WARP device", "[d3d11][native_device]") {

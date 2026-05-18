@@ -329,7 +329,6 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         if (frame > impl_->last_frame_) {
             dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
         }
-        impl_->last_frame_ = frame;
 
         const auto &si = state->slots[slot];
         frame_info info = detail::construct_frame_info_from_slot(si, frame, dropped);
@@ -363,6 +362,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             return wait_result.error();
         }
 
+        impl_->last_frame_ = frame;
         impl_->connected_info_.frame_counter = frame;
         impl_->connected_info_.last_update_time_ns = info.timestamp_ns;
 

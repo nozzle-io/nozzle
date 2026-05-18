@@ -15,6 +15,29 @@
 namespace nozzle {
 namespace d3d11 {
 
+namespace {
+
+HRESULT acquire_publish_mutex(IDXGIKeyedMutex *mutex) {
+    HRESULT hr = mutex->AcquireSync(0, 0);
+    if (hr == S_OK) {
+        return hr;
+    }
+
+    hr = mutex->AcquireSync(1, 0);
+    if (hr == S_OK) {
+        return hr;
+    }
+
+    hr = mutex->AcquireSync(0, 1000);
+    if (hr == S_OK) {
+        return hr;
+    }
+
+    return mutex->AcquireSync(1, 0);
+}
+
+} // anonymous namespace
+
 static DXGI_FORMAT to_dxgi_format(uint32_t nozzle_format) {
     switch (static_cast<texture_format>(nozzle_format)) {
         case texture_format::r8_unorm:         return DXGI_FORMAT_R8_UNORM;
@@ -253,7 +276,7 @@ Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
     }
 
     if (SUCCEEDED(mutex_hr) && dst_mutex) {
-        HRESULT acquire_hr = dst_mutex->AcquireSync(0, 1000);
+        HRESULT acquire_hr = acquire_publish_mutex(dst_mutex);
         if (acquire_hr != S_OK) {
             dst_mutex->Release();
             ctx->Release();
