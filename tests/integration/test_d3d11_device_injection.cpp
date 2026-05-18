@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi.h>
 
 static bool create_device(D3D_DRIVER_TYPE type, ID3D11Device **device, ID3D11DeviceContext **context) {
 	D3D_FEATURE_LEVEL feature_level{};
@@ -89,7 +90,19 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	for (uint32_t i = 0; i < 16; ++i) {
 		pixels[i] = 0xFF3366CCu;
 	}
+
+	IDXGIKeyedMutex *sender_mutex = nullptr;
+	HRESULT hr = sender_texture->QueryInterface(
+		__uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&sender_mutex));
+	REQUIRE(SUCCEEDED(hr));
+	REQUIRE(sender_mutex != nullptr);
+	hr = sender_mutex->AcquireSync(0, 1000);
+	REQUIRE(hr == S_OK);
 	sender_context->UpdateSubresource(sender_texture, 0, nullptr, pixels, 4 * sizeof(uint32_t), 0);
+	sender_context->Flush();
+	hr = sender_mutex->ReleaseSync(1);
+	REQUIRE(hr == S_OK);
+	sender_mutex->Release();
 
 	HANDLE sender_handle = nozzle::d3d11::get_shared_handle(sender_shared_texture);
 	REQUIRE(sender_handle != nullptr);
@@ -107,15 +120,15 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	ID3D11Texture2D *receiver_texture = nozzle::d3d11::get_texture(receiver_shared_texture);
 	REQUIRE(receiver_texture != nullptr);
 
-	nozzle::d3d11::signal_slot_ready(sender_texture, 0);
 	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1000));
 
 	ID3D11Texture2D *staging = create_staging_bgra8_texture(receiver_device, 4, 4);
 	REQUIRE(staging != nullptr);
 	receiver_context->CopyResource(staging, receiver_texture);
+	receiver_context->Flush();
 
 	D3D11_MAPPED_SUBRESOURCE mapped{};
-	HRESULT hr = receiver_context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+	hr = receiver_context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
 	REQUIRE(SUCCEEDED(hr));
 	const auto *row = static_cast<const uint32_t *>(mapped.pData);
 	REQUIRE(row[0] == 0xFF3366CCu);
