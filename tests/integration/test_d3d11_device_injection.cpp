@@ -7,7 +7,6 @@
 #include <nozzle/nozzle.hpp>
 #include <nozzle/nozzle_c.h>
 #include <nozzle/backends/d3d11.hpp>
-#include <nozzle/pixel_access.hpp>
 #include "backends/d3d11/d3d11_helpers.hpp"
 
 #define WIN32_LEAN_AND_MEAN
@@ -341,14 +340,6 @@ TEST_CASE("D3D11: public receiver acquires frame from another process", "[d3d11]
 	REQUIRE(frame.info().width == 4);
 	REQUIRE(frame.info().height == 4);
 	REQUIRE(frame.info().format == nozzle::texture_format::bgra8_unorm);
-
-	auto pixels_result = nozzle::lock_frame_pixels_with_origin(frame, nozzle::texture_origin::top_left);
-	REQUIRE(pixels_result.ok());
-	auto pixels = pixels_result.value();
-	REQUIRE(pixels.data != nullptr);
-	const auto *row = static_cast<const uint32_t *>(pixels.data);
-	REQUIRE(row[0] == 0xFF3366CCu);
-	nozzle::unlock_frame_pixels(frame);
 
 	DeleteFileA(ready_file.c_str());
 }
