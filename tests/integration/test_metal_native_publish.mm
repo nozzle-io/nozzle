@@ -333,6 +333,74 @@ TEST_CASE("Metal ring rotation: receiver gets latest frame with correct payload"
 	}
 }
 
+TEST_CASE("Metal native metadata: publish reports actual MTLPixelFormatBGRA8Unorm", "[metal][native_publish]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		REQUIRE(device != nil);
+
+		id<MTLTexture> src = create_blit_texture(device);
+		REQUIRE(src != nil);
+		fill_texture(src, 0xCC);
+
+		auto sender = create_sender("test_native_meta", device);
+		REQUIRE(sender.publish_native_texture(
+			static_cast<void *>(src), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
+
+		auto recv = create_receiver("test_native_meta");
+		auto frame_result = recv.acquire_frame();
+		REQUIRE(frame_result.ok());
+
+		auto &frame = frame_result.value();
+		auto &resolved = frame.get_texture().resolved();
+
+		REQUIRE(resolved.native.backend == nozzle::backend_type::metal);
+		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
+		REQUIRE(resolved.native.value == 80); // MTLPixelFormatBGRA8Unorm
+		REQUIRE(resolved.source == nozzle::format_source::native_observed);
+
+		auto ci = recv.connected_info();
+		REQUIRE(ci.native_format_kind == static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format));
+		REQUIRE(ci.native_format_value == 80);
+
+		[src release];
+		[device release];
+	}
+}
+
+TEST_CASE("Metal native metadata: receiver frame texture matches actual MTLPixelFormat", "[metal][native_publish]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		REQUIRE(device != nil);
+
+		auto sender = create_sender("test_native_recv", device);
+
+		// rgba8_unorm falls back to bgra8_unorm for IOSurface (Apple Silicon limitation)
+		auto wf = sender.acquire_writable_frame({
+			kTestW, kTestH, nozzle::texture_format::rgba8_unorm
+		});
+		REQUIRE(wf.ok());
+
+		// verify ring texture itself reports actual BGRA8, not the requested RGBA8
+		auto &ring_resolved = wf.value().get_texture().resolved();
+		REQUIRE(ring_resolved.native.backend == nozzle::backend_type::metal);
+		REQUIRE(ring_resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
+		REQUIRE(ring_resolved.native.value == 80); // MTLPixelFormatBGRA8Unorm (actual, not requested)
+
+		sender.commit_frame(wf.value());
+
+		auto recv = create_receiver("test_native_recv");
+		auto frame_result = recv.acquire_frame();
+		REQUIRE(frame_result.ok());
+
+		auto &resolved = frame_result.value().get_texture().resolved();
+		REQUIRE(resolved.native.backend == nozzle::backend_type::metal);
+		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
+		REQUIRE(resolved.native.value == 80); // MTLPixelFormatBGRA8Unorm
+
+		[device release];
+	}
+}
+
 TEST_CASE("Metal device validation: same-device texture passes validation", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
