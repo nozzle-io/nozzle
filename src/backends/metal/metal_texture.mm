@@ -327,7 +327,9 @@ Result<texture> lookup_iosurface_texture(
     uint32_t height,
     uint32_t pixel_format,
     uint8_t channel_swizzle_val,
-    uint32_t semantic_format
+    uint32_t semantic_format,
+    uint8_t native_format_kind_val,
+    uint32_t native_format_value
 ) {
     @autoreleasepool {
         IOSurfaceRef surface = IOSurfaceLookup(iosurface_id);
@@ -355,7 +357,13 @@ Result<texture> lookup_iosurface_texture(
             return Error{ErrorCode::UnsupportedFormat, "Unknown IOSurface pixel format"};
         }
 
-        auto mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
+        auto mtl_format = MTLPixelFormatInvalid;
+        if (native_format_kind_val == static_cast<uint8_t>(native_format_kind::mtl_pixel_format) &&
+            native_format_value != 0) {
+            mtl_format = static_cast<MTLPixelFormat>(native_format_value);
+        } else {
+            mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
+        }
         if (mtl_format == MTLPixelFormatInvalid) {
             CFRelease(surface);
             return Error{ErrorCode::UnsupportedFormat, "Unsupported nozzle pixel format"};

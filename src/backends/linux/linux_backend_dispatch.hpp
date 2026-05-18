@@ -316,7 +316,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 }
 
 inline auto lookup_texture(
-    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, const char *sender_uuid
+    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint8_t /*native_format_kind*/, uint32_t /*native_format_value*/, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, const char *sender_uuid
 ) -> Result<texture> {
     uint32_t slot_index = static_cast<uint32_t>(shared_id & 0xFFFFFFFF);
     uint32_t generation = static_cast<uint32_t>(shared_id >> 32);

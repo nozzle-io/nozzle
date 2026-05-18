@@ -40,9 +40,16 @@ inline void release_texture_resources(void *native_texture, void *native_surface
     metal::release_mtl_texture_resources(native_texture, native_surface);
 }
 
-inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t channel_swizzle, uint32_t semantic_format, uint64_t /*native_modifier*/, uint32_t /*native_plane_count*/, const uint32_t * /*native_plane_strides*/, const uint32_t * /*native_plane_offsets*/, const char * /*sender_uuid*/) -> Result<texture> {
+inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t channel_swizzle, uint32_t semantic_format, uint8_t native_format_kind, uint32_t native_format_value, uint64_t /*native_modifier*/, uint32_t /*native_plane_count*/, const uint32_t * /*native_plane_strides*/, const uint32_t * /*native_plane_offsets*/, const char * /*sender_uuid*/) -> Result<texture> {
     return metal::lookup_iosurface_texture(
-        static_cast<uint32_t>(shared_id), width, height, format, channel_swizzle, semantic_format);
+        static_cast<uint32_t>(shared_id),
+        width,
+        height,
+        format,
+        channel_swizzle,
+        semantic_format,
+        native_format_kind,
+        native_format_value);
 }
 
 inline auto get_backend_type() -> backend_type {

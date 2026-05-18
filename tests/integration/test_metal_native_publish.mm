@@ -2,6 +2,7 @@
 
 #include <nozzle/nozzle.hpp>
 #include <nozzle/backends/metal.hpp>
+#include "backends/metal/metal_helpers.hpp"
 
 #import <Metal/Metal.h>
 #import <IOSurface/IOSurface.h>
@@ -90,6 +91,38 @@ static nozzle::sender create_sender(const char *name, id<MTLDevice> device) {
 	auto result = nozzle::sender::create(sdesc);
 	REQUIRE(result.ok());
 	return std::move(result.value());
+}
+
+
+TEST_CASE("Metal lookup uses sender-recorded native format", "[metal][native_publish][native_format]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
+
+		id<MTLTexture> src = create_iosurface_texture(device);
+		REQUIRE(src != nil);
+		REQUIRE([src iosurface] != nil);
+
+		IOSurfaceID source_id = IOSurfaceGetID([src iosurface]);
+		auto lookup_result = nozzle::metal::lookup_iosurface_texture(
+			static_cast<uint32_t>(source_id),
+			kTestW,
+			kTestH,
+			static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm),
+			0,
+			static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm),
+			static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format),
+			static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+		REQUIRE(lookup_result.ok());
+
+		const auto &resolved = lookup_result.value().resolved();
+		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
+		REQUIRE(resolved.native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+		REQUIRE(resolved.storage_format == nozzle::texture_format::rgba8_unorm);
+
+		[src release];
+		[device release];
+	}
 }
 
 TEST_CASE("Metal blit: receiver gets pixel data from non-IOSurface texture", "[metal][native_publish]") {

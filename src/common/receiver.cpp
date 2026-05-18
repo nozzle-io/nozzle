@@ -164,6 +164,8 @@ Result<texture> create_texture_from_slot(
         s.format,
         s.channel_swizzle,
         s.semantic_format,
+        s.native_format_kind,
+        s.native_format_value,
         s.native_format_modifier,
         s.plane_count,
         s.plane_strides,
