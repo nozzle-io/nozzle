@@ -40,6 +40,7 @@ static uint32_t s_tmp_format = 0;
 static bool s_pipeline_ready = false;
 static std::mutex s_cache_mutex;
 
+// must be called with s_cache_mutex held
 static bool ensure_pipeline(id<MTLDevice> device) {
     if (s_pipeline_ready) return true;
 
