@@ -413,6 +413,12 @@ inline auto blit_textures(void * /*device*/, void * /*src*/, void * /*dst*/, uin
     return Error{ErrorCode::UnsupportedBackend, "native texture blit not implemented for DMA-BUF backend"};
 }
 
+inline auto wait_for_texture(void * /*native_texture*/, uint32_t /*slot_index*/, uint32_t /*timeout_ms*/) -> Result<void> {
+    return {};
+}
+
+inline void release_texture_sync(void * /*native_texture*/, uint32_t /*slot_index*/) {}
+
 inline auto validate_texture_device(void * /*device*/, void * /*native_texture*/) -> Result<void> { return {}; }
 
 inline void release_device(void * /*device*/) {}

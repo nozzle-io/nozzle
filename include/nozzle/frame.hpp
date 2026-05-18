@@ -12,6 +12,7 @@ class writable_frame;
 
 namespace detail {
 frame make_frame(texture, frame_info);
+frame make_frame(texture, frame_info, uint32_t);
 writable_frame make_writable_frame(texture, texture_desc, uint32_t);
 uint32_t get_writable_frame_slot(const writable_frame &);
 }
@@ -40,6 +41,7 @@ public:
 
 private:
     friend frame detail::make_frame(texture, frame_info);
+    friend frame detail::make_frame(texture, frame_info, uint32_t);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

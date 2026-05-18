@@ -6,12 +6,22 @@
 #include "frame_helpers.hpp"
 #include "backends/backend_dispatch.hpp"
 
+#include <utility>
+
 namespace nozzle {
 
 frame::frame() = default;
-frame::~frame() = default;
+frame::~frame() {
+    release();
+}
 frame::frame(frame &&) noexcept = default;
-frame &frame::operator=(frame &&) noexcept = default;
+frame &frame::operator=(frame &&other) noexcept {
+    if (this != &other) {
+        release();
+        impl_ = std::move(other.impl_);
+    }
+    return *this;
+}
 
 frame_info frame::info() const {
     if (!impl_) {
@@ -38,6 +48,12 @@ Result<texture> frame::clone_to_owned_texture(device &) const {
 
 void frame::release() {
     if (impl_) {
+        if (impl_->valid_) {
+            void *native_texture = detail::backend::get_native_texture(impl_->tex_);
+            if (native_texture) {
+                detail::backend::release_texture_sync(native_texture, impl_->slot_index_);
+            }
+        }
         impl_->valid_ = false;
         impl_->tex_ = texture{};
     }
@@ -88,9 +104,14 @@ bool writable_frame::valid() const {
 namespace detail {
 
 frame make_frame(texture tex, frame_info info) {
+    return make_frame(std::move(tex), info, 0);
+}
+
+frame make_frame(texture tex, frame_info info, uint32_t slot_index) {
     frame f;
     f.impl_ = std::make_unique<frame::Impl>();
     f.impl_->info_ = info;
+    f.impl_->slot_index_ = slot_index;
     f.impl_->valid_ = tex.valid();
     f.impl_->tex_ = std::move(tex);
     return f;

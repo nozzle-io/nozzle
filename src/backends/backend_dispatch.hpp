@@ -25,6 +25,8 @@ auto notify_sender_uuid(const char *uuid) -> Result<void>;
 void cleanup_sender_socket();
 
 auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void>;
+auto wait_for_texture(void *native_texture, uint32_t slot_index, uint32_t timeout_ms) -> Result<void>;
+void release_texture_sync(void *native_texture, uint32_t slot_index);
 auto validate_texture_device(void *device, void *native_texture) -> Result<void>;
 void release_device(void *device);
 

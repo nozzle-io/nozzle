@@ -228,10 +228,16 @@ Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
 
     auto *src = static_cast<ID3D11Texture2D *>(src_texture_ptr);
     auto *dst = static_cast<ID3D11Texture2D *>(dst_texture_ptr);
+    IDXGIKeyedMutex *dst_mutex = nullptr;
+    HRESULT mutex_hr = dst->QueryInterface(
+        __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&dst_mutex));
 
     ID3D11Device *device = nullptr;
     src->GetDevice(&device);
     if (!device) {
+        if (dst_mutex) {
+            dst_mutex->Release();
+        }
         return Error{ErrorCode::BackendError, "failed to get D3D11 device from source texture"};
     }
 
@@ -240,10 +246,32 @@ Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
     device->Release();
 
     if (!ctx) {
+        if (dst_mutex) {
+            dst_mutex->Release();
+        }
         return Error{ErrorCode::BackendError, "failed to get D3D11 device context"};
     }
 
+    if (SUCCEEDED(mutex_hr) && dst_mutex) {
+        HRESULT acquire_hr = dst_mutex->AcquireSync(0, 1000);
+        if (acquire_hr != S_OK) {
+            dst_mutex->Release();
+            ctx->Release();
+            return Error{ErrorCode::Timeout, "timeout acquiring D3D11 destination keyed mutex"};
+        }
+    }
+
     ctx->CopySubresourceRegion(dst, 0, 0, 0, 0, src, 0, nullptr);
+    ctx->Flush();
+
+    if (dst_mutex) {
+        HRESULT release_hr = dst_mutex->ReleaseSync(1);
+        dst_mutex->Release();
+        if (release_hr != S_OK) {
+            ctx->Release();
+            return Error{ErrorCode::BackendError, "failed to release D3D11 destination keyed mutex"};
+        }
+    }
     ctx->Release();
 
     return {};

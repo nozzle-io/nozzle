@@ -353,10 +353,20 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             return tex_result.error();
         }
 
+        void *native_texture = detail::backend::get_native_texture(tex_result.value());
+        uint32_t sync_timeout_ms = desc.timeout_ms == 0 ? 1000 : desc.timeout_ms;
+        auto wait_result = detail::backend::wait_for_texture(
+            native_texture,
+            slot,
+            sync_timeout_ms);
+        if (!wait_result.ok()) {
+            return wait_result.error();
+        }
+
         impl_->connected_info_.frame_counter = frame;
         impl_->connected_info_.last_update_time_ns = info.timestamp_ns;
 
-        return detail::make_frame(std::move(tex_result.value()), info);
+        return detail::make_frame(std::move(tex_result.value()), info, slot);
     }
 }
 
