@@ -37,26 +37,41 @@ static id<MTLDevice> s_device = nil;
 static uint32_t s_tmp_width = 0;
 static uint32_t s_tmp_height = 0;
 static uint32_t s_tmp_format = 0;
-static dispatch_once_t s_init_once;
+static bool s_pipeline_ready = false;
 static std::mutex s_cache_mutex;
 
 static bool ensure_pipeline(id<MTLDevice> device) {
-    dispatch_once(&s_init_once, ^{
-        @autoreleasepool {
-            NSError *err = nil;
-            id<MTLLibrary> lib = [device newLibraryWithSource:kSwapRBKernel options:nil error:&err];
-            if (!lib) return;
+    if (s_pipeline_ready) return true;
 
-            id<MTLFunction> fn = [lib newFunctionWithName:@"swap_rb"];
-            if (!fn) return;
+    @autoreleasepool {
+        NSError *err = nil;
+        id<MTLLibrary> lib = [device newLibraryWithSource:kSwapRBKernel options:nil error:&err];
+        if (!lib) return false;
 
-            s_pipeline = [device newComputePipelineStateWithFunction:fn error:&err];
-            if (!s_pipeline) return;
+        id<MTLFunction> fn = [lib newFunctionWithName:@"swap_rb"];
+#if !__has_feature(objc_arc)
+        [lib release];
+#endif
+        if (!fn) return false;
 
-            s_queue = [device newCommandQueue];
+        s_pipeline = [device newComputePipelineStateWithFunction:fn error:&err];
+#if !__has_feature(objc_arc)
+        [fn release];
+#endif
+        if (!s_pipeline) return false;
+
+        s_queue = [device newCommandQueue];
+        if (!s_queue) {
+#if !__has_feature(objc_arc)
+            [s_pipeline release];
+            s_pipeline = nil;
+#endif
+            return false;
         }
-    });
-    return s_pipeline && s_queue;
+
+        s_pipeline_ready = true;
+    }
+    return true;
 }
 
 static id<MTLTexture> get_or_create_tmp_texture(
@@ -79,6 +94,9 @@ static id<MTLTexture> get_or_create_tmp_texture(
     id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
     if (!tex) return nil;
 
+#if !__has_feature(objc_arc)
+    [s_tmp_texture release];
+#endif
     s_tmp_texture = tex;
     s_tmp_width = width;
     s_tmp_height = height;
