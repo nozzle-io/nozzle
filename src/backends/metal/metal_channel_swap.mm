@@ -76,7 +76,10 @@ static id<MTLTexture> get_or_create_tmp_texture(
     desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.resourceOptions = MTLResourceStorageModeShared;
 
-    s_tmp_texture = [device newTextureWithDescriptor:desc];
+    id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+    if (!tex) return nil;
+
+    s_tmp_texture = tex;
     s_tmp_width = width;
     s_tmp_height = height;
     s_tmp_format = pixel_format;
@@ -114,7 +117,15 @@ Result<void> swap_rb_channels(void *mtl_texture_ptr, uint32_t width, uint32_t he
         }
 
         id<MTLCommandBuffer> cmd = [s_queue commandBuffer];
+        if (!cmd) {
+            return Error{ErrorCode::CommandFailed, "swap_rb_channels: failed to create command buffer"};
+        }
+
         id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
+        if (!enc) {
+            return Error{ErrorCode::CommandFailed, "swap_rb_channels: failed to create compute command encoder"};
+        }
+
         [enc setComputePipelineState:s_pipeline];
         [enc setTexture:src atIndex:0];
         [enc setTexture:tmp atIndex:1];
@@ -127,6 +138,10 @@ Result<void> swap_rb_channels(void *mtl_texture_ptr, uint32_t width, uint32_t he
         [enc endEncoding];
 
         id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+        if (!blit) {
+            return Error{ErrorCode::CommandFailed, "swap_rb_channels: failed to create blit command encoder"};
+        }
+
         [blit copyFromTexture:tmp
                   sourceSlice:0
                   sourceLevel:0
@@ -140,6 +155,18 @@ Result<void> swap_rb_channels(void *mtl_texture_ptr, uint32_t width, uint32_t he
 
         [cmd commit];
         [cmd waitUntilCompleted];
+
+        if (cmd.status != MTLCommandBufferStatusCompleted) {
+            std::string msg = "swap_rb_channels: command buffer execution failed";
+            if (cmd.error) {
+                const char *desc = cmd.error.localizedDescription.UTF8String;
+                if (desc) {
+                    msg += ": ";
+                    msg += desc;
+                }
+            }
+            return Error{ErrorCode::CommandFailed, std::move(msg)};
+        }
 
         return {};
     }

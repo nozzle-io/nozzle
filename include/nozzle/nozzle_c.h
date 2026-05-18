@@ -46,6 +46,7 @@ typedef enum NozzleErrorCode {
     NOZZLE_ERROR_SENDER_CLOSED = 9,
     NOZZLE_ERROR_TIMEOUT = 10,
     NOZZLE_ERROR_BACKEND_ERROR = 11,
+    NOZZLE_ERROR_COMMAND_FAILED = 12,
 } NozzleErrorCode;
 
 // ========== Enums ==========

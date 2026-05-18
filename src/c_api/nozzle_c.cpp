@@ -45,6 +45,7 @@ NozzleErrorCode to_c_error(nozzle::ErrorCode code) {
         case nozzle::ErrorCode::SenderClosed: return NOZZLE_ERROR_SENDER_CLOSED;
         case nozzle::ErrorCode::Timeout: return NOZZLE_ERROR_TIMEOUT;
         case nozzle::ErrorCode::BackendError: return NOZZLE_ERROR_BACKEND_ERROR;
+        case nozzle::ErrorCode::CommandFailed: return NOZZLE_ERROR_COMMAND_FAILED;
     }
     return NOZZLE_ERROR_UNKNOWN;
 }

@@ -464,7 +464,20 @@ Result<void> blit_to_texture(void *mtl_device_ptr, void *src_ptr, void *dst_ptr,
         }
 
         id<MTLCommandBuffer> cmd = queue.commandBuffer;
+        if (!cmd) {
+#if !__has_feature(objc_arc)
+            [queue release];
+#endif
+            return Error{ErrorCode::CommandFailed, "blit_to_texture: failed to create command buffer"};
+        }
+
         id<MTLBlitCommandEncoder> blit = cmd.blitCommandEncoder;
+        if (!blit) {
+#if !__has_feature(objc_arc)
+            [queue release];
+#endif
+            return Error{ErrorCode::CommandFailed, "blit_to_texture: failed to create blit command encoder"};
+        }
 
         [blit copyFromTexture:src
                  sourceSlice:0
@@ -479,6 +492,21 @@ Result<void> blit_to_texture(void *mtl_device_ptr, void *src_ptr, void *dst_ptr,
         [blit endEncoding];
         [cmd commit];
         [cmd waitUntilCompleted];
+
+        if (cmd.status != MTLCommandBufferStatusCompleted) {
+            std::string msg = "blit_to_texture: command buffer execution failed";
+            if (cmd.error) {
+                const char *desc = cmd.error.localizedDescription.UTF8String;
+                if (desc) {
+                    msg += ": ";
+                    msg += desc;
+                }
+            }
+#if !__has_feature(objc_arc)
+            [queue release];
+#endif
+            return Error{ErrorCode::CommandFailed, std::move(msg)};
+        }
 
 #if !__has_feature(objc_arc)
         [queue release];

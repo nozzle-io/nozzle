@@ -18,6 +18,7 @@ enum class ErrorCode {
     SenderClosed,
     Timeout,
     BackendError,
+    CommandFailed,
 };
 
 struct Error {
