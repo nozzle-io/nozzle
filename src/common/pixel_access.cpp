@@ -435,6 +435,7 @@ void unlock_writable_pixels(writable_frame &) {
         tl_write_state.context->CopySubresourceRegion(
             tl_write_state.source, 0, 0, 0, 0,
             tl_write_state.staging, 0, nullptr);
+        tl_write_state.context->Flush();
         tl_write_state.staging->Release();
         tl_write_state.context->Release();
         tl_write_state.device->Release();

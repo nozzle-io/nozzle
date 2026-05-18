@@ -64,6 +64,10 @@ inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, ui
     return metal::blit_to_texture(device, src, dst, width, height);
 }
 
+inline auto signal_texture_ready(void * /*native_texture*/, uint32_t /*slot_index*/) -> Result<void> {
+    return {};
+}
+
 inline auto wait_for_texture(void * /*native_texture*/, uint32_t /*slot_index*/, uint32_t /*timeout_ms*/) -> Result<void> {
     return {};
 }

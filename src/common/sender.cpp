@@ -429,6 +429,14 @@ Result<void> sender::commit_frame(writable_frame &f) {
 
 	uint64_t frame_number = ++impl_->frame_counter_;
 
+	void *native_texture = detail::backend::get_native_texture(f.get_texture());
+	auto signal_result = detail::backend::signal_texture_ready(native_texture, slot);
+	if (!signal_result.ok()) {
+		f = writable_frame{};
+		impl_->slot_in_use_[slot] = false;
+		return signal_result.error();
+	}
+
 	impl_->state->slots[slot].frame_number = frame_number;
 	impl_->state->slots[slot].shared_resource_id = resource_id;
 	impl_->state->slots[slot].width = impl_->state->width;

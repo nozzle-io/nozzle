@@ -143,7 +143,7 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	nozzle::d3d11::release_slot(receiver_texture, 0);
 	REQUIRE_FALSE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1));
 
-	nozzle::d3d11::signal_slot_ready(sender_texture, 0);
+	REQUIRE(nozzle::d3d11::signal_slot_ready(sender_texture, 0));
 	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1000));
 	nozzle::d3d11::release_slot(receiver_texture, 0);
 

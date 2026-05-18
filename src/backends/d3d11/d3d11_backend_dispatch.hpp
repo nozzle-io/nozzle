@@ -47,6 +47,13 @@ inline auto blit_textures(void * /*device*/, void *src, void *dst, uint32_t /*wi
     return d3d11::blit_to_texture(src, dst);
 }
 
+inline auto signal_texture_ready(void *native_texture, uint32_t slot_index) -> Result<void> {
+    if (!d3d11::signal_slot_ready(native_texture, slot_index)) {
+        return Error{ErrorCode::Timeout, "timeout signaling D3D11 shared texture"};
+    }
+    return {};
+}
+
 inline auto wait_for_texture(void *native_texture, uint32_t slot_index, uint32_t timeout_ms) -> Result<void> {
     if (!d3d11::wait_for_slot(native_texture, slot_index, timeout_ms)) {
         return Error{ErrorCode::Timeout, "timeout waiting for D3D11 shared texture"};

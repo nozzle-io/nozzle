@@ -32,7 +32,7 @@ void *get_default_d3d11_device();
 void release_d3d11_device(void *device);
 bool d3d11_supports_format(void *device, uint32_t format, uint32_t usage);
 
-void signal_slot_ready(void *shared_texture, uint32_t slot_index);
+bool signal_slot_ready(void *shared_texture, uint32_t slot_index);
 void signal_slot_done(void *shared_texture, uint32_t slot_index);
 bool wait_for_slot(void *shared_texture, uint32_t slot_index, uint32_t timeout_ms);
 void release_slot(void *shared_texture, uint32_t slot_index);
