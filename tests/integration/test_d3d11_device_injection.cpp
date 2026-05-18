@@ -391,6 +391,56 @@ TEST_CASE("D3D11: sender can publish past ring size without receiver", "[d3d11][
 	device->Release();
 }
 
+TEST_CASE("D3D11: writable commits can publish past ring size without receiver", "[d3d11][shared_handle][producer]") {
+	ID3D11Device *device = nullptr;
+	ID3D11DeviceContext *context = nullptr;
+	REQUIRE(create_warp_device(&device, &context));
+
+	nozzle::sender_desc desc{};
+	desc.name = "d3d11_writable_producer_only";
+	desc.application_name = "test";
+	desc.ring_buffer_size = 3;
+	desc.native_device = nozzle::native_device_desc{
+		nozzle::backend_type::d3d11, device, context
+	};
+
+	auto sender_result = nozzle::sender::create(desc);
+	REQUIRE(sender_result.ok());
+	auto sender = std::move(sender_result.value());
+
+	nozzle::texture_desc texture_desc{};
+	texture_desc.width = 4;
+	texture_desc.height = 4;
+	texture_desc.format = nozzle::texture_format::bgra8_unorm;
+
+	for (uint32_t frame_index = 0; frame_index < 5; ++frame_index) {
+		auto frame_result = sender.acquire_writable_frame(texture_desc);
+		REQUIRE(frame_result.ok());
+		auto writable = std::move(frame_result.value());
+		REQUIRE(writable.valid());
+
+		auto pixels_result = nozzle::lock_writable_pixels_with_origin(writable, nozzle::texture_origin::top_left);
+		REQUIRE(pixels_result.ok());
+		auto pixels = pixels_result.value();
+		REQUIRE(pixels.data != nullptr);
+		for (uint32_t y = 0; y < pixels.height; ++y) {
+			auto *row = reinterpret_cast<uint32_t *>(
+				static_cast<uint8_t *>(pixels.data) + pixels.row_stride_bytes * y);
+			for (uint32_t x = 0; x < pixels.width; ++x) {
+				row[x] = 0xFF3366CCu + frame_index;
+			}
+		}
+		nozzle::unlock_writable_pixels(writable);
+
+		auto commit_result = sender.commit_frame(writable);
+		REQUIRE(commit_result.ok());
+		REQUIRE_FALSE(writable.valid());
+	}
+
+	context->Release();
+	device->Release();
+}
+
 // --- C++ API: device injection (WARP, deterministic) ---
 
 TEST_CASE("D3D11 C++ API: create sender with injected WARP device", "[d3d11][native_device]") {

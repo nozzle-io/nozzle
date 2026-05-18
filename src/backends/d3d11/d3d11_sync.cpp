@@ -22,13 +22,32 @@ static IDXGIKeyedMutex *get_keyed_mutex(void *shared_texture) {
     return mutex;
 }
 
+static HRESULT acquire_publish_mutex(IDXGIKeyedMutex *mutex) {
+    HRESULT hr = mutex->AcquireSync(0, 0);
+    if (hr == S_OK) {
+        return hr;
+    }
+
+    hr = mutex->AcquireSync(1, 0);
+    if (hr == S_OK) {
+        return hr;
+    }
+
+    hr = mutex->AcquireSync(0, 1000);
+    if (hr == S_OK) {
+        return hr;
+    }
+
+    return mutex->AcquireSync(1, 0);
+}
+
 bool signal_slot_ready(void *shared_texture, uint32_t slot_index) {
     (void)slot_index;
     IDXGIKeyedMutex *mutex = get_keyed_mutex(shared_texture);
     if (!mutex) {
         return false;
     }
-    HRESULT hr = mutex->AcquireSync(0, 1000);
+    HRESULT hr = acquire_publish_mutex(mutex);
     if (hr == S_OK) {
         hr = mutex->ReleaseSync(1);
     }
