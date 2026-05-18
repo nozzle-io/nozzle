@@ -448,6 +448,21 @@ void *get_io_surface_from_texture(void *mtl_texture_ptr) {
     }
 }
 
+Result<void> check_texture_device(void *mtl_device_ptr, void *mtl_texture_ptr) {
+    @autoreleasepool {
+        id<MTLDevice> device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);
+        id<MTLTexture> tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, mtl_texture_ptr);
+        if (!device || !tex) {
+            return Error{ErrorCode::InvalidArgument, "check_texture_device: null argument"};
+        }
+        if (tex.device != device) {
+            return Error{ErrorCode::DeviceMismatch,
+                "source texture device does not match sender device"};
+        }
+        return {};
+    }
+}
+
 Result<void> blit_to_texture(void *mtl_device_ptr, void *src_ptr, void *dst_ptr, uint32_t width, uint32_t height) {
     @autoreleasepool {
         id<MTLDevice> device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);

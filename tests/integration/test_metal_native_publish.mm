@@ -332,3 +332,35 @@ TEST_CASE("Metal ring rotation: receiver gets latest frame with correct payload"
 		[device release];
 	}
 }
+
+TEST_CASE("Metal device validation: same-device texture passes validation", "[metal][native_publish]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		REQUIRE(device != nil);
+
+		id<MTLTexture> src = create_blit_texture(device);
+		REQUIRE(src != nil);
+		fill_texture(src, 0xBB);
+
+		auto sender = create_sender("test_device_match", device);
+		REQUIRE(sender.publish_native_texture(
+			static_cast<void *>(src), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
+
+		auto recv = create_receiver("test_device_match");
+		auto frame_result = recv.acquire_frame();
+		REQUIRE(frame_result.ok());
+
+		id<MTLTexture> dst = create_blit_texture(device);
+		REQUIRE(dst != nil);
+		REQUIRE(frame_result.value().copy_to_native_texture(
+			static_cast<void *>(dst), kTestW, kTestH, nozzle::texture_format::bgra8_unorm).ok());
+
+		uint8_t dst_data[kTestH * kRowBytes];
+		read_texture(dst, dst_data);
+		REQUIRE(verify_fill(dst_data, sizeof(dst_data), 0xBB));
+
+		[src release];
+		[dst release];
+		[device release];
+	}
+}

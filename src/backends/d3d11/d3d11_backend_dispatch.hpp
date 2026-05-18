@@ -51,6 +51,8 @@ inline auto blit_textures(void * /*device*/, void *src, void *dst, uint32_t /*wi
     return d3d11::blit_to_texture(src, dst);
 }
 
+inline auto validate_texture_device(void * /*device*/, void * /*native_texture*/) -> Result<void> { return {}; }
+
 inline auto notify_sender_uuid(const char * /*uuid*/) -> Result<void> { return {}; }
 inline void cleanup_sender_socket() {}
 inline void release_device(void *device) { d3d11::release_d3d11_device(device); }

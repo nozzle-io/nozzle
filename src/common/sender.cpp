@@ -559,6 +559,10 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 			return Error{ErrorCode::BackendError, "no native handle on ring texture"};
 		}
 
+		auto validate_result = detail::backend::validate_texture_device(
+			impl_->native_device_, native_texture);
+		if (!validate_result.ok()) return validate_result.error();
+
 		auto blit_result = detail::backend::blit_textures(
 			impl_->native_device_, native_texture, dst_native, width, height);
 		if (!blit_result.ok()) return blit_result.error();
