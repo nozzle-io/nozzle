@@ -518,6 +518,10 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 			"publish_native_texture does not support storage/semantic format mismatch"};
 	}
 
+	auto validate_result = detail::backend::validate_texture_device(
+		impl_->native_device_, native_texture);
+	if (!validate_result.ok()) return validate_result.error();
+
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	{
@@ -558,10 +562,6 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		if (!dst_native) {
 			return Error{ErrorCode::BackendError, "no native handle on ring texture"};
 		}
-
-		auto validate_result = detail::backend::validate_texture_device(
-			impl_->native_device_, native_texture);
-		if (!validate_result.ok()) return validate_result.error();
 
 		auto blit_result = detail::backend::blit_textures(
 			impl_->native_device_, native_texture, dst_native, width, height);
