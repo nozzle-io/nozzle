@@ -330,12 +330,6 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
         }
 
-        const auto &si = state->slots[slot];
-        frame_info info = detail::construct_frame_info_from_slot(si, frame, dropped);
-        info.timestamp_ns = detail::ipc::monotonic_ns();
-
-        detail::update_connected_info_from_slot(impl_->connected_info_, si);
-
         auto tex_result = create_texture_from_slot(state, slot, impl_->sender_pid_);
         if (!tex_result.ok()) {
 #if NOZZLE_DEBUG
@@ -361,6 +355,31 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         if (!wait_result.ok()) {
             return wait_result.error();
         }
+
+        detail::ipc::atomic_fence_acquire();
+        const auto &si = state->slots[slot];
+        if (si.frame_number != frame) {
+            if (si.frame_number > impl_->last_frame_) {
+                frame = si.frame_number;
+                dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
+            } else {
+                detail::backend::release_texture_sync(native_texture, slot);
+                if (desc.timeout_ms == 0) {
+                    return Error{ErrorCode::Timeout,
+                        "frame was overwritten before acquire completed"};
+                }
+                if (detail::ipc::monotonic_ns() >= deadline) {
+                    return Error{ErrorCode::Timeout,
+                        "timeout waiting for stable frame"};
+                }
+                continue;
+            }
+        }
+
+        frame_info info = detail::construct_frame_info_from_slot(si, frame, dropped);
+        info.timestamp_ns = detail::ipc::monotonic_ns();
+
+        detail::update_connected_info_from_slot(impl_->connected_info_, si);
 
         impl_->last_frame_ = frame;
         impl_->connected_info_.frame_counter = frame;

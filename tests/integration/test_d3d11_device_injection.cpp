@@ -52,6 +52,14 @@ static ID3D11Texture2D *create_bgra8_texture(ID3D11Device *device, uint32_t w, u
 	return SUCCEEDED(hr) ? texture : nullptr;
 }
 
+static void fill_bgra8_texture(ID3D11DeviceContext *context, ID3D11Texture2D *texture, uint32_t pixel) {
+	uint32_t pixels[16]{};
+	for (uint32_t i = 0; i < 16; ++i) {
+		pixels[i] = pixel;
+	}
+	context->UpdateSubresource(texture, 0, nullptr, pixels, 4 * sizeof(uint32_t), 0);
+	context->Flush();
+}
 
 static ID3D11Texture2D *create_staging_bgra8_texture(ID3D11Device *device, uint32_t w, uint32_t h) {
 	D3D11_TEXTURE2D_DESC desc{};
@@ -439,6 +447,81 @@ TEST_CASE("D3D11: writable commits can publish past ring size without receiver",
 
 	context->Release();
 	device->Release();
+}
+
+TEST_CASE("D3D11: slow receiver can drop held frame while sender continues", "[d3d11][shared_handle][producer][receiver]") {
+	char sender_name_buffer[96]{};
+	std::snprintf(sender_name_buffer, sizeof(sender_name_buffer), "d3d11_slow_receiver_%lu_%lu",
+		static_cast<unsigned long>(GetCurrentProcessId()),
+		static_cast<unsigned long>(GetTickCount()));
+	std::string sender_name(sender_name_buffer);
+
+	nozzle::sender_desc desc{};
+	desc.name = sender_name;
+	desc.application_name = "test";
+	desc.ring_buffer_size = 3;
+
+	auto sender_result = nozzle::sender::create(desc);
+	REQUIRE(sender_result.ok());
+	auto sender = std::move(sender_result.value());
+
+	auto native = sender.native_device();
+	auto *device = static_cast<ID3D11Device *>(native.device);
+	REQUIRE(device != nullptr);
+	ID3D11DeviceContext *context = nullptr;
+	device->GetImmediateContext(&context);
+	REQUIRE(context != nullptr);
+
+	ID3D11Texture2D *source = create_bgra8_texture(device, 4, 4);
+	REQUIRE(source != nullptr);
+
+	fill_bgra8_texture(context, source, 0xFF336600u);
+	auto first_publish = sender.publish_native_texture(
+		source, 4, 4, nozzle::texture_format::bgra8_unorm);
+	REQUIRE(first_publish.ok());
+
+	nozzle::receiver_desc receiver_desc{};
+	receiver_desc.name = sender_name;
+	auto receiver_result = nozzle::receiver::create(receiver_desc);
+	REQUIRE(receiver_result.ok());
+	auto receiver = std::move(receiver_result.value());
+
+	nozzle::acquire_desc acquire_desc{};
+	acquire_desc.timeout_ms = 1000;
+	auto held_result = receiver.acquire_frame(acquire_desc);
+	REQUIRE(held_result.ok());
+	auto held = std::move(held_result.value());
+	REQUIRE(held.valid());
+	REQUIRE(held.info().frame_index == 1);
+
+	uint32_t expected_pixel = 0;
+	for (uint32_t frame_index = 0; frame_index < 5; ++frame_index) {
+		expected_pixel = 0xFF336601u + frame_index;
+		fill_bgra8_texture(context, source, expected_pixel);
+		auto publish_result = sender.publish_native_texture(
+			source, 4, 4, nozzle::texture_format::bgra8_unorm);
+		REQUIRE(publish_result.ok());
+	}
+
+	held.release();
+
+	acquire_desc.timeout_ms = 2000;
+	auto latest_result = receiver.acquire_frame(acquire_desc);
+	REQUIRE(latest_result.ok());
+	auto latest = std::move(latest_result.value());
+	REQUIRE(latest.valid());
+	REQUIRE(latest.info().frame_index == 6);
+
+	auto pixels_result = nozzle::lock_frame_pixels_with_origin(latest, nozzle::texture_origin::top_left);
+	REQUIRE(pixels_result.ok());
+	auto pixels = pixels_result.value();
+	REQUIRE(pixels.data != nullptr);
+	const auto *row = static_cast<const uint32_t *>(pixels.data);
+	REQUIRE(row[0] == expected_pixel);
+	nozzle::unlock_frame_pixels(latest);
+
+	source->Release();
+	context->Release();
 }
 
 // --- C++ API: device injection (WARP, deterministic) ---

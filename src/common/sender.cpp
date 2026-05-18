@@ -532,20 +532,18 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
-	{
-		uint32_t ring_size = impl_->state->ring_size;
-		if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
-		int32_t free_slot = detail::kSlotNotFound;
-		for (uint32_t i = 0; i < ring_size; ++i) {
-			if (!impl_->slot_in_use_[i]) {
-				free_slot = static_cast<int32_t>(i);
-				break;
-			}
+	uint32_t ring_size = impl_->state->ring_size;
+	if (ring_size < detail::kMinimumRingSize) ring_size = detail::kMinimumRingSize;
+
+	Error last_timeout{ErrorCode::Timeout,
+		"all ring buffer slots are locked by receivers"};
+	uint32_t start_slot = impl_->next_slot_;
+
+	for (uint32_t attempt = 0; attempt < ring_size; ++attempt) {
+		uint32_t slot = (start_slot + attempt) % ring_size;
+		if (impl_->slot_in_use_[slot]) {
+			continue;
 		}
-		if (free_slot == detail::kSlotNotFound) {
-			return Error{ErrorCode::Timeout, "all ring buffer slots are in use"};
-		}
-		uint32_t slot = static_cast<uint32_t>(free_slot);
 
 		bool needs_create = !impl_->ring_textures_[slot].valid() ||
 			impl_->ring_textures_[slot].desc().width != width ||
@@ -573,7 +571,13 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 
 		auto blit_result = detail::backend::blit_textures(
 			impl_->native_device_, native_texture, dst_native, width, height);
-		if (!blit_result.ok()) return blit_result.error();
+		if (!blit_result.ok()) {
+			if (blit_result.error().code == ErrorCode::Timeout) {
+				last_timeout = blit_result.error();
+				continue;
+			}
+			return blit_result.error();
+		}
 
 		impl_->slot_in_use_[slot] = true;
 
@@ -600,9 +604,11 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 		impl_->slot_in_use_[slot] = false;
+		impl_->next_slot_ = (slot + 1) % ring_size;
+		return {};
 	}
 
-	return {};
+	return last_timeout;
 }
 
 } // namespace nozzle
