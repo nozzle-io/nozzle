@@ -143,7 +143,8 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
 
 Result<texture> create_texture_from_slot(
     const detail::SenderSharedState *state,
-    uint32_t slot) {
+    uint32_t slot,
+    uint64_t sender_pid) {
     auto backend = static_cast<backend_type>(state->backend);
     if (detail::backend::get_backend_type() != backend) {
         return Error{ErrorCode::BackendError,
@@ -170,6 +171,7 @@ Result<texture> create_texture_from_slot(
         s.plane_count,
         s.plane_strides,
         s.plane_offsets,
+        sender_pid,
         state->uuid);
     detail::backend::release_device(device);
     return result;
@@ -335,7 +337,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
         detail::update_connected_info_from_slot(impl_->connected_info_, si);
 
-        auto tex_result = create_texture_from_slot(state, slot);
+        auto tex_result = create_texture_from_slot(state, slot, impl_->sender_pid_);
         if (!tex_result.ok()) {
 #if NOZZLE_DEBUG
             {

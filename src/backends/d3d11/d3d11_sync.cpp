@@ -28,8 +28,10 @@ void signal_slot_ready(void *shared_texture, uint32_t slot_index) {
     if (!mutex) {
         return;
     }
-    mutex->AcquireSync(0, INFINITE);
-    mutex->ReleaseSync(1);
+    HRESULT hr = mutex->AcquireSync(0, INFINITE);
+    if (hr == S_OK) {
+        mutex->ReleaseSync(1);
+    }
     mutex->Release();
 }
 
@@ -47,7 +49,7 @@ bool wait_for_slot(void *shared_texture, uint32_t slot_index, uint32_t timeout_m
     DWORD ms = (timeout_ms == 0) ? INFINITE : static_cast<DWORD>(timeout_ms);
     HRESULT hr = mutex->AcquireSync(1, ms);
     mutex->Release();
-    return SUCCEEDED(hr);
+    return hr == S_OK;
 }
 
 void release_slot(void *shared_texture, uint32_t slot_index) {

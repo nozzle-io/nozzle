@@ -22,7 +22,8 @@ Result<texture> lookup_shared_texture(
     uint32_t width,
     uint32_t height,
     uint32_t format,
-    uint32_t semantic_format = 0
+    uint32_t semantic_format = 0,
+    uint64_t sender_pid = 0
 );
 
 void release_d3d11_texture_resources(void *texture, void *shared_handle);

@@ -6,8 +6,11 @@
 
 #include <nozzle/nozzle.hpp>
 #include <nozzle/nozzle_c.h>
+#include <nozzle/backends/d3d11.hpp>
+#include "backends/d3d11/d3d11_helpers.hpp"
 
 #define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <d3d11.h>
 
 static bool create_device(D3D_DRIVER_TYPE type, ID3D11Device **device, ID3D11DeviceContext **context) {
@@ -41,6 +44,95 @@ static ID3D11Texture2D *create_bgra8_texture(ID3D11Device *device, uint32_t w, u
 	ID3D11Texture2D *texture = nullptr;
 	HRESULT hr = device->CreateTexture2D(&desc, nullptr, &texture);
 	return SUCCEEDED(hr) ? texture : nullptr;
+}
+
+
+static ID3D11Texture2D *create_staging_bgra8_texture(ID3D11Device *device, uint32_t w, uint32_t h) {
+	D3D11_TEXTURE2D_DESC desc{};
+	desc.Width = w;
+	desc.Height = h;
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_STAGING;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	ID3D11Texture2D *texture = nullptr;
+	HRESULT hr = device->CreateTexture2D(&desc, nullptr, &texture);
+	return SUCCEEDED(hr) ? texture : nullptr;
+}
+
+
+TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed mutex contract", "[d3d11][shared_handle][sync]") {
+	ID3D11Device *sender_device = nullptr;
+	ID3D11DeviceContext *sender_context = nullptr;
+	REQUIRE(create_warp_device(&sender_device, &sender_context));
+
+	ID3D11Device *receiver_device = nullptr;
+	ID3D11DeviceContext *receiver_context = nullptr;
+	REQUIRE(create_warp_device(&receiver_device, &receiver_context));
+
+	auto texture_result = nozzle::d3d11::create_shared_texture(
+		sender_device, 4, 4, static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm));
+	REQUIRE(texture_result.ok());
+	nozzle::texture sender_shared_texture = std::move(texture_result.value());
+
+	ID3D11Texture2D *sender_texture = nozzle::d3d11::get_texture(sender_shared_texture);
+	REQUIRE(sender_texture != nullptr);
+
+	D3D11_TEXTURE2D_DESC sender_desc{};
+	sender_texture->GetDesc(&sender_desc);
+	REQUIRE((sender_desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_NTHANDLE) != 0);
+	REQUIRE((sender_desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX) != 0);
+
+	uint32_t pixels[16]{};
+	for (uint32_t i = 0; i < 16; ++i) {
+		pixels[i] = 0xFF3366CCu;
+	}
+	sender_context->UpdateSubresource(sender_texture, 0, nullptr, pixels, 4 * sizeof(uint32_t), 0);
+
+	HANDLE sender_handle = nozzle::d3d11::get_shared_handle(sender_shared_texture);
+	REQUIRE(sender_handle != nullptr);
+
+	auto opened_result = nozzle::d3d11::lookup_shared_texture(
+		receiver_device,
+		reinterpret_cast<uint64_t>(sender_handle),
+		4,
+		4,
+		static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm),
+		static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm),
+		static_cast<uint64_t>(GetCurrentProcessId()));
+	REQUIRE(opened_result.ok());
+	nozzle::texture receiver_shared_texture = std::move(opened_result.value());
+	ID3D11Texture2D *receiver_texture = nozzle::d3d11::get_texture(receiver_shared_texture);
+	REQUIRE(receiver_texture != nullptr);
+
+	nozzle::d3d11::signal_slot_ready(sender_texture, 0);
+	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1000));
+
+	ID3D11Texture2D *staging = create_staging_bgra8_texture(receiver_device, 4, 4);
+	REQUIRE(staging != nullptr);
+	receiver_context->CopyResource(staging, receiver_texture);
+
+	D3D11_MAPPED_SUBRESOURCE mapped{};
+	HRESULT hr = receiver_context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+	REQUIRE(SUCCEEDED(hr));
+	const auto *row = static_cast<const uint32_t *>(mapped.pData);
+	REQUIRE(row[0] == 0xFF3366CCu);
+	receiver_context->Unmap(staging, 0);
+	staging->Release();
+
+	nozzle::d3d11::release_slot(receiver_texture, 0);
+	REQUIRE_FALSE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1));
+
+	nozzle::d3d11::signal_slot_ready(sender_texture, 0);
+	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1000));
+	nozzle::d3d11::release_slot(receiver_texture, 0);
+
+	receiver_context->Release();
+	receiver_device->Release();
+	sender_context->Release();
+	sender_device->Release();
 }
 
 // --- C++ API: device injection (WARP, deterministic) ---

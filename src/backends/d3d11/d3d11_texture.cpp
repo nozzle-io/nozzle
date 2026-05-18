@@ -8,7 +8,9 @@
 #include "common/shared_state.hpp"
 
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_2.h>
+#include <windows.h>
 
 namespace nozzle {
 namespace d3d11 {
@@ -72,8 +74,7 @@ Result<texture> create_shared_texture(
     desc.SampleDesc.Quality = 0;
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-	// SHARED_KEYEDMUTEX is mutually exclusive with SHARED and still provides a shared handle.
-	desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
 
     ID3D11Texture2D *texture = nullptr;
     HRESULT hr = device->CreateTexture2D(&desc, nullptr, &texture);
@@ -81,21 +82,25 @@ Result<texture> create_shared_texture(
         return Error{ErrorCode::ResourceCreationFailed, "Failed to create D3D11 shared texture"};
     }
 
-    IDXGIResource *dxgi_resource = nullptr;
+    IDXGIResource1 *dxgi_resource = nullptr;
     hr = texture->QueryInterface(
-        __uuidof(IDXGIResource), reinterpret_cast<void **>(&dxgi_resource));
+        __uuidof(IDXGIResource1), reinterpret_cast<void **>(&dxgi_resource));
     if (FAILED(hr) || !dxgi_resource) {
         texture->Release();
-        return Error{ErrorCode::BackendError, "Texture does not support IDXGIResource"};
+        return Error{ErrorCode::BackendError, "Texture does not support IDXGIResource1"};
     }
 
     HANDLE shared_handle = nullptr;
-    hr = dxgi_resource->GetSharedHandle(&shared_handle);
+    hr = dxgi_resource->CreateSharedHandle(
+        nullptr,
+        DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+        nullptr,
+        &shared_handle);
     dxgi_resource->Release();
 
     if (FAILED(hr) || !shared_handle) {
         texture->Release();
-        return Error{ErrorCode::SharedHandleFailed, "Failed to get shared handle"};
+        return Error{ErrorCode::SharedHandleFailed, "Failed to create NT shared handle"};
     }
 
     native_format_desc native{};
@@ -120,7 +125,8 @@ Result<texture> lookup_shared_texture(
     uint32_t width,
     uint32_t height,
     uint32_t format,
-    uint32_t semantic_format
+    uint32_t semantic_format,
+    uint64_t sender_pid
 ) {
     if (!d3d11_device) {
         return Error{ErrorCode::InvalidArgument, "D3D11 device is null"};
@@ -130,15 +136,60 @@ Result<texture> lookup_shared_texture(
     }
 
     auto *device = static_cast<ID3D11Device *>(d3d11_device);
-    HANDLE shared_handle = reinterpret_cast<HANDLE>(shared_handle_val);
+    HANDLE sender_handle = reinterpret_cast<HANDLE>(shared_handle_val);
+
+    // CreateSharedHandle returns an NT handle, and NT handle values are
+    // process-local.  shared_handle_val is the sender-process handle value
+    // stored in shared memory, so a receiver must duplicate it into the
+    // current process before OpenSharedResource1().
+    DWORD source_pid = sender_pid != 0
+        ? static_cast<DWORD>(sender_pid)
+        : GetCurrentProcessId();
+    HANDLE source_process = nullptr;
+    bool close_source_process = false;
+    if (source_pid == GetCurrentProcessId()) {
+        source_process = GetCurrentProcess();
+    } else {
+        source_process = OpenProcess(PROCESS_DUP_HANDLE, FALSE, source_pid);
+        close_source_process = true;
+    }
+    if (!source_process) {
+        return Error{ErrorCode::BackendError, "Failed to open sender process for D3D11 handle duplication"};
+    }
+
+    HANDLE local_handle = nullptr;
+    BOOL dup_ok = DuplicateHandle(
+        source_process,
+        sender_handle,
+        GetCurrentProcess(),
+        &local_handle,
+        0,
+        FALSE,
+        DUPLICATE_SAME_ACCESS);
+    if (close_source_process) {
+        CloseHandle(source_process);
+    }
+    if (!dup_ok || !local_handle) {
+        return Error{ErrorCode::SharedHandleFailed, "Failed to duplicate D3D11 NT shared handle"};
+    }
+
+    ID3D11Device1 *device1 = nullptr;
+    HRESULT hr = device->QueryInterface(
+        __uuidof(ID3D11Device1), reinterpret_cast<void **>(&device1));
+    if (FAILED(hr) || !device1) {
+        CloseHandle(local_handle);
+        return Error{ErrorCode::BackendError, "D3D11 device does not support ID3D11Device1"};
+    }
 
     ID3D11Texture2D *texture = nullptr;
-    HRESULT hr = device->OpenSharedResource(
-        shared_handle, __uuidof(ID3D11Texture2D),
+    hr = device1->OpenSharedResource1(
+        local_handle, __uuidof(ID3D11Texture2D),
         reinterpret_cast<void **>(&texture));
+    device1->Release();
     if (FAILED(hr) || !texture) {
+        CloseHandle(local_handle);
         return Error{ErrorCode::ResourceCreationFailed,
-            "Failed to open shared D3D11 texture"};
+            "Failed to open NT shared D3D11 texture"};
     }
 
     D3D11_TEXTURE2D_DESC tex_desc{};
@@ -151,7 +202,7 @@ Result<texture> lookup_shared_texture(
 
     return detail::make_texture_from_backend(
         reinterpret_cast<void *>(texture),
-        reinterpret_cast<void *>(shared_handle),
+        reinterpret_cast<void *>(local_handle),
         width,
         height,
         format,
@@ -161,14 +212,13 @@ Result<texture> lookup_shared_texture(
     );
 }
 
-void release_d3d11_texture_resources(void *texture_ptr, void * /*shared_handle_ptr*/) {
+void release_d3d11_texture_resources(void *texture_ptr, void *shared_handle_ptr) {
     if (texture_ptr) {
         static_cast<ID3D11Texture2D *>(texture_ptr)->Release();
     }
-    // GetSharedHandle() returns a legacy non-NT handle — must not call CloseHandle().
-    // The handle is valid as long as the underlying texture exists on any device.
-    // See: https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiresource-getsharedhandle
-    // TODO: migrate to IDXGIResource1::CreateSharedHandle() with SHARED_NTHANDLE for proper CloseHandle support.
+    if (shared_handle_ptr) {
+        CloseHandle(static_cast<HANDLE>(shared_handle_ptr));
+    }
 }
 
 Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {

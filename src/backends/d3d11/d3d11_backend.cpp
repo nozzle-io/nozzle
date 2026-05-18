@@ -6,7 +6,9 @@
 #include <nozzle/result.hpp>
 
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_2.h>
+#include <windows.h>
 
 namespace nozzle {
 namespace d3d11 {
@@ -25,21 +27,25 @@ Result<texture> wrap_texture(const TextureWrapDesc &desc) {
     }
     desc.texture->AddRef();
 
-    IDXGIResource *dxgi_resource = nullptr;
+    IDXGIResource1 *dxgi_resource = nullptr;
     HRESULT hr = desc.texture->QueryInterface(
-        __uuidof(IDXGIResource), reinterpret_cast<void **>(&dxgi_resource));
+        __uuidof(IDXGIResource1), reinterpret_cast<void **>(&dxgi_resource));
     if (FAILED(hr) || !dxgi_resource) {
         desc.texture->Release();
-        return Error{ErrorCode::BackendError, "texture is not a shared resource"};
+        return Error{ErrorCode::BackendError, "texture does not support IDXGIResource1"};
     }
 
     HANDLE shared_handle = nullptr;
-    hr = dxgi_resource->GetSharedHandle(&shared_handle);
+    hr = dxgi_resource->CreateSharedHandle(
+        nullptr,
+        DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+        nullptr,
+        &shared_handle);
     dxgi_resource->Release();
 
     if (FAILED(hr) || !shared_handle) {
         desc.texture->Release();
-        return Error{ErrorCode::SharedHandleFailed, "failed to get shared handle"};
+        return Error{ErrorCode::SharedHandleFailed, "failed to create NT shared handle"};
     }
 
     D3D11_TEXTURE2D_DESC tex_desc{};
