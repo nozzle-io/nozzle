@@ -95,6 +95,15 @@ if(WIN32)
     list(APPEND INTEGRATION_TEST_SOURCES
         integration/test_d3d11_device_injection.cpp
     )
+
+    add_executable(nozzle_d3d11_cross_process_sender
+        integration/d3d11_cross_process_sender.cpp
+    )
+    target_link_libraries(nozzle_d3d11_cross_process_sender PRIVATE nozzle d3d11 dxgi)
+    target_include_directories(nozzle_d3d11_cross_process_sender PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/common
+    )
 endif()
 
 if(NOT BUILD_SHARED_LIBS)

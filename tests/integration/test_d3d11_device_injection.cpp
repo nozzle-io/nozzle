@@ -7,12 +7,17 @@
 #include <nozzle/nozzle.hpp>
 #include <nozzle/nozzle_c.h>
 #include <nozzle/backends/d3d11.hpp>
+#include <nozzle/pixel_access.hpp>
 #include "backends/d3d11/d3d11_helpers.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
+
+#include <cstdio>
+#include <string>
+#include <utility>
 
 static bool create_device(D3D_DRIVER_TYPE type, ID3D11Device **device, ID3D11DeviceContext **context) {
 	D3D_FEATURE_LEVEL feature_level{};
@@ -146,6 +151,206 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	receiver_device->Release();
 	sender_context->Release();
 	sender_device->Release();
+}
+
+
+static std::string quote_arg(const std::string &arg) {
+	std::string quoted = "\"";
+	for (char ch : arg) {
+		if (ch == '"') {
+			quoted += "\\\"";
+		} else {
+			quoted += ch;
+		}
+	}
+	quoted += "\"";
+	return quoted;
+}
+
+static std::string current_executable_directory() {
+	char path[MAX_PATH]{};
+	DWORD len = GetModuleFileNameA(nullptr, path, MAX_PATH);
+	if (len == 0 || len >= MAX_PATH) {
+		return {};
+	}
+	std::string result(path, len);
+	size_t pos = result.find_last_of("\\/");
+	if (pos == std::string::npos) {
+		return {};
+	}
+	return result.substr(0, pos + 1);
+}
+
+static std::string make_temp_ready_path(const char *prefix) {
+	char temp_dir[MAX_PATH]{};
+	DWORD len = GetTempPathA(MAX_PATH, temp_dir);
+	if (len == 0 || len >= MAX_PATH) {
+		return {};
+	}
+	char path[MAX_PATH]{};
+	std::snprintf(path, sizeof(path), "%s%s_%lu_%lu.txt", temp_dir, prefix,
+		static_cast<unsigned long>(GetCurrentProcessId()),
+		static_cast<unsigned long>(GetTickCount()));
+	return path;
+}
+
+static bool file_exists(const std::string &path) {
+	DWORD attrs = GetFileAttributesA(path.c_str());
+	return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+static bool wait_for_file(const std::string &path, uint32_t timeout_ms) {
+	DWORD start = GetTickCount();
+	while (GetTickCount() - start < timeout_ms) {
+		if (file_exists(path)) {
+			return true;
+		}
+		Sleep(25);
+	}
+	return false;
+}
+
+static uint64_t read_handle_file(const std::string &path) {
+	FILE *file = std::fopen(path.c_str(), "r");
+	if (!file) {
+		return 0;
+	}
+	unsigned long long value = 0;
+	std::fscanf(file, "%llu", &value);
+	std::fclose(file);
+	return static_cast<uint64_t>(value);
+}
+
+struct child_process {
+	PROCESS_INFORMATION info{};
+
+	~child_process() {
+		if (info.hProcess) {
+			TerminateProcess(info.hProcess, 0);
+			WaitForSingleObject(info.hProcess, 2000);
+			CloseHandle(info.hProcess);
+		}
+		if (info.hThread) {
+			CloseHandle(info.hThread);
+		}
+	}
+
+	child_process() = default;
+	child_process(const child_process &) = delete;
+	child_process &operator=(const child_process &) = delete;
+};
+
+static bool start_helper(const std::string &arguments, child_process &child) {
+	std::string exe = current_executable_directory() + "nozzle_d3d11_cross_process_sender.exe";
+	std::string command = quote_arg(exe) + " " + arguments;
+	STARTUPINFOA startup{};
+	startup.cb = sizeof(startup);
+	BOOL ok = CreateProcessA(
+		nullptr,
+		&command[0],
+		nullptr,
+		nullptr,
+		FALSE,
+		0,
+		nullptr,
+		nullptr,
+		&startup,
+		&child.info);
+	return ok != FALSE;
+}
+
+TEST_CASE("D3D11: NT shared handle duplicates from another process", "[d3d11][shared_handle][cross_process]") {
+	std::string ready_file = make_temp_ready_path("nozzle_raw_d3d11");
+	REQUIRE_FALSE(ready_file.empty());
+	DeleteFileA(ready_file.c_str());
+
+	child_process child;
+	REQUIRE(start_helper(std::string("raw ") + quote_arg(ready_file), child));
+	REQUIRE(wait_for_file(ready_file, 10000));
+
+	uint64_t sender_handle = read_handle_file(ready_file);
+	REQUIRE(sender_handle != 0);
+
+	ID3D11Device *receiver_device = nullptr;
+	ID3D11DeviceContext *receiver_context = nullptr;
+	REQUIRE(create_warp_device(&receiver_device, &receiver_context));
+
+	auto opened_result = nozzle::d3d11::lookup_shared_texture(
+		receiver_device,
+		sender_handle,
+		4,
+		4,
+		static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm),
+		static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm),
+		static_cast<uint64_t>(child.info.dwProcessId));
+	REQUIRE(opened_result.ok());
+	nozzle::texture receiver_shared_texture = std::move(opened_result.value());
+	ID3D11Texture2D *receiver_texture = nozzle::d3d11::get_texture(receiver_shared_texture);
+	REQUIRE(receiver_texture != nullptr);
+
+	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1000));
+
+	ID3D11Texture2D *staging = create_staging_bgra8_texture(receiver_device, 4, 4);
+	REQUIRE(staging != nullptr);
+	receiver_context->CopyResource(staging, receiver_texture);
+	receiver_context->Flush();
+
+	D3D11_MAPPED_SUBRESOURCE mapped{};
+	HRESULT hr = receiver_context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+	REQUIRE(SUCCEEDED(hr));
+	const auto *row = static_cast<const uint32_t *>(mapped.pData);
+	REQUIRE(row[0] == 0xFF3366CCu);
+	receiver_context->Unmap(staging, 0);
+	staging->Release();
+
+	nozzle::d3d11::release_slot(receiver_texture, 0);
+
+	receiver_context->Release();
+	receiver_device->Release();
+	DeleteFileA(ready_file.c_str());
+}
+
+TEST_CASE("D3D11: public receiver acquires frame from another process", "[d3d11][shared_handle][cross_process]") {
+	std::string ready_file = make_temp_ready_path("nozzle_public_d3d11");
+	REQUIRE_FALSE(ready_file.empty());
+	DeleteFileA(ready_file.c_str());
+
+	char sender_name_buffer[96]{};
+	std::snprintf(sender_name_buffer, sizeof(sender_name_buffer), "d3d11_public_%lu_%lu",
+		static_cast<unsigned long>(GetCurrentProcessId()),
+		static_cast<unsigned long>(GetTickCount()));
+	std::string sender_name(sender_name_buffer);
+
+	child_process child;
+	REQUIRE(start_helper(std::string("public ") + quote_arg(sender_name) + " " + quote_arg(ready_file), child));
+	REQUIRE(wait_for_file(ready_file, 10000));
+
+	nozzle::receiver_desc receiver_desc{};
+	receiver_desc.name = sender_name;
+	receiver_desc.application_name = "d3d11_cross_process_receiver";
+	auto receiver_result = nozzle::receiver::create(receiver_desc);
+	REQUIRE(receiver_result.ok());
+	auto receiver = std::move(receiver_result.value());
+
+	nozzle::acquire_desc acquire_desc{};
+	acquire_desc.timeout_ms = 1000;
+	auto frame_result = receiver.acquire_frame(acquire_desc);
+	REQUIRE(frame_result.ok());
+	auto frame = std::move(frame_result.value());
+	REQUIRE(frame.valid());
+	REQUIRE(frame.info().width == 4);
+	REQUIRE(frame.info().height == 4);
+	REQUIRE(frame.info().format == nozzle::texture_format::bgra8_unorm);
+
+	auto pixels_result = nozzle::lock_frame_pixels_with_origin(frame, nozzle::texture_origin::top_left);
+	REQUIRE(pixels_result.ok());
+	auto pixels = pixels_result.value();
+	REQUIRE(pixels.data != nullptr);
+	const auto *row = static_cast<const uint32_t *>(pixels.data);
+	REQUIRE(row[0] == 0xFF3366CCu);
+	nozzle::unlock_frame_pixels(frame);
+
+	DeleteFileA(ready_file.c_str());
 }
 
 // --- C++ API: device injection (WARP, deterministic) ---
