@@ -211,6 +211,8 @@ typedef struct NozzleConnectedSenderInfo {
     double estimated_fps;
     uint64_t frame_counter;
     uint64_t last_update_time_ns;
+    NozzleNativeFormatKind native_format_kind;
+    uint32_t native_format_value;
     uint64_t native_format_modifier;
 } NozzleConnectedSenderInfo;
 

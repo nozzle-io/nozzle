@@ -401,18 +401,6 @@ inline auto lookup_texture(
     return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native, semantic_format);
 }
 
-inline auto wrap_backend_texture(
-    void *backend_texture, void *backend_surface,
-    uint32_t width, uint32_t height, uint32_t pixel_format
-) -> texture {
-    uint32_t fourcc = linux_backend::drm_format_from_nozzle(pixel_format);
-    native_format_desc native{};
-    native.backend = backend_type::dma_buf;
-    native.kind = native_format_kind::drm_fourcc;
-    native.value = fourcc;
-    return make_texture_from_backend(backend_texture, backend_surface, width, height, pixel_format, 0, &native);
-}
-
 inline auto get_backend_type() -> backend_type {
     return backend_type::dma_buf;
 }

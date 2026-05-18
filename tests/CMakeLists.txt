@@ -87,6 +87,7 @@ set(INTEGRATION_TEST_SOURCES
         integration/test_metal_format_mapping.cpp
         integration/test_metal_device_injection.mm
         integration/test_metal_native_publish.mm
+        integration/test_c_api_native_metadata.mm
     )
 endif()
 

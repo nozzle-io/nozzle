@@ -355,12 +355,12 @@ TEST_CASE("Metal native metadata: publish reports actual MTLPixelFormatBGRA8Unor
 
 		REQUIRE(resolved.native.backend == nozzle::backend_type::metal);
 		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
-		REQUIRE(resolved.native.value == 80); // MTLPixelFormatBGRA8Unorm
+		REQUIRE(resolved.native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
 		REQUIRE(resolved.source == nozzle::format_source::native_observed);
 
 		auto ci = recv.connected_info();
 		REQUIRE(ci.native_format_kind == static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format));
-		REQUIRE(ci.native_format_value == 80);
+		REQUIRE(ci.native_format_value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
 
 		[src release];
 		[device release];
@@ -384,7 +384,7 @@ TEST_CASE("Metal native metadata: receiver frame texture matches actual MTLPixel
 		auto &ring_resolved = wf.value().get_texture().resolved();
 		REQUIRE(ring_resolved.native.backend == nozzle::backend_type::metal);
 		REQUIRE(ring_resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
-		REQUIRE(ring_resolved.native.value == 80); // MTLPixelFormatBGRA8Unorm (actual, not requested)
+		REQUIRE(ring_resolved.native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
 
 		sender.commit_frame(wf.value());
 
@@ -395,7 +395,7 @@ TEST_CASE("Metal native metadata: receiver frame texture matches actual MTLPixel
 		auto &resolved = frame_result.value().get_texture().resolved();
 		REQUIRE(resolved.native.backend == nozzle::backend_type::metal);
 		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
-		REQUIRE(resolved.native.value == 80); // MTLPixelFormatBGRA8Unorm
+		REQUIRE(resolved.native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
 
 		[device release];
 	}
@@ -429,6 +429,35 @@ TEST_CASE("Metal device validation: same-device texture passes validation", "[me
 
 		[src release];
 		[dst release];
+		[device release];
+	}
+}
+
+TEST_CASE("Metal native metadata: wrap_texture reports actual MTLPixelFormat from existing texture", "[metal][native_publish]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		REQUIRE(device != nil);
+
+		id<MTLTexture> tex = create_blit_texture(device);
+		REQUIRE(tex != nil);
+
+		nozzle::metal::texture_wrap_desc wrap_desc{};
+		wrap_desc.texture = static_cast<void *>(tex);
+		wrap_desc.format = static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm);
+		wrap_desc.width = kTestW;
+		wrap_desc.height = kTestH;
+
+		auto wrap_result = nozzle::metal::wrap_texture(wrap_desc);
+		REQUIRE(wrap_result.ok());
+
+		auto &resolved = wrap_result.value().resolved();
+		REQUIRE(resolved.native.backend == nozzle::backend_type::metal);
+		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
+		REQUIRE(resolved.native.value == static_cast<uint32_t>(tex.pixelFormat));
+		REQUIRE(resolved.native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+		REQUIRE(resolved.source == nozzle::format_source::native_observed);
+
+		[tex release];
 		[device release];
 	}
 }

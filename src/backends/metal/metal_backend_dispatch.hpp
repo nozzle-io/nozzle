@@ -45,10 +45,6 @@ inline auto lookup_texture(void * /*device*/, uint64_t shared_id, uint32_t width
         static_cast<uint32_t>(shared_id), width, height, format, channel_swizzle, semantic_format);
 }
 
-inline auto wrap_backend_texture(void *backend_texture, void *backend_surface, uint32_t width, uint32_t height, uint32_t pixel_format) -> texture {
-    return make_texture_from_backend(backend_texture, backend_surface, width, height, pixel_format);
-}
-
 inline auto get_backend_type() -> backend_type {
     return backend_type::metal;
 }

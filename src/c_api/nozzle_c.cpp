@@ -483,6 +483,8 @@ NozzleErrorCode nozzle_receiver_get_connected_info(
     out_info->estimated_fps = ci.estimated_fps;
     out_info->frame_counter = ci.frame_counter;
     out_info->last_update_time_ns = ci.last_update_time_ns;
+    out_info->native_format_kind = to_c_native_kind(static_cast<nozzle::native_format_kind>(ci.native_format_kind));
+    out_info->native_format_value = ci.native_format_value;
     out_info->native_format_modifier = ci.native_format_modifier;
     return NOZZLE_OK;
 }
