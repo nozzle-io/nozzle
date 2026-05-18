@@ -35,7 +35,7 @@ static id<MTLTexture> create_bgra8_texture(id<MTLDevice> device) {
 TEST_CASE("C API: connected sender info exposes native format kind and value", "[c_api][native_format]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		NozzleSender *sender = create_c_sender("test_c_native_meta", device);
 		REQUIRE(sender != nullptr);

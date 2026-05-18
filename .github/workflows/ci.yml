@@ -33,9 +33,9 @@ jobs:
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact
 
-      # Integration tests require Metal/GPU — may fail on headless CI
+      # Integration tests must SKIP unsupported runner capabilities, not hide failures.
       - name: Integration tests
-        run: ./build/tests/nozzle_integration_tests --reporter compact || true
+        run: ./build/tests/nozzle_integration_tests --reporter compact
 
   build-windows:
     runs-on: windows-2022
@@ -56,9 +56,9 @@ jobs:
       - name: C API tests
         run: ./build/tests/Debug/nozzle_c_api_tests.exe --reporter compact
 
-      # Integration tests require D3D11/GPU — may fail on headless CI
+      # Integration tests must SKIP unsupported runner capabilities, not hide failures.
       - name: Integration tests
-        run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact || true
+        run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact
 
       # D3D11 native injection tests — gating, must pass
       - name: D3D11 native injection tests
@@ -124,9 +124,9 @@ jobs:
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact
 
-      # Integration tests require DMA-BUF/GPU — may fail on headless CI
+      # Integration tests must SKIP unsupported runner capabilities, not hide failures.
       - name: Integration tests
-        run: ./build/tests/nozzle_integration_tests --reporter compact || true
+        run: ./build/tests/nozzle_integration_tests --reporter compact
 
   build-linux-production-default:
     runs-on: ubuntu-22.04

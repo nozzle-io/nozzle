@@ -95,7 +95,7 @@ static nozzle::sender create_sender(const char *name, id<MTLDevice> device) {
 TEST_CASE("Metal blit: receiver gets pixel data from non-IOSurface texture", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> src = create_blit_texture(device);
 		REQUIRE(src != nil);
@@ -132,7 +132,7 @@ TEST_CASE("Metal blit: receiver gets pixel data from non-IOSurface texture", "[m
 TEST_CASE("Metal snapshot: IOSurface-backed source is blitted, not shared directly", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> src = create_iosurface_texture(device);
 		REQUIRE(src != nil);
@@ -177,7 +177,7 @@ TEST_CASE("Metal snapshot: IOSurface-backed source is blitted, not shared direct
 TEST_CASE("Metal snapshot: non-IOSurface source mutation after publish does not affect receiver", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> src = create_blit_texture(device);
 		REQUIRE(src != nil);
@@ -211,7 +211,7 @@ TEST_CASE("Metal snapshot: non-IOSurface source mutation after publish does not 
 TEST_CASE("Metal snapshot: IOSurface-backed source mutation after publish does not affect receiver", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> src = create_iosurface_texture(device);
 		REQUIRE(src != nil);
@@ -246,7 +246,7 @@ TEST_CASE("Metal snapshot: IOSurface-backed source mutation after publish does n
 TEST_CASE("Metal snapshot: receiver reads frame after source is released", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		nozzle::sender sender{};
 		nozzle::receiver recv{};
@@ -293,7 +293,7 @@ TEST_CASE("Metal snapshot: receiver reads frame after source is released", "[met
 TEST_CASE("Metal ring rotation: receiver gets latest frame with correct payload", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		auto sender = create_sender("test_rotation", device);
 		auto recv = create_receiver("test_rotation");
@@ -336,7 +336,7 @@ TEST_CASE("Metal ring rotation: receiver gets latest frame with correct payload"
 TEST_CASE("Metal native metadata: publish reports actual MTLPixelFormatBGRA8Unorm", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> src = create_blit_texture(device);
 		REQUIRE(src != nil);
@@ -370,7 +370,7 @@ TEST_CASE("Metal native metadata: publish reports actual MTLPixelFormatBGRA8Unor
 TEST_CASE("Metal native metadata: receiver frame texture matches actual MTLPixelFormat", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		auto sender = create_sender("test_native_recv", device);
 
@@ -404,7 +404,7 @@ TEST_CASE("Metal native metadata: receiver frame texture matches actual MTLPixel
 TEST_CASE("Metal device validation: same-device texture passes validation", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> src = create_blit_texture(device);
 		REQUIRE(src != nil);
@@ -436,7 +436,7 @@ TEST_CASE("Metal device validation: same-device texture passes validation", "[me
 TEST_CASE("Metal native metadata: wrap_texture reports actual MTLPixelFormat from existing texture", "[metal][native_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		REQUIRE(device != nil);
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
 
 		id<MTLTexture> tex = create_blit_texture(device);
 		REQUIRE(tex != nil);

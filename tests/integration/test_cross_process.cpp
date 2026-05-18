@@ -17,6 +17,12 @@ static void clear_all_registered_senders() {
     }
 }
 
+static bool is_backend_unavailable(const nozzle::Error &error) {
+    return error.code == nozzle::ErrorCode::UnsupportedBackend
+        || error.code == nozzle::ErrorCode::ResourceCreationFailed
+        || error.code == nozzle::ErrorCode::BackendError;
+}
+
 static bool contains_sender_named(
     const std::vector<nozzle::sender_info> &senders,
     const std::string &name)
@@ -47,6 +53,9 @@ TEST_CASE("Integration: sender registers and receiver discovers", "[integration]
     desc.application_name = "integ_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -77,6 +86,9 @@ TEST_CASE("Integration: receiver connects to sender", "[integration]") {
     desc.application_name = "integ_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -104,6 +116,9 @@ TEST_CASE("Integration: receiver gets no-frame before sender publishes", "[integ
     desc.application_name = "integ_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -127,6 +142,9 @@ TEST_CASE("Integration: sender publish and receiver acquire", "[integration]") {
     desc.application_name = "integ_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -188,6 +206,9 @@ TEST_CASE("Integration: sender destruction removes from enumeration", "[integrat
 
     {
         auto sender_result = nozzle::sender::create(desc);
+        if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+            SKIP("backend device is not available on this runner");
+        }
         REQUIRE(sender_result.ok());
 
         auto senders = nozzle::enumerate_senders();
@@ -207,6 +228,9 @@ TEST_CASE("Integration: new receiver fails after sender destruction", "[integrat
 
     {
         auto sender_result = nozzle::sender::create(desc);
+        if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+            SKIP("backend device is not available on this runner");
+        }
         REQUIRE(sender_result.ok());
     }
 
@@ -228,10 +252,16 @@ TEST_CASE("Integration: multiple senders, receiver connects to correct one", "[i
     desc_b.name = "integ_sender_beta";
 
     auto ra = nozzle::sender::create(desc_a);
+    if (!ra.ok() && is_backend_unavailable(ra.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(ra.ok());
     auto sa = std::move(ra.value());
 
     auto rb = nozzle::sender::create(desc_b);
+    if (!rb.ok() && is_backend_unavailable(rb.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(rb.ok());
     auto sb = std::move(rb.value());
 
@@ -266,6 +296,9 @@ TEST_CASE("Integration: enumerate_senders filters dead entries", "[integration]"
     desc.application_name = "integ_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -286,6 +319,9 @@ TEST_CASE("Integration: metadata round-trip via shared state", "[integration]") 
     desc.application_name = "integ_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 

@@ -150,8 +150,14 @@ Result<texture> create_texture_from_slot(
             "sender uses a different backend than receiver"};
     }
     const auto &s = state->slots[slot];
-    return detail::backend::lookup_texture(
-        nullptr,
+    void *device = detail::backend::get_default_device();
+    if (!device) {
+        return Error{ErrorCode::BackendError,
+            "failed to create default receiver device"};
+    }
+
+    auto result = detail::backend::lookup_texture(
+        device,
         s.shared_resource_id,
         s.width,
         s.height,
@@ -163,6 +169,8 @@ Result<texture> create_texture_from_slot(
         s.plane_strides,
         s.plane_offsets,
         state->uuid);
+    detail::backend::release_device(device);
+    return result;
 }
 
 } // anonymous namespace

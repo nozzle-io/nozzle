@@ -3,12 +3,21 @@
 #include <nozzle/sender.hpp>
 #include <nozzle/types.hpp>
 
+static bool is_backend_unavailable(const nozzle::Error &error) {
+    return error.code == nozzle::ErrorCode::UnsupportedBackend
+        || error.code == nozzle::ErrorCode::ResourceCreationFailed
+        || error.code == nozzle::ErrorCode::BackendError;
+}
+
 TEST_CASE("publish_native_texture: storage/semantic mismatch rejected before backend access", "[publish]") {
     nozzle::sender_desc desc{};
     desc.name = "test_mismatch_policy";
     desc.application_name = "test_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -29,6 +38,9 @@ TEST_CASE("publish_native_texture: matching storage/semantic passes mismatch che
     desc.application_name = "test_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 
@@ -46,6 +58,9 @@ TEST_CASE("publish_native_texture: 4-arg overload passes mismatch check", "[publ
     desc.application_name = "test_app";
 
     auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
     REQUIRE(sender_result.ok());
     auto snd = std::move(sender_result.value());
 

@@ -8,7 +8,7 @@
 
 TEST_CASE("C++ sender: native_device() returns injected Metal device", "[native_device]") {
     id<MTLDevice> mtl_device = MTLCreateSystemDefaultDevice();
-    REQUIRE(mtl_device != nil);
+    if (mtl_device == nil) { SKIP("Metal device is not available on this runner"); }
 
     nozzle::sender_desc desc{};
     desc.name = "test_native_inject";
@@ -28,7 +28,7 @@ TEST_CASE("C++ sender: native_device() returns injected Metal device", "[native_
 
 TEST_CASE("C++ sender: destruction with injected Metal device does not crash", "[native_device]") {
     id<MTLDevice> mtl_device = MTLCreateSystemDefaultDevice();
-    REQUIRE(mtl_device != nil);
+    if (mtl_device == nil) { SKIP("Metal device is not available on this runner"); }
 
     {
         nozzle::sender_desc desc{};
@@ -46,7 +46,7 @@ TEST_CASE("C++ sender: destruction with injected Metal device does not crash", "
 
 TEST_CASE("C API: nozzle_sender_create_with_native_device returns injected device", "[c_api][native_device]") {
     id<MTLDevice> mtl_device = MTLCreateSystemDefaultDevice();
-    REQUIRE(mtl_device != nil);
+    if (mtl_device == nil) { SKIP("Metal device is not available on this runner"); }
 
     NozzleSenderDesc desc{};
     desc.name = "test_c_native_inject";
