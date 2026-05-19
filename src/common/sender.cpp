@@ -11,6 +11,10 @@
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/result.hpp>
 
+#if NOZZLE_HAS_DMA_BUF
+#include <nozzle/backends/linux.hpp>
+#endif
+
 #include <plog/Log.h>
 
 #include "backends/backend_dispatch.hpp"
@@ -609,6 +613,135 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 	}
 
 	return last_timeout;
+}
+
+#if NOZZLE_HAS_DMA_BUF
+namespace {
+
+Result<void> validate_dmabuf_publish_desc(const dma_buf::publish_desc &desc) {
+	if (desc.dmabuf_fd < 0) {
+		return Error{ErrorCode::InvalidArgument, "DMA-BUF fd is invalid"};
+	}
+	if (desc.width == 0 || desc.height == 0) {
+		return Error{ErrorCode::InvalidArgument, "DMA-BUF dimensions must be non-zero"};
+	}
+	if (desc.storage_format == texture_format::unknown ||
+		desc.semantic_format == texture_format::unknown) {
+		return Error{ErrorCode::UnsupportedFormat,
+			"DMA-BUF storage and semantic formats must be known"};
+	}
+	if (desc.plane_count != 1) {
+		return Error{ErrorCode::UnsupportedFormat,
+			"DMA-BUF direct publish currently supports exactly one plane"};
+	}
+	if (desc.planes[0].stride == 0) {
+		return Error{ErrorCode::InvalidArgument,
+			"DMA-BUF plane stride must be non-zero"};
+	}
+	if (desc.fourcc == 0) {
+		return Error{ErrorCode::InvalidArgument, "DMA-BUF fourcc is invalid"};
+	}
+
+	uint32_t expected_fourcc = detail::linux_backend::drm_format_from_nozzle(
+		static_cast<uint32_t>(desc.storage_format));
+	if (expected_fourcc == 0) {
+		return Error{ErrorCode::UnsupportedFormat,
+			"DMA-BUF storage format has no supported DRM fourcc mapping"};
+	}
+	if (expected_fourcc != desc.fourcc) {
+		return Error{ErrorCode::UnsupportedFormat,
+			"DMA-BUF fourcc must exactly match the storage format"};
+	}
+
+	return {};
+}
+
+resolved_texture_format make_resolved_dmabuf_format(const dma_buf::publish_desc &desc) {
+	resolved_texture_format resolved{};
+	resolved.semantic_format = desc.semantic_format;
+	resolved.storage_format = desc.storage_format;
+	resolved.native.backend = backend_type::dma_buf;
+	resolved.native.kind = native_format_kind::drm_fourcc;
+	resolved.native.value = desc.fourcc;
+	resolved.native.modifier = desc.modifier;
+	resolved.native.plane_count = desc.plane_count;
+	for (uint32_t i = 0; i < desc.plane_count && i < 4; ++i) {
+		resolved.native.plane_strides[i] = desc.planes[i].stride;
+		resolved.native.plane_offsets[i] = desc.planes[i].offset;
+	}
+	resolved.cpu_layout = resolve_cpu_layout(desc.storage_format);
+	resolved.sampling = resolve_sampling(desc.storage_format);
+	resolved.source = format_source::native_observed;
+	resolved.swizzle = desc.swizzle;
+	return resolved;
+}
+
+format_fallback_info make_dmabuf_fallback_info(const dma_buf::publish_desc &desc) {
+	format_fallback_info fallback{};
+	fallback.requested_format = desc.semantic_format;
+	fallback.storage_format = desc.storage_format;
+	fallback.fallback_target = texture_format::unknown;
+	fallback.category = fallback_category::none;
+	fallback.swizzle = desc.swizzle;
+	fallback.quality_loss = false;
+	return fallback;
+}
+
+} // anonymous namespace
+#endif
+
+Result<void> sender::publish_dmabuf_texture(const dma_buf::publish_desc &desc) {
+#if NOZZLE_HAS_DMA_BUF
+	if (!impl_ || !impl_->valid_) {
+		return Error{ErrorCode::BackendError, "sender is not valid"};
+	}
+
+	auto validation_result = validate_dmabuf_publish_desc(desc);
+	if (!validation_result.ok()) {
+		return validation_result.error();
+	}
+
+	std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+	uint32_t ring_size = impl_->state->ring_size;
+	if (ring_size < detail::kMinimumRingSize) {
+		ring_size = detail::kMinimumRingSize;
+	}
+
+	uint32_t slot = impl_->next_slot_;
+	impl_->next_slot_ = (impl_->next_slot_ + 1) % ring_size;
+
+	auto resource_id_result = detail::backend::register_external_dmabuf_for_slot(
+		slot,
+		desc.dmabuf_fd,
+		ring_size);
+	if (!resource_id_result.ok()) {
+		return resource_id_result.error();
+	}
+
+	resolved_texture_format resolved = make_resolved_dmabuf_format(desc);
+	format_fallback_info fallback = make_dmabuf_fallback_info(desc);
+
+	uint64_t frame_number = ++impl_->frame_counter_;
+	detail::write_slot_metadata(
+		impl_->state->slots[slot],
+		frame_number,
+		resource_id_result.value(),
+		desc.width,
+		desc.height,
+		resolved,
+		fallback);
+	detail::write_global_metadata(*impl_->state, desc.width, desc.height, fallback);
+
+	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+
+	return {};
+#else
+	(void)desc;
+	return Error{ErrorCode::UnsupportedBackend,
+		"DMA-BUF direct publish is not available on this platform"};
+#endif
 }
 
 } // namespace nozzle

@@ -379,6 +379,29 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_native_texture_ex(
     NozzleTextureFormat semantic_format
 );
 
+typedef struct NozzleDmaBufPlane {
+    uint32_t stride;
+    uint32_t offset;
+} NozzleDmaBufPlane;
+
+typedef struct NozzleDmaBufPublishDesc {
+    int dmabuf_fd;
+    uint32_t width;
+    uint32_t height;
+    uint32_t drm_fourcc;
+    uint64_t modifier;
+    uint32_t plane_count;
+    NozzleDmaBufPlane planes[4];
+    NozzleTextureFormat storage_format;
+    NozzleTextureFormat semantic_format;
+    NozzleChannelSwizzle swizzle;
+} NozzleDmaBufPublishDesc;
+
+NOZZLE_C_API NozzleErrorCode nozzle_sender_publish_dmabuf(
+    NozzleSender *sender,
+    const NozzleDmaBufPublishDesc *desc
+);
+
 NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_to_native_texture(
     NozzleFrame *frame,
     void *native_texture,

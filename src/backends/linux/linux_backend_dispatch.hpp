@@ -29,6 +29,7 @@ namespace {
 
 struct linux_sender_state {
     std::array<int, 8> slot_fds_{};
+    std::array<bool, 8> slot_fd_owned_by_state_{};
     std::array<uint32_t, 8> slot_generations_{};
     uint32_t ring_size_{0};
     int listen_fd_{-1};
@@ -40,6 +41,7 @@ struct linux_sender_state {
 
     linux_sender_state() {
         slot_fds_.fill(-1);
+        slot_fd_owned_by_state_.fill(false);
     }
 };
 
@@ -93,6 +95,17 @@ inline void handle_fd_request(int client_fd, linux_sender_state *state) {
         linux_backend::send_fd_response(client_fd, fd_to_send);
         close(fd_to_send);
     }
+}
+
+inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_index) {
+    if (!state || detail::kMaxRingSlots <= slot_index) {
+        return;
+    }
+    if (state->slot_fd_owned_by_state_[slot_index] && state->slot_fds_[slot_index] >= 0) {
+        close(state->slot_fds_[slot_index]);
+    }
+    state->slot_fds_[slot_index] = -1;
+    state->slot_fd_owned_by_state_[slot_index] = false;
 }
 
 } // anonymous namespace
@@ -225,9 +238,13 @@ inline void cleanup_sender_socket() {
             close(state->listen_fd_);
             state->listen_fd_ = -1;
         }
+        for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
+            close_owned_slot_fd_locked(state, i);
+        }
         state->socket_path_.clear();
         state->uuid_.clear();
         state->slot_fds_.fill(-1);
+        state->slot_fd_owned_by_state_.fill(false);
         state->slot_generations_.fill(0);
         state->ring_size_ = 0;
     }
@@ -253,9 +270,11 @@ inline auto create_ring_texture(
 
         if (ring_slot < 8) {
             if (state->slot_fds_[ring_slot] != fd) {
+                close_owned_slot_fd_locked(state, ring_slot);
                 state->slot_generations_[ring_slot]++;
             }
             state->slot_fds_[ring_slot] = fd;
+            state->slot_fd_owned_by_state_[ring_slot] = false;
             state->ring_size_ = std::max(state->ring_size_, ring_slot + 1u);
         }
     }
@@ -288,6 +307,40 @@ inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
     return detail::kInvalidSharedResourceId;
 }
 
+inline auto register_external_dmabuf_for_slot(
+    uint32_t slot,
+    int dmabuf_fd,
+    uint32_t ring_size
+) -> Result<uint64_t> {
+    if (detail::kMaxRingSlots <= slot) {
+        return Error{ErrorCode::InvalidArgument, "DMA-BUF slot index out of range"};
+    }
+    if (dmabuf_fd < 0) {
+        return Error{ErrorCode::InvalidArgument, "DMA-BUF fd is invalid"};
+    }
+
+    int owned_fd = dup(dmabuf_fd);
+    if (owned_fd < 0) {
+        return Error{ErrorCode::BackendError, "failed to duplicate DMA-BUF fd"};
+    }
+
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state) {
+        close(owned_fd);
+        return Error{ErrorCode::BackendError, "DMA-BUF sender state not initialized"};
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    close_owned_slot_fd_locked(state, slot);
+    state->slot_fds_[slot] = owned_fd;
+    state->slot_fd_owned_by_state_[slot] = true;
+    state->slot_generations_[slot]++;
+    state->ring_size_ = std::max(state->ring_size_, ring_size);
+
+    return (static_cast<uint64_t>(state->slot_generations_[slot]) << 32) |
+        static_cast<uint64_t>(slot);
+}
+
 inline auto get_native_surface(const texture &tex) -> void * {
     return detail::get_surface_native(tex);
 }
@@ -305,7 +358,9 @@ inline void release_texture_resources(void *native_texture, void *native_surface
                 std::lock_guard<std::mutex> lock(state->mutex_);
                 for (uint32_t i = 0; i < 8; ++i) {
                     if (state->slot_fds_[i] == fd) {
-                        state->slot_fds_[i] = -1;
+                        if (!state->slot_fd_owned_by_state_[i]) {
+                            state->slot_fds_[i] = -1;
+                        }
                         break;
                     }
                 }
@@ -316,7 +371,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 }
 
 inline auto lookup_texture(
-    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint8_t /*native_format_kind*/, uint32_t /*native_format_value*/, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, uint64_t /*sender_pid*/, const char *sender_uuid
+    void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint8_t native_format_kind_value, uint32_t native_format_value, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, uint64_t /*sender_pid*/, const char *sender_uuid
 ) -> Result<texture> {
     uint32_t slot_index = static_cast<uint32_t>(shared_id & 0xFFFFFFFF);
     uint32_t generation = static_cast<uint32_t>(shared_id >> 32);
@@ -366,10 +421,29 @@ inline auto lookup_texture(
             "DMA-BUF slot not cached — fd transfer failed"};
     }
 
-    int fd = cache.cache_.get_fd(slot_index);
+    int cached_fd = cache.cache_.get_fd(slot_index);
+    if (cached_fd < 0) {
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF slot cached without a valid fd"};
+    }
+
     uint32_t fourcc = linux_backend::drm_format_from_nozzle(format);
+    if (native_format_kind_value == static_cast<uint8_t>(native_format_kind::drm_fourcc) &&
+        native_format_value != 0) {
+        fourcc = native_format_value;
+    }
+    if (fourcc == 0) {
+        return Error{ErrorCode::UnsupportedFormat, "DMA-BUF native fourcc is invalid"};
+    }
+
+    int texture_fd = dup(cached_fd);
+    if (texture_fd < 0) {
+        return Error{ErrorCode::BackendError, "failed to duplicate cached DMA-BUF fd"};
+    }
+
     void *egl_disp = linux_backend::get_egl_display();
     if (!egl_disp) {
+        close(texture_fd);
         return Error{ErrorCode::BackendError, "No EGL display available"};
     }
 
@@ -381,13 +455,14 @@ inline auto lookup_texture(
     }
 
     void *egl_image = linux_backend::import_egl_image(
-        egl_disp, fd, width, height, fourcc, pc, planes, native_modifier);
+        egl_disp, texture_fd, width, height, fourcc, pc, planes, native_modifier);
     if (!egl_image) {
+        close(texture_fd);
         return Error{ErrorCode::ResourceCreationFailed,
             "Failed to import DMA-BUF fd as EGLImage"};
     }
 
-    void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
+    void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(texture_fd));
     native_format_desc native{};
     native.backend = backend_type::dma_buf;
     native.kind = native_format_kind::drm_fourcc;

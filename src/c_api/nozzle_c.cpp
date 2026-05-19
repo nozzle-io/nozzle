@@ -21,6 +21,10 @@
 #include <nozzle/backends/metal.hpp>
 #endif
 
+#if NOZZLE_HAS_DMA_BUF
+#include <nozzle/backends/linux.hpp>
+#endif
+
 #include <cstdlib>
 #include <cstddef>
 #include <cstring>
@@ -157,6 +161,16 @@ nozzle::texture_origin to_cpp_origin(NozzleTextureOrigin origin) {
     return nozzle::texture_origin::top_left;
 }
 
+nozzle::channel_swizzle to_cpp_swizzle(NozzleChannelSwizzle swizzle) {
+    switch (swizzle) {
+        case NOZZLE_CHANNEL_SWIZZLE_SWAP_RB:
+            return nozzle::channel_swizzle::swap_rb;
+        case NOZZLE_CHANNEL_SWIZZLE_IDENTITY:
+        default:
+            return nozzle::channel_swizzle::identity;
+    }
+}
+
 NozzleFormatSource to_c_format_source(nozzle::format_source src) {
     switch (src) {
         case nozzle::format_source::requested: return NOZZLE_FORMAT_SOURCE_REQUESTED;
@@ -226,6 +240,22 @@ NozzleErrorCode fill_fallback(
     out_info->category = static_cast<NozzleFallbackCategory>(fb.category);
     out_info->swizzle = static_cast<NozzleChannelSwizzle>(fb.swizzle);
     out_info->quality_loss = fb.quality_loss ? 1 : 0;
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode validate_dmabuf_publish_desc(
+    const NozzleDmaBufPublishDesc *desc
+) {
+    if (!desc) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (desc->dmabuf_fd < 0) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (desc->width == 0 || desc->height == 0) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (desc->drm_fourcc == 0) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (desc->plane_count != 1) return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
+    if (desc->planes[0].stride == 0) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (desc->storage_format == NOZZLE_FORMAT_UNKNOWN ||
+        desc->semantic_format == NOZZLE_FORMAT_UNKNOWN) {
+        return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
+    }
     return NOZZLE_OK;
 }
 
@@ -812,6 +842,38 @@ NozzleErrorCode nozzle_sender_publish_native_texture_ex(
         native_texture, width, height, to_cpp_format(storage_format), to_cpp_format(semantic_format));
     if (!result.ok()) return to_c_error(result.error().code);
     return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_sender_publish_dmabuf(
+    NozzleSender *sender,
+    const NozzleDmaBufPublishDesc *desc
+) {
+    NozzleErrorCode validation = validate_dmabuf_publish_desc(desc);
+    if (validation != NOZZLE_OK) return validation;
+    if (!sender || !sender->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+#if NOZZLE_HAS_DMA_BUF
+    nozzle::dma_buf::publish_desc cpp_desc{};
+    cpp_desc.dmabuf_fd = desc->dmabuf_fd;
+    cpp_desc.width = desc->width;
+    cpp_desc.height = desc->height;
+    cpp_desc.fourcc = desc->drm_fourcc;
+    cpp_desc.modifier = desc->modifier;
+    cpp_desc.plane_count = desc->plane_count;
+    for (uint32_t i = 0; i < desc->plane_count && i < 4; ++i) {
+        cpp_desc.planes[i].stride = desc->planes[i].stride;
+        cpp_desc.planes[i].offset = desc->planes[i].offset;
+    }
+    cpp_desc.storage_format = to_cpp_format(desc->storage_format);
+    cpp_desc.semantic_format = to_cpp_format(desc->semantic_format);
+    cpp_desc.swizzle = to_cpp_swizzle(desc->swizzle);
+
+    auto result = sender->obj->publish_dmabuf_texture(cpp_desc);
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+#else
+    return NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+#endif
 }
 
 NozzleErrorCode nozzle_frame_copy_to_native_texture(

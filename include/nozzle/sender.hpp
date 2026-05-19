@@ -8,6 +8,10 @@
 
 namespace nozzle {
 
+namespace dma_buf {
+struct publish_desc;
+}
+
 class sender {
 public:
     static Result<sender> create(const sender_desc &desc);
@@ -34,6 +38,7 @@ public:
     // the caller may release, reuse, or modify native_texture.
     Result<void> publish_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format format);
     Result<void> publish_native_texture(void *native_texture, uint32_t width, uint32_t height, texture_format storage_format, texture_format semantic_format);
+    Result<void> publish_dmabuf_texture(const dma_buf::publish_desc &desc);
 
     Result<writable_frame> acquire_writable_frame(const texture_desc &desc);
     Result<void> commit_frame(writable_frame &frame);
