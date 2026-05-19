@@ -317,14 +317,26 @@ TEST_CASE("Integration: receiver rejects torn committed frame/slot pair", "[inte
     REQUIRE(state->slots[0].frame_number == 1);
     REQUIRE(state->slots[1].frame_number == 2);
 
-    ipc::atomic_store_release_64(&state->committed_frame, 2);
-    ipc::atomic_store_release_32(&state->committed_slot, 0);
-
     nozzle::acquire_desc acquire_desc{};
     acquire_desc.timeout_ms = 20;
-    auto frame_result = recv.acquire_frame(acquire_desc);
-    REQUIRE_FALSE(frame_result.ok());
-    REQUIRE(frame_result.error().code == nozzle::ErrorCode::Timeout);
+
+    SECTION("new committed frame with old committed slot") {
+        ipc::atomic_store_release_64(&state->committed_frame, 2);
+        ipc::atomic_store_release_32(&state->committed_slot, 0);
+
+        auto frame_result = recv.acquire_frame(acquire_desc);
+        REQUIRE_FALSE(frame_result.ok());
+        REQUIRE(frame_result.error().code == nozzle::ErrorCode::Timeout);
+    }
+
+    SECTION("old committed frame with new committed slot") {
+        ipc::atomic_store_release_64(&state->committed_frame, 1);
+        ipc::atomic_store_release_32(&state->committed_slot, 1);
+
+        auto frame_result = recv.acquire_frame(acquire_desc);
+        REQUIRE_FALSE(frame_result.ok());
+        REQUIRE(frame_result.error().code == nozzle::ErrorCode::Timeout);
+    }
 }
 
 TEST_CASE("Integration: sender destruction removes from enumeration", "[integration]") {

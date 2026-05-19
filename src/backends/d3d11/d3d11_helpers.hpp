@@ -7,6 +7,8 @@
 #include <nozzle/texture.hpp>
 #include <nozzle/device.hpp>
 
+struct IDXGIKeyedMutex;
+
 namespace nozzle::d3d11 {
 
 Result<texture> create_shared_texture(
@@ -36,6 +38,7 @@ bool signal_slot_ready(void *shared_texture, uint32_t slot_index);
 void signal_slot_done(void *shared_texture, uint32_t slot_index);
 bool wait_for_slot(void *shared_texture, uint32_t slot_index, uint32_t timeout_ms);
 void release_slot(void *shared_texture, uint32_t slot_index);
+long acquire_publish_mutex(IDXGIKeyedMutex *mutex);
 
 Result<void> blit_to_texture(void *src_texture, void *dst_texture);
 Result<void> blit_from_texture(void *src_texture, void *dst_texture);

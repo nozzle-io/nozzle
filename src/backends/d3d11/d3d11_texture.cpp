@@ -5,6 +5,7 @@
 #include <nozzle/result.hpp>
 #include <nozzle/texture.hpp>
 
+#include "d3d11_helpers.hpp"
 #include "common/shared_state.hpp"
 
 #include <d3d11.h>
@@ -14,29 +15,6 @@
 
 namespace nozzle {
 namespace d3d11 {
-
-namespace {
-
-HRESULT acquire_publish_mutex(IDXGIKeyedMutex *mutex) {
-    HRESULT hr = mutex->AcquireSync(0, 0);
-    if (hr == S_OK) {
-        return hr;
-    }
-
-    hr = mutex->AcquireSync(1, 0);
-    if (hr == S_OK) {
-        return hr;
-    }
-
-    hr = mutex->AcquireSync(0, 1000);
-    if (hr == S_OK) {
-        return hr;
-    }
-
-    return mutex->AcquireSync(1, 0);
-}
-
-} // anonymous namespace
 
 static DXGI_FORMAT to_dxgi_format(uint32_t nozzle_format) {
     switch (static_cast<texture_format>(nozzle_format)) {

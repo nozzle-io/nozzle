@@ -2,6 +2,8 @@
 
 #if NOZZLE_HAS_D3D11
 
+#include "d3d11_helpers.hpp"
+
 #include <d3d11.h>
 #include <cstdint>
 
@@ -22,7 +24,7 @@ static IDXGIKeyedMutex *get_keyed_mutex(void *shared_texture) {
     return mutex;
 }
 
-static HRESULT acquire_publish_mutex(IDXGIKeyedMutex *mutex) {
+long acquire_publish_mutex(IDXGIKeyedMutex *mutex) {
     HRESULT hr = mutex->AcquireSync(0, 0);
     if (hr == S_OK) {
         return hr;
