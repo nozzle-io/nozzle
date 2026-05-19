@@ -141,16 +141,17 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     return setup;
 }
 
-Result<texture> create_texture_from_slot(
+using SlotInfo = detail::SenderSharedState::SlotInfo;
+
+Result<texture> create_texture_from_slot_snapshot(
     const detail::SenderSharedState *state,
-    uint32_t slot,
+    const SlotInfo &slot_info,
     uint64_t sender_pid) {
     auto backend = static_cast<backend_type>(state->backend);
     if (detail::backend::get_backend_type() != backend) {
         return Error{ErrorCode::BackendError,
             "sender uses a different backend than receiver"};
     }
-    const auto &s = state->slots[slot];
     void *device = detail::backend::get_default_device();
     if (!device) {
         return Error{ErrorCode::BackendError,
@@ -159,22 +160,50 @@ Result<texture> create_texture_from_slot(
 
     auto result = detail::backend::lookup_texture(
         device,
-        s.shared_resource_id,
-        s.width,
-        s.height,
-        s.format,
-        s.channel_swizzle,
-        s.semantic_format,
-        s.native_format_kind,
-        s.native_format_value,
-        s.native_format_modifier,
-        s.plane_count,
-        s.plane_strides,
-        s.plane_offsets,
+        slot_info.shared_resource_id,
+        slot_info.width,
+        slot_info.height,
+        slot_info.format,
+        slot_info.channel_swizzle,
+        slot_info.semantic_format,
+        slot_info.native_format_kind,
+        slot_info.native_format_value,
+        slot_info.native_format_modifier,
+        slot_info.plane_count,
+        slot_info.plane_strides,
+        slot_info.plane_offsets,
         sender_pid,
         state->uuid);
     detail::backend::release_device(device);
     return result;
+}
+
+bool slot_resource_metadata_matches(const SlotInfo &a, const SlotInfo &b) {
+    if (a.shared_resource_id != b.shared_resource_id ||
+        a.width != b.width ||
+        a.height != b.height ||
+        a.format != b.format ||
+        a.semantic_format != b.semantic_format ||
+        a.channel_swizzle != b.channel_swizzle ||
+        a.native_format_kind != b.native_format_kind ||
+        a.format_source != b.format_source ||
+        a.native_format_value != b.native_format_value ||
+        a.native_format_modifier != b.native_format_modifier ||
+        a.plane_count != b.plane_count ||
+        a.fallback_target != b.fallback_target ||
+        a.fallback_category != b.fallback_category ||
+        a.fallback_quality_loss != b.fallback_quality_loss) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < 4; ++i) {
+        if (a.plane_strides[i] != b.plane_strides[i] ||
+            a.plane_offsets[i] != b.plane_offsets[i]) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 } // anonymous namespace
@@ -330,7 +359,10 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
         }
 
-        auto tex_result = create_texture_from_slot(state, slot, impl_->sender_pid_);
+        detail::ipc::atomic_fence_acquire();
+        const SlotInfo slot_snapshot = state->slots[slot];
+
+        auto tex_result = create_texture_from_slot_snapshot(state, slot_snapshot, impl_->sender_pid_);
         if (!tex_result.ok()) {
 #if NOZZLE_DEBUG
             {
@@ -357,10 +389,23 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         }
 
         detail::ipc::atomic_fence_acquire();
-        const auto &si = state->slots[slot];
-        if (si.frame_number != frame) {
-            if (si.frame_number > impl_->last_frame_) {
-                frame = si.frame_number;
+        const SlotInfo post_wait_slot = state->slots[slot];
+        if (!slot_resource_metadata_matches(slot_snapshot, post_wait_slot)) {
+            detail::backend::release_texture_sync(native_texture, slot);
+            if (desc.timeout_ms == 0) {
+                return Error{ErrorCode::Timeout,
+                    "frame resource changed before acquire completed"};
+            }
+            if (detail::ipc::monotonic_ns() >= deadline) {
+                return Error{ErrorCode::Timeout,
+                    "timeout waiting for stable frame resource"};
+            }
+            continue;
+        }
+
+        if (post_wait_slot.frame_number != frame) {
+            if (post_wait_slot.frame_number > impl_->last_frame_) {
+                frame = post_wait_slot.frame_number;
                 dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
             } else {
                 detail::backend::release_texture_sync(native_texture, slot);
@@ -376,10 +421,10 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             }
         }
 
-        frame_info info = detail::construct_frame_info_from_slot(si, frame, dropped);
+        frame_info info = detail::construct_frame_info_from_slot(post_wait_slot, frame, dropped);
         info.timestamp_ns = detail::ipc::monotonic_ns();
 
-        detail::update_connected_info_from_slot(impl_->connected_info_, si);
+        detail::update_connected_info_from_slot(impl_->connected_info_, post_wait_slot);
 
         impl_->last_frame_ = frame;
         impl_->connected_info_.frame_counter = frame;
