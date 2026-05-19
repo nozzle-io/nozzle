@@ -206,6 +206,20 @@ bool slot_resource_metadata_matches(const SlotInfo &a, const SlotInfo &b) {
     return true;
 }
 
+Result<void> wait_for_retry_or_timeout(
+    const acquire_desc &desc,
+    uint64_t deadline,
+    const char *timeout_message) {
+    if (desc.timeout_ms == 0) {
+        return Error{ErrorCode::Timeout, timeout_message};
+    }
+    if (detail::ipc::monotonic_ns() >= deadline) {
+        return Error{ErrorCode::Timeout, timeout_message};
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    return {};
+}
+
 } // anonymous namespace
 
 struct receiver::Impl {
@@ -361,6 +375,16 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
         detail::ipc::atomic_fence_acquire();
         const SlotInfo slot_snapshot = state->slots[slot];
+        if (slot_snapshot.frame_number != frame) {
+            auto retry_result = wait_for_retry_or_timeout(
+                desc,
+                deadline,
+                "timeout waiting for stable frame/slot publication");
+            if (!retry_result.ok()) {
+                return retry_result.error();
+            }
+            continue;
+        }
 
         auto tex_result = create_texture_from_slot_snapshot(state, slot_snapshot, impl_->sender_pid_);
         if (!tex_result.ok()) {
@@ -392,33 +416,26 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         const SlotInfo post_wait_slot = state->slots[slot];
         if (!slot_resource_metadata_matches(slot_snapshot, post_wait_slot)) {
             detail::backend::release_texture_sync(native_texture, slot);
-            if (desc.timeout_ms == 0) {
-                return Error{ErrorCode::Timeout,
-                    "frame resource changed before acquire completed"};
-            }
-            if (detail::ipc::monotonic_ns() >= deadline) {
-                return Error{ErrorCode::Timeout,
-                    "timeout waiting for stable frame resource"};
+            auto retry_result = wait_for_retry_or_timeout(
+                desc,
+                deadline,
+                "timeout waiting for stable frame resource");
+            if (!retry_result.ok()) {
+                return retry_result.error();
             }
             continue;
         }
 
         if (post_wait_slot.frame_number != frame) {
-            if (post_wait_slot.frame_number > impl_->last_frame_) {
-                frame = post_wait_slot.frame_number;
-                dropped = static_cast<uint32_t>(frame - impl_->last_frame_ - 1);
-            } else {
-                detail::backend::release_texture_sync(native_texture, slot);
-                if (desc.timeout_ms == 0) {
-                    return Error{ErrorCode::Timeout,
-                        "frame was overwritten before acquire completed"};
-                }
-                if (detail::ipc::monotonic_ns() >= deadline) {
-                    return Error{ErrorCode::Timeout,
-                        "timeout waiting for stable frame"};
-                }
-                continue;
+            detail::backend::release_texture_sync(native_texture, slot);
+            auto retry_result = wait_for_retry_or_timeout(
+                desc,
+                deadline,
+                "timeout waiting for stable frame");
+            if (!retry_result.ok()) {
+                return retry_result.error();
             }
+            continue;
         }
 
         frame_info info = detail::construct_frame_info_from_slot(post_wait_slot, frame, dropped);
