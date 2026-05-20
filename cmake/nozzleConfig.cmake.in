@@ -1,5 +1,20 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+
+if(UNIX AND NOT APPLE)
+    find_dependency(PkgConfig)
+    if(NOT TARGET PkgConfig::DRM)
+        pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
+    endif()
+    if(NOT TARGET PkgConfig::GBM)
+        pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
+    endif()
+    if(NOT TARGET PkgConfig::EGL)
+        pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+    endif()
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/nozzleTargets.cmake")
 
 check_required_components(nozzle)
