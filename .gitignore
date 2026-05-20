@@ -14,3 +14,7 @@ Makefile
 *.swp
 *~
 build-nozzle/
+
+# Local tool binaries
+tools/test_iosurface_formats
+tools/test_rgba16unorm
