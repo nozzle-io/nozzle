@@ -135,11 +135,17 @@ if(APPLE)
     find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
     find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
     target_link_libraries(nozzle PRIVATE
-        ${METAL_FRAMEWORK}
-        ${IOSURFACE_FRAMEWORK}
-        ${FOUNDATION_FRAMEWORK}
-        ${ACCELERATE_FRAMEWORK}
+        $<BUILD_INTERFACE:${METAL_FRAMEWORK}>
+        $<BUILD_INTERFACE:${IOSURFACE_FRAMEWORK}>
+        $<BUILD_INTERFACE:${FOUNDATION_FRAMEWORK}>
+        $<BUILD_INTERFACE:${ACCELERATE_FRAMEWORK}>
         objc
+    )
+    target_link_options(nozzle INTERFACE
+        $<INSTALL_INTERFACE:LINKER:-framework,Metal>
+        $<INSTALL_INTERFACE:LINKER:-framework,IOSurface>
+        $<INSTALL_INTERFACE:LINKER:-framework,Foundation>
+        $<INSTALL_INTERFACE:LINKER:-framework,Accelerate>
     )
     enable_language(OBJCXX)
 endif()
@@ -183,7 +189,12 @@ if(NOZZLE_BUILD_OPENGL)
     target_compile_definitions(nozzle PUBLIC NOZZLE_HAS_OPENGL=1)
     if(APPLE)
         find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
-        target_link_libraries(nozzle PRIVATE ${OPENGL_FRAMEWORK})
+        target_link_libraries(nozzle PRIVATE
+            $<BUILD_INTERFACE:${OPENGL_FRAMEWORK}>
+        )
+        target_link_options(nozzle INTERFACE
+            $<INSTALL_INTERFACE:LINKER:-framework,OpenGL>
+        )
     elseif(WIN32)
         target_link_libraries(nozzle PRIVATE opengl32)
     elseif(NOZZLE_HAS_DMA_BUF)

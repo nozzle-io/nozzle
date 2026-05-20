@@ -198,6 +198,20 @@ jobs:
       - name: Install SDK
         run: cmake --install build-sdk --config Release
 
+      - name: Verify macOS CMake export portability
+        shell: bash
+        run: |
+          cmake_dir="dist/${{ steps.meta.outputs.package_root }}/lib/cmake/nozzle"
+          if grep -R -E 'MacOSX\.sdk|/Library/Developer/CommandLineTools|/Applications/Xcode' "$cmake_dir"; then
+            echo "installed CMake package contains build-machine SDK paths" >&2
+            exit 1
+          fi
+          grep -R -F 'LINKER:-framework,Metal' "$cmake_dir"
+          grep -R -F 'LINKER:-framework,IOSurface' "$cmake_dir"
+          grep -R -F 'LINKER:-framework,Foundation' "$cmake_dir"
+          grep -R -F 'LINKER:-framework,Accelerate' "$cmake_dir"
+          grep -R -F 'LINKER:-framework,OpenGL' "$cmake_dir"
+
       - name: Add SDK docs
         run: |
           cp LICENSE "dist/${{ steps.meta.outputs.package_root }}/LICENSE"
