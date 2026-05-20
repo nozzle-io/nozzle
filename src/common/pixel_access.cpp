@@ -14,6 +14,7 @@
 #elif NOZZLE_PLATFORM_WINDOWS
 #include <nozzle/backends/d3d11.hpp>
 #include <d3d11.h>
+#include "backends/d3d11/d3d11_helpers.hpp"
 #endif
 
 namespace nozzle {
@@ -431,11 +432,27 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
 
 void unlock_writable_pixels(writable_frame &) {
     if (tl_write_state.staging) {
+        IDXGIKeyedMutex *mutex = nullptr;
+        HRESULT mutex_hr = tl_write_state.source->QueryInterface(
+            __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&mutex));
+        bool mutex_acquired = false;
+        if (SUCCEEDED(mutex_hr) && mutex) {
+            mutex_acquired = d3d11::acquire_publish_mutex(mutex) == S_OK;
+        }
+
         tl_write_state.context->Unmap(tl_write_state.staging, 0);
-        tl_write_state.context->CopySubresourceRegion(
-            tl_write_state.source, 0, 0, 0, 0,
-            tl_write_state.staging, 0, nullptr);
-        tl_write_state.context->Flush();
+        if (!mutex || mutex_acquired) {
+            tl_write_state.context->CopySubresourceRegion(
+                tl_write_state.source, 0, 0, 0, 0,
+                tl_write_state.staging, 0, nullptr);
+            tl_write_state.context->Flush();
+        }
+        if (mutex) {
+            if (mutex_acquired) {
+                mutex->ReleaseSync(1);
+            }
+            mutex->Release();
+        }
         tl_write_state.staging->Release();
         tl_write_state.context->Release();
         tl_write_state.device->Release();
