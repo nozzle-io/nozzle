@@ -89,6 +89,15 @@ set(INTEGRATION_TEST_SOURCES
         integration/test_metal_native_publish.mm
         integration/test_c_api_native_metadata.mm
     )
+
+    add_executable(nozzle_metal_direct_cross_process_sender
+        integration/metal_direct_cross_process_sender.mm
+    )
+    target_link_libraries(nozzle_metal_direct_cross_process_sender PRIVATE nozzle)
+    target_include_directories(nozzle_metal_direct_cross_process_sender PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/common
+    )
 endif()
 
 if(WIN32)

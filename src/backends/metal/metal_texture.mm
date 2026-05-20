@@ -435,6 +435,90 @@ Result<texture> lookup_iosurface_texture(
     }
 }
 
+Result<texture> wrap_direct_publish_texture(
+    void *mtl_device_ptr,
+    const direct_publish_desc &desc
+) {
+    if (!desc.texture) {
+        return Error{ErrorCode::InvalidArgument, "direct Metal texture is null"};
+    }
+    if (desc.width == 0 || desc.height == 0) {
+        return Error{ErrorCode::InvalidArgument, "direct Metal texture dimensions must be non-zero"};
+    }
+    if (desc.storage_format == texture_format::unknown ||
+        desc.semantic_format == texture_format::unknown) {
+        return Error{ErrorCode::UnsupportedFormat,
+            "direct Metal publish requires explicit storage and semantic formats"};
+    }
+
+    @autoreleasepool {
+        id<MTLDevice> device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);
+        id<MTLTexture> mtl_texture = NOZZLE_BRIDGE_GET(id<MTLTexture>, desc.texture);
+        if (!device || !mtl_texture) {
+            return Error{ErrorCode::InvalidArgument, "direct Metal publish: null device or texture"};
+        }
+        if (mtl_texture.device != device) {
+            return Error{ErrorCode::DeviceMismatch,
+                "direct Metal texture device does not match sender device"};
+        }
+        if (mtl_texture.width != desc.width || mtl_texture.height != desc.height) {
+            return Error{ErrorCode::InvalidArgument,
+                "direct Metal texture dimensions do not match descriptor"};
+        }
+
+        IOSurfaceRef surface = mtl_texture.iosurface;
+        if (!surface) {
+            return Error{ErrorCode::InvalidArgument,
+                "direct Metal publish requires an IOSurface-backed texture"};
+        }
+
+        OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
+        texture_format observed_storage = from_io_surface_pixel_format(static_cast<uint32_t>(surface_fourcc));
+        if (observed_storage == texture_format::unknown) {
+            return Error{ErrorCode::UnsupportedFormat,
+                "direct Metal publish requires a supported IOSurface pixel format"};
+        }
+        if (observed_storage != desc.storage_format) {
+            return Error{ErrorCode::UnsupportedFormat,
+                "direct Metal publish storage format does not match IOSurface pixel format"};
+        }
+
+        MTLPixelFormat expected_mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(desc.storage_format));
+        if (expected_mtl_format == MTLPixelFormatInvalid) {
+            return Error{ErrorCode::UnsupportedFormat,
+                "direct Metal publish storage format has no supported MTLPixelFormat"};
+        }
+        if (mtl_texture.pixelFormat != expected_mtl_format) {
+            return Error{ErrorCode::UnsupportedFormat,
+                "direct Metal publish storage format does not match MTLPixelFormat"};
+        }
+
+#if __has_feature(objc_arc)
+        void *texture_ptr = NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, mtl_texture);
+#else
+        NOZZLE_RETAIN(mtl_texture);
+        void *texture_ptr = (void *)mtl_texture;
+#endif
+        CFRetain(surface);
+
+        native_format_desc native{};
+        native.backend = backend_type::metal;
+        native.kind = native_format_kind::mtl_pixel_format;
+        native.value = static_cast<uint32_t>(mtl_texture.pixelFormat);
+
+        return detail::make_texture_from_backend(
+            texture_ptr,
+            (void *)surface,
+            desc.width,
+            desc.height,
+            static_cast<uint32_t>(desc.storage_format),
+            static_cast<uint8_t>(desc.swizzle),
+            &native,
+            static_cast<uint32_t>(desc.semantic_format)
+        );
+    }
+}
+
 bool is_iosurface_backed(void *mtl_texture_ptr) {
     @autoreleasepool {
         id<MTLTexture> tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, mtl_texture_ptr);

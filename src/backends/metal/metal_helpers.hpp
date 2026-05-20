@@ -6,6 +6,7 @@
 #include <nozzle/result.hpp>
 #include <nozzle/texture.hpp>
 #include <nozzle/device.hpp>
+#include <nozzle/backends/metal.hpp>
 
 namespace nozzle::metal {
 
@@ -47,6 +48,10 @@ Result<texture> lookup_iosurface_texture(
     uint32_t semantic_format = 0,
     uint8_t native_format_kind = 0,
     uint32_t native_format_value = 0);
+
+Result<texture> wrap_direct_publish_texture(
+    void *mtl_device,
+    const direct_publish_desc &desc);
 
 bool is_iosurface_backed(void *mtl_texture);
 void *get_io_surface_from_texture(void *mtl_texture);

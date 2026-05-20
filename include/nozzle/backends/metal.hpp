@@ -33,6 +33,15 @@ struct texture_wrap_desc {
 
 Result<texture> wrap_texture(const texture_wrap_desc &desc);
 
+struct direct_publish_desc {
+    mtl_texture_handle texture{nullptr};
+    uint32_t width{0};
+    uint32_t height{0};
+    texture_format storage_format{texture_format::unknown};
+    texture_format semantic_format{texture_format::unknown};
+    channel_swizzle swizzle{channel_swizzle::identity};
+};
+
 mtl_texture_handle get_texture(const texture &tex);
 surface_handle get_io_surface(const texture &tex);
 

@@ -11,6 +11,10 @@
 #include <nozzle/format_resolve.hpp>
 #include <nozzle/result.hpp>
 
+#if NOZZLE_HAS_METAL
+#include <nozzle/backends/metal.hpp>
+#endif
+
 #if NOZZLE_HAS_DMA_BUF
 #include <nozzle/backends/linux.hpp>
 #include <drm_fourcc.h>
@@ -614,6 +618,74 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 	}
 
 	return last_timeout;
+}
+
+Result<void> sender::publish_metal_texture_direct(const metal::direct_publish_desc &desc) {
+#if NOZZLE_HAS_METAL
+	if (!impl_ || !impl_->valid_) {
+		return Error{ErrorCode::BackendError, "sender is not valid"};
+	}
+
+	auto texture_result = metal::wrap_direct_publish_texture(impl_->native_device_, desc);
+	if (!texture_result.ok()) {
+		return texture_result.error();
+	}
+	texture direct_texture = std::move(texture_result.value());
+
+	uint64_t resource_id = detail::backend::get_shared_resource_id(direct_texture);
+	if (resource_id == detail::kInvalidSharedResourceId) {
+		return Error{ErrorCode::BackendError,
+			"direct Metal texture has no IOSurface resource id"};
+	}
+
+	format_fallback_info fallback{};
+	fallback.requested_format = desc.semantic_format;
+	fallback.storage_format = desc.storage_format;
+	fallback.fallback_target = texture_format::unknown;
+	fallback.category = fallback_category::none;
+	fallback.swizzle = desc.swizzle;
+	fallback.quality_loss = false;
+
+	std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+	uint32_t ring_size = impl_->state->ring_size;
+	if (ring_size < detail::kMinimumRingSize) {
+		ring_size = detail::kMinimumRingSize;
+	}
+
+	uint32_t start_slot = impl_->next_slot_;
+	for (uint32_t attempt = 0; attempt < ring_size; ++attempt) {
+		uint32_t slot = (start_slot + attempt) % ring_size;
+		if (impl_->slot_in_use_[slot]) {
+			continue;
+		}
+
+		uint64_t frame_number = impl_->frame_counter_ + 1;
+		impl_->ring_textures_[slot] = std::move(direct_texture);
+		detail::write_slot_metadata(
+			impl_->state->slots[slot],
+			frame_number,
+			resource_id,
+			desc.width,
+			desc.height,
+			impl_->ring_textures_[slot].resolved(),
+			fallback);
+		detail::write_global_metadata(*impl_->state, desc.width, desc.height, fallback);
+
+		impl_->frame_counter_ = frame_number;
+		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+		impl_->next_slot_ = (slot + 1) % ring_size;
+		return {};
+	}
+
+	return Error{ErrorCode::Timeout,
+		"all ring buffer slots are locked by producers"};
+#else
+	(void)desc;
+	return Error{ErrorCode::UnsupportedBackend,
+		"Metal direct publish is not available on this platform"};
+#endif
 }
 
 #if NOZZLE_HAS_DMA_BUF
