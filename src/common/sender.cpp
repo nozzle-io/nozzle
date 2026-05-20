@@ -13,6 +13,7 @@
 
 #if NOZZLE_HAS_DMA_BUF
 #include <nozzle/backends/linux.hpp>
+#include <drm_fourcc.h>
 #endif
 
 #include <plog/Log.h>
@@ -638,13 +639,13 @@ Result<void> validate_dmabuf_publish_desc(const dma_buf::publish_desc &desc) {
 		return Error{ErrorCode::InvalidArgument,
 			"DMA-BUF plane stride must be non-zero"};
 	}
-	if (desc.fourcc == 0) {
+	if (desc.fourcc == 0 || desc.fourcc == DRM_FORMAT_INVALID) {
 		return Error{ErrorCode::InvalidArgument, "DMA-BUF fourcc is invalid"};
 	}
 
 	uint32_t expected_fourcc = detail::linux_backend::drm_format_from_nozzle(
 		static_cast<uint32_t>(desc.storage_format));
-	if (expected_fourcc == 0) {
+	if (expected_fourcc == 0 || expected_fourcc == DRM_FORMAT_INVALID) {
 		return Error{ErrorCode::UnsupportedFormat,
 			"DMA-BUF storage format has no supported DRM fourcc mapping"};
 	}
@@ -708,35 +709,46 @@ Result<void> sender::publish_dmabuf_texture(const dma_buf::publish_desc &desc) {
 		ring_size = detail::kMinimumRingSize;
 	}
 
-	uint32_t slot = impl_->next_slot_;
-	impl_->next_slot_ = (impl_->next_slot_ + 1) % ring_size;
+	Error last_timeout{ErrorCode::Timeout,
+		"all ring buffer slots are locked by receivers"};
+	uint32_t start_slot = impl_->next_slot_;
 
-	auto resource_id_result = detail::backend::register_external_dmabuf_for_slot(
-		slot,
-		desc.dmabuf_fd,
-		ring_size);
-	if (!resource_id_result.ok()) {
-		return resource_id_result.error();
+	for (uint32_t attempt = 0; attempt < ring_size; ++attempt) {
+		uint32_t slot = (start_slot + attempt) % ring_size;
+		if (impl_->slot_in_use_[slot]) {
+			continue;
+		}
+
+		auto resource_id_result = detail::backend::register_external_dmabuf_for_slot(
+			slot,
+			desc.dmabuf_fd,
+			ring_size);
+		if (!resource_id_result.ok()) {
+			return resource_id_result.error();
+		}
+
+		resolved_texture_format resolved = make_resolved_dmabuf_format(desc);
+		format_fallback_info fallback = make_dmabuf_fallback_info(desc);
+
+		uint64_t frame_number = ++impl_->frame_counter_;
+		detail::write_slot_metadata(
+			impl_->state->slots[slot],
+			frame_number,
+			resource_id_result.value(),
+			desc.width,
+			desc.height,
+			resolved,
+			fallback);
+		detail::write_global_metadata(*impl_->state, desc.width, desc.height, fallback);
+
+		detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
+		detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+		impl_->next_slot_ = (slot + 1) % ring_size;
+
+		return {};
 	}
 
-	resolved_texture_format resolved = make_resolved_dmabuf_format(desc);
-	format_fallback_info fallback = make_dmabuf_fallback_info(desc);
-
-	uint64_t frame_number = ++impl_->frame_counter_;
-	detail::write_slot_metadata(
-		impl_->state->slots[slot],
-		frame_number,
-		resource_id_result.value(),
-		desc.width,
-		desc.height,
-		resolved,
-		fallback);
-	detail::write_global_metadata(*impl_->state, desc.width, desc.height, fallback);
-
-	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
-	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
-
-	return {};
+	return last_timeout;
 #else
 	(void)desc;
 	return Error{ErrorCode::UnsupportedBackend,

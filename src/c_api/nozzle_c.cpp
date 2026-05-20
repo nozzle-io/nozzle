@@ -23,6 +23,8 @@
 
 #if NOZZLE_HAS_DMA_BUF
 #include <nozzle/backends/linux.hpp>
+#include "backends/linux/linux_helpers.hpp"
+#include <drm_fourcc.h>
 #endif
 
 #include <cstdlib>
@@ -256,6 +258,17 @@ NozzleErrorCode validate_dmabuf_publish_desc(
         desc->semantic_format == NOZZLE_FORMAT_UNKNOWN) {
         return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
     }
+#if NOZZLE_HAS_DMA_BUF
+    if (desc->drm_fourcc == DRM_FORMAT_INVALID) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    uint32_t expected_fourcc = nozzle::detail::linux_backend::drm_format_from_nozzle(
+        static_cast<uint32_t>(to_cpp_format(desc->storage_format)));
+    if (expected_fourcc == 0 ||
+        expected_fourcc == DRM_FORMAT_INVALID ||
+        expected_fourcc != desc->drm_fourcc) {
+        return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
+    }
+#endif
     return NOZZLE_OK;
 }
 

@@ -341,6 +341,138 @@ inline auto register_external_dmabuf_for_slot(
         static_cast<uint64_t>(slot);
 }
 
+#if NOZZLE_ENABLE_TEST_HOOKS
+inline auto test_ensure_sender_state() -> Result<void> {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (state) {
+        return {};
+    }
+
+    auto *new_state = new linux_sender_state{};
+    linux_sender_state *expected = nullptr;
+    if (!g_sender_state.compare_exchange_strong(expected, new_state,
+            std::memory_order_release, std::memory_order_relaxed)) {
+        delete new_state;
+    }
+    return {};
+}
+
+inline void test_reset_sender_state() {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    if (state->listen_fd_ >= 0) {
+        close(state->listen_fd_);
+        state->listen_fd_ = -1;
+    }
+    for (uint32_t slot_index = 0; slot_index < detail::kMaxRingSlots; ++slot_index) {
+        close_owned_slot_fd_locked(state, slot_index);
+    }
+    state->socket_path_.clear();
+    state->uuid_.clear();
+    state->slot_fds_.fill(-1);
+    state->slot_fd_owned_by_state_.fill(false);
+    state->slot_generations_.fill(0);
+    state->ring_size_ = 0;
+}
+
+inline void test_set_sender_slot_fd(
+    uint32_t slot,
+    int fd,
+    bool owned_by_state,
+    uint32_t generation
+) {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state || detail::kMaxRingSlots <= slot) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    close_owned_slot_fd_locked(state, slot);
+    state->slot_fds_[slot] = fd;
+    state->slot_fd_owned_by_state_[slot] = owned_by_state;
+    state->slot_generations_[slot] = generation;
+}
+
+inline auto test_get_sender_slot_fd(uint32_t slot) -> int {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state || detail::kMaxRingSlots <= slot) {
+        return -1;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    return state->slot_fds_[slot];
+}
+
+inline auto test_sender_slot_owned_by_state(uint32_t slot) -> bool {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state || detail::kMaxRingSlots <= slot) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    return state->slot_fd_owned_by_state_[slot];
+}
+
+inline auto test_get_sender_slot_generation(uint32_t slot) -> uint32_t {
+    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    if (!state || detail::kMaxRingSlots <= slot) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(state->mutex_);
+    return state->slot_generations_[slot];
+}
+
+inline void test_reset_receiver_cache() {
+    auto &cache = get_receiver_cache();
+    std::lock_guard<std::mutex> lock(cache.mutex_);
+    cache.cache_.clear();
+}
+
+inline void test_store_receiver_cache(
+    uint32_t slot,
+    int fd,
+    const char *sender_uuid,
+    uint32_t width,
+    uint32_t height,
+    uint32_t format,
+    uint64_t modifier,
+    uint32_t generation,
+    uint32_t plane_count,
+    const uint32_t *plane_strides,
+    const uint32_t *plane_offsets
+) {
+    auto &cache = get_receiver_cache();
+    std::lock_guard<std::mutex> lock(cache.mutex_);
+    cache.cache_.store(slot, fd, sender_uuid, width, height, format, modifier, generation,
+        plane_count, plane_strides, plane_offsets);
+}
+
+inline auto test_get_receiver_cached_fd(uint32_t slot) -> int {
+    auto &cache = get_receiver_cache();
+    std::lock_guard<std::mutex> lock(cache.mutex_);
+    return cache.cache_.get_fd(slot);
+}
+
+inline auto test_duplicate_receiver_cached_fd(uint32_t slot) -> Result<int> {
+    auto &cache = get_receiver_cache();
+    std::lock_guard<std::mutex> lock(cache.mutex_);
+    int cached_fd = cache.cache_.get_fd(slot);
+    if (cached_fd < 0) {
+        return Error{ErrorCode::BackendError, "DMA-BUF cache has no fd for slot"};
+    }
+    int texture_fd = dup(cached_fd);
+    if (texture_fd < 0) {
+        return Error{ErrorCode::BackendError, "failed to duplicate cached DMA-BUF fd"};
+    }
+    return texture_fd;
+}
+#endif
+
 inline auto get_native_surface(const texture &tex) -> void * {
     return detail::get_surface_native(tex);
 }

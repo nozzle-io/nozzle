@@ -536,12 +536,18 @@ int recv_fd_response(int socket_fd) {
 }
 
 dmabuf_texture_cache::~dmabuf_texture_cache() {
+    clear();
+}
+
+void dmabuf_texture_cache::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (size_t i = 0; i < entries_.size(); ++i) {
         if (valid_[i] && entries_[i].fd >= 0) {
             close(entries_[i].fd);
         }
     }
+    entries_ = {};
+    valid_.fill(false);
 }
 
 void dmabuf_texture_cache::store(

@@ -24,6 +24,7 @@ public:
     int get_fd(uint32_t slot_index) const;
     uint32_t get_plane_count(uint32_t slot_index) const;
     void get_plane_metadata(uint32_t slot_index, uint32_t &plane_count, uint32_t (&strides)[4], uint32_t (&offsets)[4]) const;
+    void clear();
 
 private:
     struct cache_entry {
