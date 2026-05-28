@@ -12,6 +12,7 @@ project(nozzle
 )
 
 option(NOZZLE_STRICT_NO_EXCEPTIONS "Build with -fno-exceptions (strict mode)" OFF)
+option(NOZZLE_INSTALL "Install nozzle library, headers, and CMake package files" ON)
 
 # --- C++ standard & compile options ---
 set(CMAKE_CXX_STANDARD 17)
@@ -203,43 +204,45 @@ if(NOZZLE_BUILD_OPENGL)
 endif()
 
 # --- CMake package config export ---
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
+if(NOZZLE_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
 
-install(TARGETS nozzle
-    EXPORT nozzleTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+    install(TARGETS nozzle
+        EXPORT nozzleTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
 
-install(DIRECTORY include/nozzle
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+    install(DIRECTORY include/nozzle
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 
-install(EXPORT nozzleTargets
-    FILE nozzleTargets.cmake
-    NAMESPACE nozzle::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
-)
+    install(EXPORT nozzleTargets
+        FILE nozzleTargets.cmake
+        NAMESPACE nozzle::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
+    )
 
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nozzleConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
-)
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nozzleConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
+    )
 
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
 
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
-)
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/nozzleConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nozzle
+    )
+endif()
 
 # --- Examples ---
 option(NOZZLE_BUILD_EXAMPLES "Build nozzle examples" ON)
