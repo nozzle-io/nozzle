@@ -32,6 +32,20 @@ static float read_channel_f32(const uint8_t *pixel, int channel) {
 	return v;
 }
 
+static void make_pixel_u32(uint32_t ch0, uint32_t ch1, uint32_t ch2, uint32_t ch3,
+                           uint8_t *out) {
+	std::memcpy(out + 0, &ch0, 4);
+	std::memcpy(out + 4, &ch1, 4);
+	std::memcpy(out + 8, &ch2, 4);
+	std::memcpy(out + 12, &ch3, 4);
+}
+
+static uint32_t read_channel_u32(const uint8_t *pixel, int channel) {
+	uint32_t v;
+	std::memcpy(&v, pixel + channel * 4, 4);
+	return v;
+}
+
 // ---------- Error cases ----------
 
 TEST_CASE("swizzle_channels: null pointers return error", "[swizzle]") {
@@ -99,6 +113,7 @@ TEST_CASE("swizzle_channels: supported formats succeed", "[swizzle]") {
 		texture_format::rgba8_srgb,
 		texture_format::bgra8_srgb,
 		texture_format::rgba32_float,
+		texture_format::rgba32_uint,
 	};
 	for (auto fmt : supported) {
 		INFO("format=" << static_cast<int>(fmt));
@@ -298,6 +313,80 @@ TEST_CASE("swizzle_channels: RGBA32_FLOAT roundtrip is identity", "[swizzle]") {
 	                         permute_bgra_to_argb).ok());
 
 	REQUIRE(std::memcmp(src, result, 16) == 0);
+}
+
+// ---------- RGBA32_UINT (16 bytes per pixel, byte-for-byte lanes) ----------
+
+TEST_CASE("swizzle_channels: ARGB→RGBA 32-bit uint single pixel", "[swizzle]") {
+	alignas(16) uint8_t src[16];
+	alignas(16) uint8_t dst[16];
+
+	make_pixel_u32(0x7FC00001u, 0xDEADBEEFu, 0x80000001u, 0xFFFFFFFFu, src);
+
+	auto r = swizzle_channels(src, dst, 1, 1, 16, 16,
+	                          texture_format::rgba32_uint,
+	                          permute_argb_to_rgba);
+	REQUIRE(r.ok());
+
+	REQUIRE(read_channel_u32(dst, 0) == 0xDEADBEEFu);
+	REQUIRE(read_channel_u32(dst, 1) == 0x80000001u);
+	REQUIRE(read_channel_u32(dst, 2) == 0xFFFFFFFFu);
+	REQUIRE(read_channel_u32(dst, 3) == 0x7FC00001u);
+}
+
+TEST_CASE("swizzle_channels: RGBA32_UINT with padded row bytes", "[swizzle]") {
+	constexpr uint32_t width = 2;
+	constexpr uint32_t height = 2;
+	constexpr uint32_t pixel_bytes = 16;
+	constexpr uint32_t row_bytes = width * pixel_bytes + 16;
+	constexpr uint32_t padding_value = 0xA5A5A5A5u;
+
+	std::vector<uint8_t> src(height * row_bytes, 0);
+	std::vector<uint8_t> dst(height * row_bytes, 0xA5);
+
+	const uint32_t values[height][width][4] = {
+		{
+			{0x7FC00001u, 0xDEADBEEFu, 0x80000001u, 0xFFFFFFFFu},
+			{0x00000000u, 0x12345678u, 0x9ABCDEF0u, 0x00FF00FFu},
+		},
+		{
+			{0xCAFEBABEu, 0x01020304u, 0xFEEDFACEu, 0x13579BDFu},
+			{0x2468ACE0u, 0xAAAAAAAAu, 0x55555555u, 0x7F800001u},
+		},
+	};
+
+	for (uint32_t y = 0; y < height; ++y) {
+		for (uint32_t x = 0; x < width; ++x) {
+			uint8_t *pixel = src.data() + y * row_bytes + x * pixel_bytes;
+			make_pixel_u32(
+				values[y][x][0],
+				values[y][x][1],
+				values[y][x][2],
+				values[y][x][3],
+				pixel);
+		}
+	}
+
+	auto r = swizzle_channels(src.data(), dst.data(), width, height,
+	                          row_bytes, row_bytes,
+	                          texture_format::rgba32_uint,
+	                          permute_argb_to_bgra);
+	REQUIRE(r.ok());
+
+	for (uint32_t y = 0; y < height; ++y) {
+		for (uint32_t x = 0; x < width; ++x) {
+			const uint8_t *pixel = dst.data() + y * row_bytes + x * pixel_bytes;
+			REQUIRE(read_channel_u32(pixel, 0) == values[y][x][3]);
+			REQUIRE(read_channel_u32(pixel, 1) == values[y][x][2]);
+			REQUIRE(read_channel_u32(pixel, 2) == values[y][x][1]);
+			REQUIRE(read_channel_u32(pixel, 3) == values[y][x][0]);
+		}
+
+		for (uint32_t offset = width * pixel_bytes; offset < row_bytes; offset += 4) {
+			const uint8_t *padding = dst.data() + y * row_bytes + offset;
+			REQUIRE(read_channel_u32(padding, 0) == padding_value);
+		}
+	}
 }
 
 // ---------- src != dst (out-of-place verification) ----------

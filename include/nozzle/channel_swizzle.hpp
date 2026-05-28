@@ -19,9 +19,9 @@ constexpr channel_permute permute_argb_to_rgba{{1, 2, 3, 0}};
 constexpr channel_permute permute_rgba_to_argb{{3, 0, 1, 2}};
 
 // out-of-place 4-channel pixel swizzle
-// supported formats: rgba8_unorm, bgra8_unorm, rgba8_srgb, bgra8_srgb, rgba32_float
+// supported formats: rgba8_unorm, bgra8_unorm, rgba8_srgb, bgra8_srgb, rgba32_float, rgba32_uint
 // unsupported formats return Error{UnsupportedFormat}
-// format determines bytes-per-pixel (4 or 16) and vImage dispatch
+// format determines bytes-per-pixel (4 or 16) and implementation dispatch
 // channel_permute determines the source channel for each destination channel
 Result<void> swizzle_channels(
 	const void *src, void *dst,

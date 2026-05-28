@@ -31,6 +31,7 @@ static uint32_t bytes_per_pixel_for_format(texture_format fmt) {
 		case texture_format::bgra8_srgb:
 			return 4;
 		case texture_format::rgba32_float:
+		case texture_format::rgba32_uint:
 			return 16;
 		default:
 			return 0;
@@ -88,12 +89,17 @@ Result<void> swizzle_channels(
 		return Error{ErrorCode::InvalidArgument, "row_bytes too small for width and format"};
 
 #if NOZZLE_PLATFORM_MACOS
-	auto vimage_result = detail::try_swizzle_vimage(
-		src, dst, width, height,
-		static_cast<uint32_t>(src_row_bytes), static_cast<uint32_t>(dst_row_bytes),
-		bpp, permute);
-	if (vimage_result.ok()) {
-		return vimage_result;
+	// Keep rgba32_uint on the scalar path. Using ARGBFFFF for uint lanes
+	// would preserve bytes today but would encode a false float contract here.
+	const bool use_vimage = format != texture_format::rgba32_uint;
+	if (use_vimage) {
+		auto vimage_result = detail::try_swizzle_vimage(
+			src, dst, width, height,
+			static_cast<uint32_t>(src_row_bytes), static_cast<uint32_t>(dst_row_bytes),
+			bpp, permute);
+		if (vimage_result.ok()) {
+			return vimage_result;
+		}
 	}
 #endif
 

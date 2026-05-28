@@ -56,6 +56,20 @@ TEST_CASE("C API: supported format returns OK (error code mapping guard)", "[c_a
 	REQUIRE(src[0] != dst[0]);
 }
 
+TEST_CASE("C API: rgba32_uint swizzle permutes uint lanes", "[c_api][swizzle]") {
+	uint32_t src[4] = {0x7FC00001u, 0xDEADBEEFu, 0x80000001u, 0xFFFFFFFFu};
+	uint32_t dst[4] = {};
+	const uint8_t permute[4] = {1, 2, 3, 0};
+
+	REQUIRE(nozzle_swizzle_channels(src, dst, 1, 1, 16, 16,
+		NOZZLE_FORMAT_RGBA32_UINT, permute) == NOZZLE_OK);
+
+	REQUIRE(dst[0] == 0xDEADBEEFu);
+	REQUIRE(dst[1] == 0x80000001u);
+	REQUIRE(dst[2] == 0xFFFFFFFFu);
+	REQUIRE(dst[3] == 0x7FC00001u);
+}
+
 // ---------- Permute map validation (C API boundary) ----------
 
 TEST_CASE("C API: permute_map value > 3 rejected before native", "[c_api][swizzle]") {
