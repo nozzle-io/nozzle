@@ -149,3 +149,35 @@ TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", 
 
     CHECK(nozzle_frame_unlock_writable_pixels_checked(receiver_frame.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
+
+TEST_CASE("C API: discard writable frame releases sender slot without publishing", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "checked_writable_discard_slot";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *raw_frame = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_frame);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle writable{raw_frame};
+
+    CHECK(nozzle_sender_discard_frame(sender.p, writable.p) == NOZZLE_OK);
+    CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    NozzleFrame *raw_second = nullptr;
+    frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_second);
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle second{raw_second};
+    CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
+}

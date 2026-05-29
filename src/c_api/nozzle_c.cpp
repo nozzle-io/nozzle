@@ -416,6 +416,17 @@ NozzleErrorCode nozzle_sender_commit_frame(
     return NOZZLE_OK;
 }
 
+NozzleErrorCode nozzle_sender_discard_frame(
+    NozzleSender *sender,
+    NozzleFrame *frame
+) {
+    if (!sender || !frame || !frame->is_writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    auto result = sender->obj->discard_frame(*frame->writable);
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+}
+
 NozzleErrorCode nozzle_sender_get_info(
     NozzleSender *sender,
     NozzleSenderInfo *out_info

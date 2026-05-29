@@ -61,6 +61,7 @@ public:
 
     Result<writable_frame> acquire_writable_frame(const texture_desc &desc);
     Result<void> commit_frame(writable_frame &frame);
+    Result<void> discard_frame(writable_frame &frame);
 
     sender_info info() const;
     native_device_desc native_device() const;

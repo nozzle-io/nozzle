@@ -285,6 +285,11 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_commit_frame(
     NozzleFrame *frame
 );
 
+NOZZLE_C_API NozzleErrorCode nozzle_sender_discard_frame(
+    NozzleSender *sender,
+    NozzleFrame *frame
+);
+
 NOZZLE_C_API NozzleErrorCode nozzle_sender_get_info(
     NozzleSender *sender,
     NozzleSenderInfo *out_info

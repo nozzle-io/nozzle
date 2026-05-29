@@ -72,6 +72,18 @@ struct sender::Impl {
 	}
 };
 
+namespace {
+
+uint32_t sender_ring_size(const detail::SenderSharedState *state) {
+	uint32_t ring_size = state->ring_size;
+	if (ring_size < detail::kMinimumRingSize) {
+		ring_size = detail::kMinimumRingSize;
+	}
+	return ring_size;
+}
+
+} // namespace
+
 sender::sender() = default;
 sender::~sender() = default;
 sender::sender(sender &&) noexcept = default;
@@ -228,10 +240,7 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 			"failed to get shared resource ID from texture"};
 	}
 
-	uint32_t ring_size = impl_->state->ring_size;
-	if (ring_size < detail::kMinimumRingSize) {
-		ring_size = detail::kMinimumRingSize;
-	}
+	uint32_t ring_size = sender_ring_size(impl_->state);
 
 	uint32_t slot = impl_->next_slot_;
 	impl_->next_slot_ = (impl_->next_slot_ + 1) % ring_size;
@@ -419,10 +428,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	uint32_t slot = detail::get_writable_frame_slot(f);
-	uint32_t ring_size = impl_->state->ring_size;
-	if (ring_size < detail::kMinimumRingSize) {
-		ring_size = detail::kMinimumRingSize;
-	}
+	uint32_t ring_size = sender_ring_size(impl_->state);
 	if (slot >= ring_size) {
 		return Error{ErrorCode::InvalidArgument,
 			"frame slot index out of range"};
@@ -484,6 +490,37 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
 
 	if (f.valid()) {
+		impl_->ring_textures_[slot] = std::move(f.get_texture());
+	}
+	f = writable_frame{};
+	impl_->slot_in_use_[slot] = false;
+
+	return {};
+}
+
+Result<void> sender::discard_frame(writable_frame &f) {
+	if (!impl_ || !impl_->valid_) {
+		return Error{ErrorCode::BackendError, "sender is not valid"};
+	}
+
+	if (!f.valid()) {
+		return Error{ErrorCode::InvalidArgument, "frame is not valid"};
+	}
+
+	std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+	uint32_t slot = detail::get_writable_frame_slot(f);
+	uint32_t ring_size = sender_ring_size(impl_->state);
+	if (slot >= ring_size) {
+		return Error{ErrorCode::InvalidArgument,
+			"frame slot index out of range"};
+	}
+	if (detail::writable_frame_cpu_mapping_active(f)) {
+		return Error{ErrorCode::InvalidArgument,
+			"writable frame has active CPU pixel mapping"};
+	}
+
+	if (f.valid() && !detail::writable_frame_cpu_unlock_failed(f)) {
 		impl_->ring_textures_[slot] = std::move(f.get_texture());
 	}
 	f = writable_frame{};
