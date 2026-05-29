@@ -119,6 +119,51 @@ nozzle_sender_acquire_writable_frame(sender, 1920, 1080, NOZZLE_FORMAT_RGBA8_UNO
 nozzle_sender_commit_frame(sender, frame);
 ```
 
+### CPU pixel lock/unlock semantics
+
+CPU pixel mappings are thread-affine. Call `unlock_frame_pixels(...)` and
+`unlock_writable_pixels_checked(...)` on the same OS thread that successfully
+locked the mapping. The legacy `unlock_writable_pixels(...)` C++ API and
+`nozzle_frame_unlock_writable_pixels(...)` C API remain compatibility shims; they
+discard unlock errors. New writable-pixel code should use the checked APIs:
+
+```cpp
+auto pixels = nozzle::lock_writable_pixels_with_origin(frame, nozzle::texture_origin::top_left);
+if (!pixels.ok()) {
+    // handle lock error
+}
+// write pixels
+auto unlock_result = nozzle::unlock_writable_pixels_checked(frame);
+if (!unlock_result.ok()) {
+    // do not commit after checked unlock failure
+}
+auto commit_result = sender.commit_frame(frame);
+```
+
+```c
+NozzleMappedPixels pixels;
+NozzleErrorCode rc = nozzle_frame_lock_writable_pixels_with_origin(
+    frame, NOZZLE_ORIGIN_TOP_LEFT, &pixels);
+if (rc != NOZZLE_OK) {
+    /* handle lock error */
+}
+/* write pixels */
+rc = nozzle_frame_unlock_writable_pixels_checked(frame);
+if (rc != NOZZLE_OK) {
+    /* do not commit after checked unlock failure */
+}
+rc = nozzle_sender_commit_frame(sender, frame);
+```
+
+Required writable order is:
+
+```text
+acquire_writable_frame -> lock_writable_pixels -> write pixels -> checked unlock -> commit_frame
+```
+
+`commit_frame()` publishes an already-prepared writable frame; it is not a
+replacement for a successful checked unlock.
+
 ## Architecture
 
 ```

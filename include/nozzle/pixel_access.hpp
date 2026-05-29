@@ -22,6 +22,7 @@ Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_or
 void unlock_frame_pixels(const frame &frm);
 
 Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin);
+Result<void> unlock_writable_pixels_checked(writable_frame &frm);
 void unlock_writable_pixels(writable_frame &frm);
 
 } // namespace nozzle

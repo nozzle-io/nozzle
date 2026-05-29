@@ -20,3 +20,7 @@ TEST_CASE("C API: NozzleErrorCode enum values match C++ ErrorCode", "[c_api][err
     CHECK(NOZZLE_ERROR_BACKEND_ERROR == static_cast<int>(nozzle::ErrorCode::BackendError));
     CHECK(NOZZLE_ERROR_COMMAND_FAILED == static_cast<int>(nozzle::ErrorCode::CommandFailed));
 }
+
+TEST_CASE("C API: checked writable unlock rejects null frame", "[c_api][pixel_access]") {
+    CHECK(nozzle_frame_unlock_writable_pixels_checked(nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}

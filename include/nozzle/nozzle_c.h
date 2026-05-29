@@ -473,6 +473,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     NozzleMappedPixels *out_pixels
 );
 
+NOZZLE_C_API NozzleErrorCode nozzle_frame_unlock_writable_pixels_checked(NozzleFrame *frame);
+
 NOZZLE_C_API void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame);
 
 // ========== GL Interop ==========

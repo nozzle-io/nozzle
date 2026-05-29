@@ -80,6 +80,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_cpp_sender_desc.cpp
     integration/test_integration_fallback_getters.cpp
     integration/test_publish_mismatch.cpp
+    integration/test_checked_writable_unlock.cpp
 )
 
     if(APPLE)

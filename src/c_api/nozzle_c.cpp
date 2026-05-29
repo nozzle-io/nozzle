@@ -762,9 +762,15 @@ NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     return NOZZLE_OK;
 }
 
+NozzleErrorCode nozzle_frame_unlock_writable_pixels_checked(NozzleFrame *frame) {
+    if (!frame || !frame->writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    auto result = nozzle::unlock_writable_pixels_checked(*frame->writable);
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+}
+
 void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame) {
-    if (!frame || !frame->writable) return;
-    nozzle::unlock_writable_pixels(*frame->writable);
+    (void)nozzle_frame_unlock_writable_pixels_checked(frame);
 }
 
 // ========== GL Interop ==========
