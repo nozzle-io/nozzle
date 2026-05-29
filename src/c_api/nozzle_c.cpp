@@ -13,6 +13,8 @@
 #include <nozzle/format_convert.hpp>
 #include <nozzle/format_resolve.hpp>
 
+#include "common/frame_helpers.hpp"
+
 #if NOZZLE_HAS_OPENGL
 #include <nozzle/backends/opengl.hpp>
 #endif
@@ -772,6 +774,13 @@ NozzleErrorCode nozzle_frame_unlock_writable_pixels_checked(NozzleFrame *frame) 
 void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame) {
     (void)nozzle_frame_unlock_writable_pixels_checked(frame);
 }
+
+#if NOZZLE_ENABLE_TEST_HOOKS
+void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame) {
+    if (!frame || !frame->writable) return;
+    nozzle::detail::mark_writable_frame_cpu_unlock_failed(*frame->writable);
+}
+#endif
 
 // ========== GL Interop ==========
 

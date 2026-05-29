@@ -15,6 +15,12 @@ frame make_frame(texture, frame_info);
 frame make_frame(texture, frame_info, uint32_t);
 writable_frame make_writable_frame(texture, texture_desc, uint32_t);
 uint32_t get_writable_frame_slot(const writable_frame &);
+const void *get_writable_frame_state_token(const writable_frame &);
+bool writable_frame_cpu_mapping_active(const writable_frame &);
+bool writable_frame_cpu_unlock_failed(const writable_frame &);
+void mark_writable_frame_cpu_mapping_active(writable_frame &);
+void mark_writable_frame_cpu_mapping_unlocked(writable_frame &);
+void mark_writable_frame_cpu_unlock_failed(writable_frame &);
 }
 
 class frame {
@@ -64,6 +70,12 @@ public:
 private:
     friend writable_frame detail::make_writable_frame(texture, texture_desc, uint32_t);
     friend uint32_t detail::get_writable_frame_slot(const writable_frame &);
+    friend const void *detail::get_writable_frame_state_token(const writable_frame &);
+    friend bool detail::writable_frame_cpu_mapping_active(const writable_frame &);
+    friend bool detail::writable_frame_cpu_unlock_failed(const writable_frame &);
+    friend void detail::mark_writable_frame_cpu_mapping_active(writable_frame &);
+    friend void detail::mark_writable_frame_cpu_mapping_unlocked(writable_frame &);
+    friend void detail::mark_writable_frame_cpu_unlock_failed(writable_frame &);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

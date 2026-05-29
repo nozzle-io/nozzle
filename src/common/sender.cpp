@@ -427,6 +427,16 @@ Result<void> sender::commit_frame(writable_frame &f) {
 		return Error{ErrorCode::InvalidArgument,
 			"frame slot index out of range"};
 	}
+	if (detail::writable_frame_cpu_mapping_active(f)) {
+		return Error{ErrorCode::InvalidArgument,
+			"writable frame has active CPU pixel mapping"};
+	}
+	if (detail::writable_frame_cpu_unlock_failed(f)) {
+		f = writable_frame{};
+		impl_->slot_in_use_[slot] = false;
+		return Error{ErrorCode::BackendError,
+			"writable frame CPU unlock failed"};
+	}
 
 	uint64_t resource_id = detail::backend::get_shared_resource_id(f.get_texture());
 	if (resource_id == detail::kInvalidSharedResourceId) {

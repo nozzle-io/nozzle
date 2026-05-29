@@ -134,6 +134,42 @@ uint32_t get_writable_frame_slot(const writable_frame &f) {
     return f.impl_->slot_index_;
 }
 
+const void *get_writable_frame_state_token(const writable_frame &f) {
+    return f.impl_.get();
+}
+
+bool writable_frame_cpu_mapping_active(const writable_frame &f) {
+    return f.impl_ && f.impl_->cpu_mapping_active_;
+}
+
+bool writable_frame_cpu_unlock_failed(const writable_frame &f) {
+    return f.impl_ && f.impl_->cpu_unlock_failed_;
+}
+
+void mark_writable_frame_cpu_mapping_active(writable_frame &f) {
+    if (!f.impl_) {
+        return;
+    }
+    f.impl_->cpu_mapping_active_ = true;
+    f.impl_->cpu_unlock_failed_ = false;
+}
+
+void mark_writable_frame_cpu_mapping_unlocked(writable_frame &f) {
+    if (!f.impl_) {
+        return;
+    }
+    f.impl_->cpu_mapping_active_ = false;
+    f.impl_->cpu_unlock_failed_ = false;
+}
+
+void mark_writable_frame_cpu_unlock_failed(writable_frame &f) {
+    if (!f.impl_) {
+        return;
+    }
+    f.impl_->cpu_mapping_active_ = false;
+    f.impl_->cpu_unlock_failed_ = true;
+}
+
 } // namespace detail
 
 } // namespace nozzle

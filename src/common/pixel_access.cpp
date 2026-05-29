@@ -4,6 +4,8 @@
 #include <nozzle/result.hpp>
 #include <nozzle/format_resolve.hpp>
 
+#include "frame_helpers.hpp"
+
 #if NOZZLE_PLATFORM_MACOS
 #include <nozzle/backends/metal.hpp>
 #include <CoreFoundation/CoreFoundation.h>
@@ -59,6 +61,7 @@ namespace {
 
 struct macos_write_state {
     IOSurfaceRef surface{nullptr};
+    const void *owner{};
 };
 
 thread_local macos_write_state tl_write_state;
@@ -123,6 +126,12 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     if (tl_write_state.surface) {
         return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists on this thread"};
     }
+    if (detail::writable_frame_cpu_mapping_active(frm)) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
+    }
+    if (detail::writable_frame_cpu_unlock_failed(frm)) {
+        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
+    }
 
     auto &tex = frm.get_texture();
     void *surface_ptr = metal::get_io_surface(tex);
@@ -142,7 +151,8 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     // thread owns the writable lock so checked unlock can detect no-active
     // mapping and release the exact surface on the same OS thread.
     CFRetain(surface_ref);
-    tl_write_state = macos_write_state{surface_ref};
+    tl_write_state = macos_write_state{surface_ref, detail::get_writable_frame_state_token(frm)};
+    detail::mark_writable_frame_cpu_mapping_active(frm);
 
     auto desc = frm.desc();
     uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
@@ -168,9 +178,12 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     }
 }
 
-Result<void> unlock_writable_pixels_checked(writable_frame &) {
+Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
     if (!tl_write_state.surface) {
         return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
+    }
+    if (tl_write_state.owner != detail::get_writable_frame_state_token(frm)) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping belongs to another frame"};
     }
 
     IOSurfaceRef surface = tl_write_state.surface;
@@ -179,8 +192,10 @@ Result<void> unlock_writable_pixels_checked(writable_frame &) {
     IOReturn ret = IOSurfaceUnlock(surface, 0, nullptr);
     CFRelease(surface);
     if (ret != kIOReturnSuccess) {
+        detail::mark_writable_frame_cpu_unlock_failed(frm);
         return Error{ErrorCode::BackendError, "IOSurfaceUnlock failed"};
     }
+    detail::mark_writable_frame_cpu_mapping_unlocked(frm);
     return {};
 }
 
@@ -195,6 +210,7 @@ namespace {
 struct linux_lock_state {
     void *mapped_ptr{nullptr};
     size_t mapped_size{0};
+    const void *owner{};
 };
 
 thread_local linux_lock_state tl_read_state;
@@ -259,6 +275,12 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     if (tl_write_state.mapped_ptr) {
         return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists on this thread"};
     }
+    if (detail::writable_frame_cpu_mapping_active(frm)) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
+    }
+    if (detail::writable_frame_cpu_unlock_failed(frm)) {
+        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
+    }
 
     auto &tex = frm.get_texture();
     int fd = dma_buf::get_dmabuf_fd(tex);
@@ -280,7 +302,8 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
         return Error{ErrorCode::BackendError, "mmap of DMA-BUF fd failed"};
     }
 
-    tl_write_state = linux_lock_state{ptr, map_size};
+    tl_write_state = linux_lock_state{ptr, map_size, detail::get_writable_frame_state_token(frm)};
+    detail::mark_writable_frame_cpu_mapping_active(frm);
 
     auto *base = static_cast<uint8_t *>(ptr);
     int64_t stride = static_cast<int64_t>(row_bytes);
@@ -298,9 +321,12 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     }
 }
 
-Result<void> unlock_writable_pixels_checked(writable_frame &) {
+Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
     if (!tl_write_state.mapped_ptr) {
         return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
+    }
+    if (tl_write_state.owner != detail::get_writable_frame_state_token(frm)) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping belongs to another frame"};
     }
 
     void *mapped_ptr = tl_write_state.mapped_ptr;
@@ -308,8 +334,10 @@ Result<void> unlock_writable_pixels_checked(writable_frame &) {
     int rc = munmap(mapped_ptr, mapped_size);
     tl_write_state = linux_lock_state{};
     if (rc != 0) {
+        detail::mark_writable_frame_cpu_unlock_failed(frm);
         return Error{ErrorCode::BackendError, "munmap failed"};
     }
+    detail::mark_writable_frame_cpu_mapping_unlocked(frm);
     return {};
 }
 
@@ -333,6 +361,7 @@ struct windows_write_state {
     ID3D11DeviceContext *context{nullptr};
     ID3D11Device *device{nullptr};
     IDXGIKeyedMutex *publish_mutex{nullptr};
+    const void *owner{};
 };
 
 thread_local windows_read_state tl_read_state;
@@ -422,6 +451,12 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     if (tl_write_state.staging) {
         return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists on this thread"};
     }
+    if (detail::writable_frame_cpu_mapping_active(frm)) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
+    }
+    if (detail::writable_frame_cpu_unlock_failed(frm)) {
+        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
+    }
 
     auto &tex = frm.get_texture();
     ID3D11Texture2D *d3d_tex = d3d11::get_texture(tex);
@@ -477,7 +512,8 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
         }
     }
 
-    tl_write_state = windows_write_state{d3d_tex, staging, ctx, device, mutex};
+    tl_write_state = windows_write_state{d3d_tex, staging, ctx, device, mutex, detail::get_writable_frame_state_token(frm)};
+    detail::mark_writable_frame_cpu_mapping_active(frm);
 
     auto desc = frm.desc();
     auto *base = static_cast<uint8_t *>(mapped.pData);
@@ -496,9 +532,12 @@ Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, text
     }
 }
 
-Result<void> unlock_writable_pixels_checked(writable_frame &) {
+Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
     if (!tl_write_state.staging) {
         return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
+    }
+    if (tl_write_state.owner != detail::get_writable_frame_state_token(frm)) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping belongs to another frame"};
     }
 
     HRESULT release_hr = S_OK;
@@ -518,8 +557,10 @@ Result<void> unlock_writable_pixels_checked(writable_frame &) {
     tl_write_state = windows_write_state{};
 
     if (FAILED(release_hr)) {
+        detail::mark_writable_frame_cpu_unlock_failed(frm);
         return Error{ErrorCode::BackendError, "failed to release D3D11 writable keyed mutex"};
     }
+    detail::mark_writable_frame_cpu_mapping_unlocked(frm);
     return {};
 }
 

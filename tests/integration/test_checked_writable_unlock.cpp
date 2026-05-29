@@ -77,6 +77,38 @@ TEST_CASE("C API: checked writable unlock reports lifecycle errors", "[integrati
     CHECK(nozzle_frame_unlock_writable_pixels_checked(writable.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
+TEST_CASE("C API: commit rejects still-mapped writable frame", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "checked_writable_unlock_still_mapped_commit";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *raw_frame = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_frame);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle writable{raw_frame};
+
+    NozzleMappedPixels mapped{};
+    REQUIRE(nozzle_frame_lock_writable_pixels_with_origin(
+        writable.p, NOZZLE_ORIGIN_TOP_LEFT, &mapped) == NOZZLE_OK);
+    REQUIRE(mapped.data != nullptr);
+
+    CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    REQUIRE(nozzle_frame_unlock_writable_pixels_checked(writable.p) == NOZZLE_OK);
+    CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
+}
+
 TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", "[integration][c_api][pixel_access]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
