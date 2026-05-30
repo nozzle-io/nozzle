@@ -362,3 +362,47 @@ TEST_CASE("C API: discard writable frame releases sender slot without publishing
     FrameHandle second{raw_second};
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 }
+
+TEST_CASE("C API: releasing writable frame wrapper does not return sender slot", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "writable_release_does_not_return_slot";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *raw_first = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_first);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle first{raw_first};
+
+    NozzleFrame *raw_second = nullptr;
+    frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_second);
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle second{raw_second};
+
+    nozzle_frame_release(first.p);
+    first.p = nullptr;
+
+    NozzleFrame *raw_third = nullptr;
+    CHECK(nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_third) == NOZZLE_ERROR_TIMEOUT);
+    CHECK(raw_third == nullptr);
+
+    CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
+
+    NozzleFrame *raw_after_discard = nullptr;
+    REQUIRE(nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_after_discard) == NOZZLE_OK);
+    FrameHandle after_discard{raw_after_discard};
+    CHECK(nozzle_sender_discard_frame(sender.p, after_discard.p) == NOZZLE_OK);
+}

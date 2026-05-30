@@ -189,6 +189,11 @@ acquire_writable_frame -> lock writable mapping handle -> write pixels -> checke
 `commit_frame()` publishes an already-prepared writable frame; it is not a
 replacement for a successful checked unlock.
 
+For the C API, `nozzle_frame_release(frame)` only releases the frame wrapper. A
+writable frame acquired with `nozzle_sender_acquire_writable_frame(...)` must be
+committed or discarded before release; releasing it alone does not publish,
+discard, or return the reserved sender ring-buffer slot.
+
 ## Architecture
 
 ```

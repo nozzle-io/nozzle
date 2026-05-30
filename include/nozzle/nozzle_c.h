@@ -281,11 +281,18 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_acquire_writable_frame(
     NozzleFrame **out_frame
 );
 
+// Commits a writable frame acquired from this sender. On success, this returns
+// the reserved ring-buffer slot to the sender. The NozzleFrame wrapper still
+// belongs to the caller and must be released with nozzle_frame_release.
 NOZZLE_C_API NozzleErrorCode nozzle_sender_commit_frame(
     NozzleSender *sender,
     NozzleFrame *frame
 );
 
+// Discards a writable frame acquired from this sender. On success, this returns
+// the reserved ring-buffer slot to the sender. Use this for writable frames that
+// should not be published. The NozzleFrame wrapper still belongs to the caller
+// and must be released with nozzle_frame_release.
 NOZZLE_C_API NozzleErrorCode nozzle_sender_discard_frame(
     NozzleSender *sender,
     NozzleFrame *frame
@@ -316,6 +323,11 @@ NOZZLE_C_API NozzleErrorCode nozzle_receiver_acquire_frame(
     NozzleFrame **out_frame
 );
 
+// Releases the C frame wrapper. For writable frames acquired with
+// nozzle_sender_acquire_writable_frame, this does not commit, discard, publish,
+// or return the reserved sender ring-buffer slot. Writable frames must be
+// passed to nozzle_sender_commit_frame or nozzle_sender_discard_frame before
+// release.
 NOZZLE_C_API void nozzle_frame_release(NozzleFrame *frame);
 
 NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info(
