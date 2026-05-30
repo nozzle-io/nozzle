@@ -20,8 +20,8 @@
 #include <unistd.h>
 #elif NOZZLE_PLATFORM_WINDOWS
 #include <nozzle/backends/d3d11.hpp>
+#include <d3d10.h>
 #include <d3d11.h>
-#include <d3d11_1.h>
 #include "backends/d3d11/d3d11_helpers.hpp"
 #endif
 
@@ -504,7 +504,7 @@ Result<pixel_mapping> lock_frame_pixels_mapping_with_origin(const frame &frm, te
     }
 
     auto &tex = frm.get_texture();
-    int fd = linux_backend::get_dmabuf_fd(tex);
+    int fd = dma_buf::get_dmabuf_fd(tex);
     if (fd < 0) {
         return Error{ErrorCode::BackendError, "no DMA-BUF fd in frame"};
     }
@@ -550,7 +550,7 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
     }
 
     auto &tex = frm.get_texture();
-    int fd = linux_backend::get_dmabuf_fd(tex);
+    int fd = dma_buf::get_dmabuf_fd(tex);
     if (fd < 0) {
         return Error{ErrorCode::BackendError, "no DMA-BUF fd in writable_frame"};
     }
@@ -748,25 +748,25 @@ struct windows_write_state {
 thread_local windows_read_state tl_read_state;
 thread_local windows_write_state tl_write_state;
 
-void enter_multithread(ID3D11Multithread *multithread) noexcept {
+void enter_multithread(ID3D10Multithread *multithread) noexcept {
     if (multithread) {
         multithread->Enter();
     }
 }
 
-void leave_multithread(ID3D11Multithread *multithread) noexcept {
+void leave_multithread(ID3D10Multithread *multithread) noexcept {
     if (multithread) {
         multithread->Leave();
     }
 }
 
-ID3D11Multithread *make_multithread_guard(ID3D11DeviceContext *context) noexcept {
+ID3D10Multithread *make_multithread_guard(ID3D11DeviceContext *context) noexcept {
     if (!context) {
         return nullptr;
     }
-    ID3D11Multithread *multithread = nullptr;
+    ID3D10Multithread *multithread = nullptr;
     HRESULT hr = context->QueryInterface(
-        __uuidof(ID3D11Multithread), reinterpret_cast<void **>(&multithread));
+        __uuidof(ID3D10Multithread), reinterpret_cast<void **>(&multithread));
     if (FAILED(hr) || !multithread) {
         return nullptr;
     }
@@ -778,13 +778,13 @@ struct windows_read_mapping final : pixel_mapping::Impl {
     ID3D11Texture2D *staging{nullptr};
     ID3D11DeviceContext *context{nullptr};
     ID3D11Device *device{nullptr};
-    ID3D11Multithread *multithread{nullptr};
+    ID3D10Multithread *multithread{nullptr};
 
     windows_read_mapping(
         ID3D11Texture2D *staging_texture,
         ID3D11DeviceContext *device_context,
         ID3D11Device *d3d_device,
-        ID3D11Multithread *multithread_guard
+        ID3D10Multithread *multithread_guard
     ) noexcept
         : staging{staging_texture}
         , context{device_context}
@@ -802,7 +802,7 @@ struct windows_read_mapping final : pixel_mapping::Impl {
         ID3D11Texture2D *staging_texture = staging;
         ID3D11DeviceContext *device_context = context;
         ID3D11Device *d3d_device = device;
-        ID3D11Multithread *multithread_guard = multithread;
+        ID3D10Multithread *multithread_guard = multithread;
         staging = nullptr;
         context = nullptr;
         device = nullptr;
@@ -830,7 +830,7 @@ struct windows_write_mapping final : pixel_mapping::Impl {
     ID3D11DeviceContext *context{nullptr};
     ID3D11Device *device{nullptr};
     IDXGIKeyedMutex *publish_mutex{nullptr};
-    ID3D11Multithread *multithread{nullptr};
+    ID3D10Multithread *multithread{nullptr};
     detail::writable_cpu_mapping_state_ref mapping_state{};
 
     windows_write_mapping(
@@ -839,7 +839,7 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         ID3D11DeviceContext *device_context,
         ID3D11Device *d3d_device,
         IDXGIKeyedMutex *keyed_mutex,
-        ID3D11Multithread *multithread_guard,
+        ID3D10Multithread *multithread_guard,
         detail::writable_cpu_mapping_state_ref state_ref
     ) noexcept
         : source{source_texture}
@@ -863,7 +863,7 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         ID3D11DeviceContext *device_context = context;
         ID3D11Device *d3d_device = device;
         IDXGIKeyedMutex *keyed_mutex = publish_mutex;
-        ID3D11Multithread *multithread_guard = multithread;
+        ID3D10Multithread *multithread_guard = multithread;
         source = nullptr;
         staging = nullptr;
         context = nullptr;
@@ -929,7 +929,7 @@ Result<pixel_mapping> lock_frame_pixels_mapping_with_origin(const frame &frm, te
         device->Release();
         return Error{ErrorCode::BackendError, "failed to get D3D11 immediate context"};
     }
-    ID3D11Multithread *multithread = make_multithread_guard(ctx);
+    ID3D10Multithread *multithread = make_multithread_guard(ctx);
     if (!multithread) {
         ctx->Release();
         device->Release();
@@ -1033,7 +1033,7 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
         detail::mark_writable_cpu_mapping_unlocked(mapping_state);
         return Error{ErrorCode::BackendError, "failed to get D3D11 immediate context"};
     }
-    ID3D11Multithread *multithread = make_multithread_guard(ctx);
+    ID3D10Multithread *multithread = make_multithread_guard(ctx);
     if (!multithread) {
         ctx->Release();
         device->Release();
