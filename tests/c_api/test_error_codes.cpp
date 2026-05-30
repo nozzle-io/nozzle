@@ -7,13 +7,27 @@
 
 #include "nozzle_c_types.hpp"
 
+#include <array>
 #include <cstdint>
+#include <cstring>
 
 #if NOZZLE_ENABLE_TEST_HOOKS
 extern "C" void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame);
 extern "C" void nozzle_test_fail_next_writable_frame_wrapper_alloc(void);
 extern "C" void nozzle_test_fail_next_c_api_wrapper_object_alloc(void);
 extern "C" void nozzle_test_clear_c_api_wrapper_object_alloc_failure(void);
+extern "C" NozzleErrorCode nozzle_test_copy_mapped_pixels_to_buffer(
+    const void *source_data,
+    int64_t source_row_stride_bytes,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format,
+    NozzleTextureOrigin origin,
+    uint8_t bytes_per_pixel,
+    void *out_data,
+    uint64_t out_data_size_bytes,
+    NozzleMappedPixels *out_pixels
+);
 #endif
 
 TEST_CASE("C API: NozzleErrorCode enum values match C++ ErrorCode", "[c_api][error_codes]") {
@@ -91,6 +105,94 @@ struct FrameHandle {
 };
 
 } // namespace
+
+TEST_CASE("C API: read-only pixel copy helper preserves row order", "[c_api][pixel_access]") {
+    const std::array<uint8_t, 12> source{
+        'A', 'B', 'C', '.',
+        'D', 'E', 'F', '.',
+        'G', 'H', 'I', '.'
+    };
+
+    {
+        std::array<uint8_t, 9> output{};
+        NozzleMappedPixels mapped{};
+        REQUIRE(nozzle_test_copy_mapped_pixels_to_buffer(
+            source.data(),
+            4,
+            3,
+            3,
+            NOZZLE_FORMAT_R8_UNORM,
+            NOZZLE_ORIGIN_TOP_LEFT,
+            1,
+            output.data(),
+            output.size(),
+            &mapped) == NOZZLE_OK);
+
+        const std::array<uint8_t, 9> expected{
+            'A', 'B', 'C',
+            'D', 'E', 'F',
+            'G', 'H', 'I'
+        };
+        CHECK(std::memcmp(output.data(), expected.data(), expected.size()) == 0);
+        CHECK(mapped.data == output.data());
+        CHECK(mapped.row_stride_bytes == 3);
+        CHECK(mapped.width == 3);
+        CHECK(mapped.height == 3);
+        CHECK(mapped.format == NOZZLE_FORMAT_R8_UNORM);
+        CHECK(mapped.origin == NOZZLE_ORIGIN_TOP_LEFT);
+    }
+
+    {
+        std::array<uint8_t, 9> output{};
+        NozzleMappedPixels mapped{};
+        REQUIRE(nozzle_test_copy_mapped_pixels_to_buffer(
+            source.data() + 8,
+            -4,
+            3,
+            3,
+            NOZZLE_FORMAT_R8_UNORM,
+            NOZZLE_ORIGIN_BOTTOM_LEFT,
+            1,
+            output.data(),
+            output.size(),
+            &mapped) == NOZZLE_OK);
+
+        const std::array<uint8_t, 9> expected{
+            'G', 'H', 'I',
+            'D', 'E', 'F',
+            'A', 'B', 'C'
+        };
+        CHECK(std::memcmp(output.data(), expected.data(), expected.size()) == 0);
+        CHECK(mapped.data == output.data());
+        CHECK(mapped.row_stride_bytes == 3);
+        CHECK(mapped.width == 3);
+        CHECK(mapped.height == 3);
+        CHECK(mapped.format == NOZZLE_FORMAT_R8_UNORM);
+        CHECK(mapped.origin == NOZZLE_ORIGIN_BOTTOM_LEFT);
+    }
+}
+
+TEST_CASE("C API: read-only pixel copy helper rejects too-small destination", "[c_api][pixel_access]") {
+    const std::array<uint8_t, 12> source{
+        'A', 'B', 'C', '.',
+        'D', 'E', 'F', '.',
+        'G', 'H', 'I', '.'
+    };
+    std::array<uint8_t, 8> output{};
+    NozzleMappedPixels mapped{};
+
+    CHECK(nozzle_test_copy_mapped_pixels_to_buffer(
+        source.data(),
+        4,
+        3,
+        3,
+        NOZZLE_FORMAT_R8_UNORM,
+        NOZZLE_ORIGIN_TOP_LEFT,
+        1,
+        output.data(),
+        output.size(),
+        &mapped) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
 
 TEST_CASE("C API: sender object wrapper allocation failure cleans registration", "[c_api][allocation]") {
     NozzleSenderDesc probe_desc{};

@@ -969,6 +969,30 @@ void nozzle_test_fail_next_c_api_wrapper_object_alloc(void) {
 void nozzle_test_clear_c_api_wrapper_object_alloc_failure(void) {
     g_fail_next_c_api_wrapper_object_alloc = false;
 }
+
+NozzleErrorCode nozzle_test_copy_mapped_pixels_to_buffer(
+    const void *source_data,
+    int64_t source_row_stride_bytes,
+    uint32_t width,
+    uint32_t height,
+    NozzleTextureFormat format,
+    NozzleTextureOrigin origin,
+    uint8_t bytes_per_pixel,
+    void *out_data,
+    uint64_t out_data_size_bytes,
+    NozzleMappedPixels *out_pixels
+) {
+    nozzle::mapped_pixels mapped{};
+    mapped.data = const_cast<void *>(source_data);
+    mapped.row_stride_bytes = source_row_stride_bytes;
+    mapped.width = width;
+    mapped.height = height;
+    mapped.format = to_cpp_format(format);
+    mapped.origin = to_cpp_origin(origin);
+    mapped.cpu_layout.bytes_per_pixel = bytes_per_pixel;
+    return copy_mapped_pixels_to_buffer(
+        mapped, out_data, out_data_size_bytes, out_pixels);
+}
 #endif
 
 // ========== GL Interop ==========
