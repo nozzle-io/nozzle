@@ -75,6 +75,16 @@ TEST_CASE("C API: writable acquire wrapper allocation failure discards sender sl
     }
     REQUIRE(sender_rc == NOZZLE_OK);
 
+    NozzleFrame *raw_probe = nullptr;
+    NozzleErrorCode probe_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_probe);
+    if (is_backend_unavailable_for_commit_lifecycle(probe_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(probe_rc == NOZZLE_OK);
+    FrameHandle probe{raw_probe};
+    REQUIRE(nozzle_sender_discard_frame(sender.p, probe.p) == NOZZLE_OK);
+
     NozzleFrame *failed_frame = reinterpret_cast<NozzleFrame *>(static_cast<uintptr_t>(0x1));
     nozzle_test_fail_next_writable_frame_wrapper_alloc();
     CHECK(nozzle_sender_acquire_writable_frame(
