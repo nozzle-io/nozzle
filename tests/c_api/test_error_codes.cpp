@@ -5,6 +5,8 @@
 #include <nozzle/nozzle_c.h>
 #include <nozzle/result.hpp>
 
+#include "nozzle_c_types.hpp"
+
 #include <cstdint>
 
 #if NOZZLE_ENABLE_TEST_HOOKS
@@ -32,6 +34,32 @@ TEST_CASE("C API: NozzleErrorCode enum values match C++ ErrorCode", "[c_api][err
 
 TEST_CASE("C API: checked writable unlock rejects null frame", "[c_api][pixel_access]") {
     CHECK(nozzle_frame_unlock_writable_pixels_checked(nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: read-only pixel copy rejects invalid arguments", "[c_api][pixel_access]") {
+    uint8_t data[4]{};
+    NozzleFrame frame{};
+    NozzleMappedPixels mapped{};
+
+    CHECK(nozzle_frame_copy_pixels_with_origin(
+        nullptr, NOZZLE_ORIGIN_TOP_LEFT, data, sizeof(data), &mapped)
+        == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    CHECK(nozzle_frame_copy_pixels_with_origin(
+        &frame,
+        NOZZLE_ORIGIN_TOP_LEFT,
+        nullptr,
+        sizeof(data),
+        &mapped)
+        == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    CHECK(nozzle_frame_copy_pixels_with_origin(
+        &frame,
+        NOZZLE_ORIGIN_TOP_LEFT,
+        data,
+        sizeof(data),
+        nullptr)
+        == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
 #if NOZZLE_ENABLE_TEST_HOOKS

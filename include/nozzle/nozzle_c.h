@@ -470,6 +470,14 @@ NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleMappedPixels *out_pixels
 );
 
+NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_pixels_with_origin(
+    NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
+    void *out_data,
+    uint64_t out_data_size_bytes,
+    NozzleMappedPixels *out_pixels
+);
+
 NOZZLE_C_API void nozzle_frame_unlock_pixels(NozzleFrame *frame);
 
 NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(

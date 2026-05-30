@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -297,6 +298,57 @@ NozzleErrorCode validate_dmabuf_publish_desc(
         return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
     }
 #endif
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode copy_mapped_pixels_to_buffer(
+    const nozzle::mapped_pixels &mapped,
+    void *out_data,
+    uint64_t out_data_size_bytes,
+    NozzleMappedPixels *out_pixels
+) {
+    if (!out_data || !out_pixels) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    if (!mapped.data) return NOZZLE_ERROR_BACKEND_ERROR;
+    if (mapped.cpu_layout.bytes_per_pixel == 0) return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
+
+    const uint64_t bytes_per_pixel = mapped.cpu_layout.bytes_per_pixel;
+    const uint64_t row_copy_bytes =
+        static_cast<uint64_t>(mapped.width) * bytes_per_pixel;
+    if (mapped.height != 0 &&
+        row_copy_bytes > std::numeric_limits<uint64_t>::max() / mapped.height) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+
+    const uint64_t required_size = row_copy_bytes * mapped.height;
+    if (out_data_size_bytes < required_size) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const int64_t source_stride = static_cast<int64_t>(mapped.row_stride_bytes);
+    const uint64_t source_abs_stride = source_stride < 0
+        ? static_cast<uint64_t>(-source_stride)
+        : static_cast<uint64_t>(source_stride);
+    if (source_abs_stride < row_copy_bytes) return NOZZLE_ERROR_BACKEND_ERROR;
+    if (row_copy_bytes > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+
+    const auto *source_base = static_cast<const uint8_t *>(mapped.data);
+    auto *destination_base = static_cast<uint8_t *>(out_data);
+    const std::size_t copy_size = static_cast<std::size_t>(row_copy_bytes);
+
+    for (uint32_t y = 0; y < mapped.height; ++y) {
+        const uint8_t *source_row = source_stride < 0
+            ? source_base - static_cast<uint64_t>(y) * source_abs_stride
+            : source_base + static_cast<uint64_t>(y) * source_abs_stride;
+        uint8_t *destination_row = destination_base + static_cast<uint64_t>(y) * row_copy_bytes;
+        std::memcpy(destination_row, source_row, copy_size);
+    }
+
+    out_pixels->data = out_data;
+    out_pixels->row_stride_bytes = static_cast<int64_t>(row_copy_bytes);
+    out_pixels->width = mapped.width;
+    out_pixels->height = mapped.height;
+    out_pixels->format = to_c_format(mapped.format);
+    out_pixels->origin = to_c_origin(mapped.origin);
     return NOZZLE_OK;
 }
 
@@ -836,6 +888,32 @@ NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     out_pixels->format = to_c_format(mp.format);
     out_pixels->origin = to_c_origin(mp.origin);
     return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_frame_copy_pixels_with_origin(
+    NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
+    void *out_data,
+    uint64_t out_data_size_bytes,
+    NozzleMappedPixels *out_pixels
+) {
+    if (!frame || !out_data || !out_pixels || !frame->obj) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+    std::memset(out_pixels, 0, sizeof(NozzleMappedPixels));
+
+    auto result = nozzle::lock_frame_pixels_with_origin(
+        *frame->obj, to_cpp_origin(desired_origin));
+    if (!result.ok()) return to_c_error(result.error().code);
+
+    NozzleErrorCode copy_result = copy_mapped_pixels_to_buffer(
+        result.value(), out_data, out_data_size_bytes, out_pixels);
+
+    nozzle::unlock_frame_pixels(*frame->obj);
+    if (copy_result != NOZZLE_OK) {
+        std::memset(out_pixels, 0, sizeof(NozzleMappedPixels));
+    }
+    return copy_result;
 }
 
 void nozzle_frame_unlock_pixels(NozzleFrame *frame) {
