@@ -2,6 +2,7 @@
 
 #include <nozzle/texture.hpp>
 #include <nozzle/device.hpp>
+#include <nozzle/result.hpp>
 
 #include <memory>
 
@@ -13,7 +14,7 @@ class writable_frame;
 namespace detail {
 frame make_frame(texture, frame_info);
 frame make_frame(texture, frame_info, uint32_t);
-writable_frame make_writable_frame(texture, texture_desc, uint32_t);
+Result<writable_frame> make_writable_frame(texture, texture_desc, uint32_t);
 uint32_t get_writable_frame_slot(const writable_frame &);
 const void *get_writable_frame_state_token(const writable_frame &);
 bool writable_frame_cpu_mapping_active(const writable_frame &);
@@ -21,6 +22,10 @@ bool writable_frame_cpu_unlock_failed(const writable_frame &);
 void mark_writable_frame_cpu_mapping_active(writable_frame &);
 void mark_writable_frame_cpu_mapping_unlocked(writable_frame &);
 void mark_writable_frame_cpu_unlock_failed(writable_frame &);
+class writable_cpu_mapping_state_ref;
+Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &);
+void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &);
+void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &);
 }
 
 class frame {
@@ -68,7 +73,7 @@ public:
     bool valid() const;
 
 private:
-    friend writable_frame detail::make_writable_frame(texture, texture_desc, uint32_t);
+    friend Result<writable_frame> detail::make_writable_frame(texture, texture_desc, uint32_t);
     friend uint32_t detail::get_writable_frame_slot(const writable_frame &);
     friend const void *detail::get_writable_frame_state_token(const writable_frame &);
     friend bool detail::writable_frame_cpu_mapping_active(const writable_frame &);
@@ -76,6 +81,7 @@ private:
     friend void detail::mark_writable_frame_cpu_mapping_active(writable_frame &);
     friend void detail::mark_writable_frame_cpu_mapping_unlocked(writable_frame &);
     friend void detail::mark_writable_frame_cpu_unlock_failed(writable_frame &);
+    friend Result<detail::writable_cpu_mapping_state_ref> detail::begin_writable_frame_cpu_mapping(writable_frame &);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

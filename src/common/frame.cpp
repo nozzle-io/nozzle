@@ -6,6 +6,7 @@
 #include "frame_helpers.hpp"
 #include "backends/backend_dispatch.hpp"
 
+#include <new>
 #include <utility>
 
 namespace nozzle {
@@ -103,6 +104,94 @@ bool writable_frame::valid() const {
 
 namespace detail {
 
+writable_cpu_mapping_state_ref::writable_cpu_mapping_state_ref(writable_cpu_mapping_state *state) noexcept
+    : state_{state}
+{}
+
+writable_cpu_mapping_state_ref::writable_cpu_mapping_state_ref(const writable_cpu_mapping_state_ref &other) noexcept
+    : state_{other.state_}
+{
+    if (state_) {
+        state_->reference_count.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+writable_cpu_mapping_state_ref &writable_cpu_mapping_state_ref::operator=(const writable_cpu_mapping_state_ref &other) noexcept {
+    if (this != &other) {
+        writable_cpu_mapping_state *next = other.state_;
+        if (next) {
+            next->reference_count.fetch_add(1, std::memory_order_relaxed);
+        }
+        reset();
+        state_ = next;
+    }
+    return *this;
+}
+
+writable_cpu_mapping_state_ref::writable_cpu_mapping_state_ref(writable_cpu_mapping_state_ref &&other) noexcept
+    : state_{other.state_}
+{
+    other.state_ = nullptr;
+}
+
+writable_cpu_mapping_state_ref &writable_cpu_mapping_state_ref::operator=(writable_cpu_mapping_state_ref &&other) noexcept {
+    if (this != &other) {
+        reset();
+        state_ = other.state_;
+        other.state_ = nullptr;
+    }
+    return *this;
+}
+
+writable_cpu_mapping_state_ref::~writable_cpu_mapping_state_ref() noexcept {
+    reset();
+}
+
+writable_cpu_mapping_state *writable_cpu_mapping_state_ref::get() const noexcept {
+    return state_;
+}
+
+writable_cpu_mapping_state_ref::operator bool() const noexcept {
+    return state_ != nullptr;
+}
+
+void writable_cpu_mapping_state_ref::reset() noexcept {
+    if (!state_) {
+        return;
+    }
+    writable_cpu_mapping_state *state = state_;
+    state_ = nullptr;
+    if (state->reference_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        delete state;
+    }
+}
+
+namespace {
+
+Result<writable_cpu_mapping_state_ref> make_writable_cpu_mapping_state_ref() {
+    auto *state = new (std::nothrow) writable_cpu_mapping_state{};
+    if (!state) {
+        return Error{ErrorCode::ResourceCreationFailed, "failed to allocate writable CPU mapping state"};
+    }
+    return writable_cpu_mapping_state_ref{state};
+}
+
+void set_writable_cpu_mapping_state(
+    writable_cpu_mapping_state_ref &state_ref,
+    bool active,
+    bool unlock_failed
+) {
+    auto *state = state_ref.get();
+    if (!state) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(state->mutex);
+    state->active = active;
+    state->unlock_failed = unlock_failed;
+}
+
+} // anonymous namespace
+
 frame make_frame(texture tex, frame_info info) {
     return make_frame(std::move(tex), info, 0);
 }
@@ -117,13 +206,24 @@ frame make_frame(texture tex, frame_info info, uint32_t slot_index) {
     return f;
 }
 
-writable_frame make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index) {
+Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index) {
+    auto state_result = make_writable_cpu_mapping_state_ref();
+    if (!state_result.ok()) {
+        return state_result.error();
+    }
+
+    auto *impl = new (std::nothrow) writable_frame::Impl();
+    if (!impl) {
+        return Error{ErrorCode::ResourceCreationFailed, "failed to allocate writable frame state"};
+    }
+
     writable_frame f;
-    f.impl_ = std::make_unique<writable_frame::Impl>();
+    f.impl_.reset(impl);
     f.impl_->desc_ = desc;
     f.impl_->slot_index_ = slot_index;
     f.impl_->valid_ = tex.valid();
     f.impl_->tex_ = std::move(tex);
+    f.impl_->cpu_mapping_state_ = std::move(state_result.value());
     return f;
 }
 
@@ -139,35 +239,74 @@ const void *get_writable_frame_state_token(const writable_frame &f) {
 }
 
 bool writable_frame_cpu_mapping_active(const writable_frame &f) {
-    return f.impl_ && f.impl_->cpu_mapping_active_;
+    if (!f.impl_ || !f.impl_->cpu_mapping_state_) {
+        return false;
+    }
+    auto *state = f.impl_->cpu_mapping_state_.get();
+    std::lock_guard<std::mutex> lock(state->mutex);
+    return state->active;
 }
 
 bool writable_frame_cpu_unlock_failed(const writable_frame &f) {
-    return f.impl_ && f.impl_->cpu_unlock_failed_;
+    if (!f.impl_ || !f.impl_->cpu_mapping_state_) {
+        return false;
+    }
+    auto *state = f.impl_->cpu_mapping_state_.get();
+    std::lock_guard<std::mutex> lock(state->mutex);
+    return state->unlock_failed;
 }
 
 void mark_writable_frame_cpu_mapping_active(writable_frame &f) {
-    if (!f.impl_) {
+    if (!f.impl_ || !f.impl_->cpu_mapping_state_) {
         return;
     }
-    f.impl_->cpu_mapping_active_ = true;
-    f.impl_->cpu_unlock_failed_ = false;
+    auto *state = f.impl_->cpu_mapping_state_.get();
+    std::lock_guard<std::mutex> lock(state->mutex);
+    state->active = true;
+    state->unlock_failed = false;
+    state->generation += 1;
 }
 
 void mark_writable_frame_cpu_mapping_unlocked(writable_frame &f) {
     if (!f.impl_) {
         return;
     }
-    f.impl_->cpu_mapping_active_ = false;
-    f.impl_->cpu_unlock_failed_ = false;
+    set_writable_cpu_mapping_state(f.impl_->cpu_mapping_state_, false, false);
 }
 
 void mark_writable_frame_cpu_unlock_failed(writable_frame &f) {
     if (!f.impl_) {
         return;
     }
-    f.impl_->cpu_mapping_active_ = false;
-    f.impl_->cpu_unlock_failed_ = true;
+    set_writable_cpu_mapping_state(f.impl_->cpu_mapping_state_, false, true);
+}
+
+Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &f) {
+    if (!f.impl_ || !f.impl_->cpu_mapping_state_) {
+        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
+    }
+
+    writable_cpu_mapping_state_ref state_ref = f.impl_->cpu_mapping_state_;
+    auto *state = state_ref.get();
+    std::lock_guard<std::mutex> lock(state->mutex);
+    if (state->active) {
+        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
+    }
+    if (state->unlock_failed) {
+        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
+    }
+    state->active = true;
+    state->unlock_failed = false;
+    state->generation += 1;
+    return state_ref;
+}
+
+void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &state_ref) {
+    set_writable_cpu_mapping_state(state_ref, false, false);
+}
+
+void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &state_ref) {
+    set_writable_cpu_mapping_state(state_ref, false, true);
 }
 
 } // namespace detail

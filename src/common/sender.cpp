@@ -377,15 +377,21 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 
 		auto fb_result = resolve_format_fallback_info(tdesc.format, observed_format, final_category, fallback_target);
 		if (!fb_result.ok()) {
+			impl_->slot_in_use_[slot] = false;
 			return fb_result.error();
 		}
 		detail::write_global_metadata(*impl_->state, tdesc.width, tdesc.height, fb_result.value());
 
-		return detail::make_writable_frame(
+		auto writable_result = detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
 			actual_desc,
 			slot
 		);
+		if (!writable_result.ok()) {
+			impl_->slot_in_use_[slot] = false;
+			return writable_result.error();
+		}
+		return writable_result;
 	}
 
 	impl_->slot_in_use_[slot] = true;
@@ -397,23 +403,30 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		fallback_category::none, texture_format::unknown,
 		impl_->fallback_flags_);
 	if (!category_result.ok()) {
+		impl_->slot_in_use_[slot] = false;
 		return category_result.error();
 	}
 	fallback_category reuse_category = category_result.value();
 
 	auto fb_result = resolve_format_fallback_info(tdesc.format, reused_format, reuse_category, texture_format::unknown);
 	if (!fb_result.ok()) {
+		impl_->slot_in_use_[slot] = false;
 		return fb_result.error();
 	}
 	detail::write_global_metadata(*impl_->state, tdesc.width, tdesc.height, fb_result.value());
 
 	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 
-	return detail::make_writable_frame(
+	auto writable_result = detail::make_writable_frame(
 		std::move(impl_->ring_textures_[slot]),
 		actual_desc,
 		slot
 	);
+	if (!writable_result.ok()) {
+		impl_->slot_in_use_[slot] = false;
+		return writable_result.error();
+	}
+	return writable_result;
 }
 
 Result<void> sender::commit_frame(writable_frame &f) {

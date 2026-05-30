@@ -4,6 +4,8 @@
 
 #include <nozzle/nozzle_c.h>
 
+#include <thread>
+
 namespace {
 
 bool is_backend_unavailable(NozzleErrorCode error) {
@@ -35,6 +37,15 @@ struct FrameHandle {
     ~FrameHandle() {
         if (p) {
             nozzle_frame_release(p);
+        }
+    }
+};
+
+struct PixelMappingHandle {
+    NozzlePixelMapping *p{};
+    ~PixelMappingHandle() {
+        if (p) {
+            nozzle_pixel_mapping_unlock(&p);
         }
     }
 };
@@ -107,6 +118,176 @@ TEST_CASE("C API: commit rejects still-mapped writable frame", "[integration][c_
 
     REQUIRE(nozzle_frame_unlock_writable_pixels_checked(writable.p) == NOZZLE_OK);
     CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
+}
+
+TEST_CASE("C API: pixel mapping handle null and double-unlock semantics", "[integration][c_api][pixel_access]") {
+    NozzlePixelMapping *mapping = nullptr;
+    CHECK(nozzle_pixel_mapping_unlock_checked(nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_pixel_mapping_unlock_checked(&mapping) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    nozzle_pixel_mapping_unlock(nullptr);
+    nozzle_pixel_mapping_unlock(&mapping);
+}
+
+TEST_CASE("C API: writable pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "writable_mapping_handle_lifecycle";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *raw_frame = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_frame);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle writable{raw_frame};
+
+    PixelMappingHandle mapping;
+    NozzleMappedPixels mapped{};
+    REQUIRE(nozzle_frame_lock_writable_pixels_mapping_with_origin(
+        writable.p, NOZZLE_ORIGIN_TOP_LEFT, &mapping.p, &mapped) == NOZZLE_OK);
+    REQUIRE(mapping.p != nullptr);
+    REQUIRE(mapped.data != nullptr);
+
+    CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_pixel_mapping_unlock_checked(&mapping.p) == NOZZLE_OK);
+    CHECK(mapping.p == nullptr);
+    CHECK(nozzle_pixel_mapping_unlock_checked(&mapping.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
+}
+
+TEST_CASE("C API: read pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "read_mapping_handle_lifecycle";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *raw_writable = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_writable);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle writable{raw_writable};
+    REQUIRE(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
+
+    ReceiverHandle receiver;
+    NozzleReceiverDesc rdesc{};
+    rdesc.name = "read_mapping_handle_lifecycle";
+    rdesc.application_name = "test";
+    REQUIRE(nozzle_receiver_create(&rdesc, &receiver.p) == NOZZLE_OK);
+
+    NozzleAcquireDesc adesc{};
+    adesc.timeout_ms = 500;
+    NozzleFrame *raw_receiver_frame = nullptr;
+    NozzleErrorCode recv_rc = nozzle_receiver_acquire_frame(receiver.p, &adesc, &raw_receiver_frame);
+    if (is_backend_unavailable(recv_rc)) {
+        SKIP("receiver texture import is not available on this runner");
+    }
+    REQUIRE(recv_rc == NOZZLE_OK);
+    FrameHandle receiver_frame{raw_receiver_frame};
+
+    PixelMappingHandle mapping;
+    NozzleMappedPixels mapped{};
+    NozzleErrorCode lock_rc = nozzle_frame_lock_pixels_mapping_with_origin(
+        receiver_frame.p, NOZZLE_ORIGIN_TOP_LEFT, &mapping.p, &mapped);
+    if (is_backend_unavailable(lock_rc)) {
+        SKIP("read pixel mapping is not available on this runner");
+    }
+    REQUIRE(lock_rc == NOZZLE_OK);
+    REQUIRE(mapping.p != nullptr);
+    REQUIRE(mapped.data != nullptr);
+
+    CHECK(nozzle_pixel_mapping_unlock_checked(&mapping.p) == NOZZLE_OK);
+    CHECK(mapping.p == nullptr);
+    CHECK(nozzle_pixel_mapping_unlock_checked(&mapping.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: writable pixel mapping handle can unlock on another thread", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "writable_mapping_handle_cross_thread";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *raw_frame = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_frame);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+    FrameHandle writable{raw_frame};
+
+    NozzlePixelMapping *mapping = nullptr;
+    NozzleMappedPixels mapped{};
+    REQUIRE(nozzle_frame_lock_writable_pixels_mapping_with_origin(
+        writable.p, NOZZLE_ORIGIN_TOP_LEFT, &mapping, &mapped) == NOZZLE_OK);
+    REQUIRE(mapping != nullptr);
+    REQUIRE(mapped.data != nullptr);
+
+    NozzleErrorCode unlock_rc = NOZZLE_ERROR_UNKNOWN;
+    std::thread unlock_thread([&]() {
+        unlock_rc = nozzle_pixel_mapping_unlock_checked(&mapping);
+    });
+    unlock_thread.join();
+
+    CHECK(unlock_rc == NOZZLE_OK);
+    CHECK(mapping == nullptr);
+    CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
+}
+
+TEST_CASE("C API: writable pixel mapping handle cleanup survives frame release", "[integration][c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "writable_mapping_handle_frame_release";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *frame = nullptr;
+    NozzleErrorCode frame_rc = nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &frame);
+    if (is_backend_unavailable(frame_rc)) {
+        SKIP("writable frame creation is not available on this runner");
+    }
+    REQUIRE(frame_rc == NOZZLE_OK);
+
+    PixelMappingHandle mapping;
+    NozzleMappedPixels mapped{};
+    REQUIRE(nozzle_frame_lock_writable_pixels_mapping_with_origin(
+        frame, NOZZLE_ORIGIN_TOP_LEFT, &mapping.p, &mapped) == NOZZLE_OK);
+    REQUIRE(mapping.p != nullptr);
+    REQUIRE(mapped.data != nullptr);
+
+    nozzle_frame_release(frame);
+    frame = nullptr;
+
+    CHECK(nozzle_pixel_mapping_unlock_checked(&mapping.p) == NOZZLE_OK);
+    CHECK(mapping.p == nullptr);
 }
 
 TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", "[integration][c_api][pixel_access]") {

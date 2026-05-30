@@ -5,6 +5,7 @@
 #include <nozzle/frame.hpp>
 #include <nozzle/texture.hpp>
 #include <nozzle/device.hpp>
+#include <nozzle/pixel_access.hpp>
 
 struct NozzleSender {
     std::unique_ptr<nozzle::sender> obj;
@@ -31,4 +32,8 @@ struct NozzleTexture {
 
 struct NozzleDevice {
     std::unique_ptr<nozzle::device> obj;
+};
+
+struct NozzlePixelMapping {
+    std::unique_ptr<nozzle::pixel_mapping> obj;
 };

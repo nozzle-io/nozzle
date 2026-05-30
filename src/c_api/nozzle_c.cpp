@@ -313,6 +313,21 @@ bool checked_abs_i64_to_u64(int64_t value, uint64_t *out_abs_value) {
     return true;
 }
 
+void fill_c_mapped_pixels(
+    const nozzle::mapped_pixels &mapped,
+    NozzleMappedPixels *out_pixels
+) {
+    if (!out_pixels) {
+        return;
+    }
+    out_pixels->data = mapped.data;
+    out_pixels->row_stride_bytes = mapped.row_stride_bytes;
+    out_pixels->width = mapped.width;
+    out_pixels->height = mapped.height;
+    out_pixels->format = to_c_format(mapped.format);
+    out_pixels->origin = to_c_origin(mapped.origin);
+}
+
 NozzleErrorCode copy_mapped_pixels_to_buffer(
     const nozzle::mapped_pixels &mapped,
     void *out_data,
@@ -356,12 +371,9 @@ NozzleErrorCode copy_mapped_pixels_to_buffer(
         std::memcpy(destination_row, source_row, copy_size);
     }
 
+    fill_c_mapped_pixels(mapped, out_pixels);
     out_pixels->data = out_data;
     out_pixels->row_stride_bytes = static_cast<int64_t>(row_copy_bytes);
-    out_pixels->width = mapped.width;
-    out_pixels->height = mapped.height;
-    out_pixels->format = to_c_format(mapped.format);
-    out_pixels->origin = to_c_origin(mapped.origin);
     return NOZZLE_OK;
 }
 
@@ -893,13 +905,45 @@ NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     auto result = nozzle::lock_frame_pixels_with_origin(*frame->obj, to_cpp_origin(desired_origin));
     if (!result.ok()) return to_c_error(result.error().code);
 
-    const auto &mp = result.value();
-    out_pixels->data = mp.data;
-    out_pixels->row_stride_bytes = mp.row_stride_bytes;
-    out_pixels->width = mp.width;
-    out_pixels->height = mp.height;
-    out_pixels->format = to_c_format(mp.format);
-    out_pixels->origin = to_c_origin(mp.origin);
+    fill_c_mapped_pixels(result.value(), out_pixels);
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_frame_lock_pixels_mapping_with_origin(
+    NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
+    NozzlePixelMapping **out_mapping,
+    NozzleMappedPixels *out_pixels
+) {
+    if (out_mapping) {
+        *out_mapping = nullptr;
+    }
+    if (out_pixels) {
+        std::memset(out_pixels, 0, sizeof(NozzleMappedPixels));
+    }
+    if (!frame || !out_mapping || !out_pixels || !frame->obj) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+
+    auto result = nozzle::lock_frame_pixels_mapping_with_origin(
+        *frame->obj, to_cpp_origin(desired_origin));
+    if (!result.ok()) return to_c_error(result.error().code);
+
+    auto *wrapper = new (std::nothrow) NozzlePixelMapping{};
+    if (!wrapper) {
+        result.value().unlock();
+        return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    }
+
+    NozzleErrorCode object_error = reset_unique_nothrow(
+        wrapper->obj, std::move(result.value()));
+    if (object_error != NOZZLE_OK) {
+        delete wrapper;
+        return object_error;
+    }
+
+    fill_c_mapped_pixels(wrapper->obj->pixels(), out_pixels);
+    *out_mapping = wrapper;
     return NOZZLE_OK;
 }
 
@@ -915,14 +959,17 @@ NozzleErrorCode nozzle_frame_copy_pixels_with_origin(
     }
     std::memset(out_pixels, 0, sizeof(NozzleMappedPixels));
 
-    auto result = nozzle::lock_frame_pixels_with_origin(
+    auto result = nozzle::lock_frame_pixels_mapping_with_origin(
         *frame->obj, to_cpp_origin(desired_origin));
     if (!result.ok()) return to_c_error(result.error().code);
 
     NozzleErrorCode copy_result = copy_mapped_pixels_to_buffer(
-        result.value(), out_data, out_data_size_bytes, out_pixels);
+        result.value().pixels(), out_data, out_data_size_bytes, out_pixels);
 
-    nozzle::unlock_frame_pixels(*frame->obj);
+    auto unlock_result = result.value().unlock_checked();
+    if (copy_result == NOZZLE_OK && !unlock_result.ok()) {
+        copy_result = to_c_error(unlock_result.error().code);
+    }
     if (copy_result != NOZZLE_OK) {
         std::memset(out_pixels, 0, sizeof(NozzleMappedPixels));
     }
@@ -944,14 +991,66 @@ NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     auto result = nozzle::lock_writable_pixels_with_origin(*frame->writable, to_cpp_origin(desired_origin));
     if (!result.ok()) return to_c_error(result.error().code);
 
-    const auto &mp = result.value();
-    out_pixels->data = mp.data;
-    out_pixels->row_stride_bytes = mp.row_stride_bytes;
-    out_pixels->width = mp.width;
-    out_pixels->height = mp.height;
-    out_pixels->format = to_c_format(mp.format);
-    out_pixels->origin = to_c_origin(mp.origin);
+    fill_c_mapped_pixels(result.value(), out_pixels);
     return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_frame_lock_writable_pixels_mapping_with_origin(
+    NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
+    NozzlePixelMapping **out_mapping,
+    NozzleMappedPixels *out_pixels
+) {
+    if (out_mapping) {
+        *out_mapping = nullptr;
+    }
+    if (out_pixels) {
+        std::memset(out_pixels, 0, sizeof(NozzleMappedPixels));
+    }
+    if (!frame || !out_mapping || !out_pixels || !frame->writable) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+
+    auto result = nozzle::lock_writable_pixels_mapping_with_origin(
+        *frame->writable, to_cpp_origin(desired_origin));
+    if (!result.ok()) return to_c_error(result.error().code);
+
+    auto *wrapper = new (std::nothrow) NozzlePixelMapping{};
+    if (!wrapper) {
+        result.value().unlock();
+        return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    }
+
+    NozzleErrorCode object_error = reset_unique_nothrow(
+        wrapper->obj, std::move(result.value()));
+    if (object_error != NOZZLE_OK) {
+        delete wrapper;
+        return object_error;
+    }
+
+    fill_c_mapped_pixels(wrapper->obj->pixels(), out_pixels);
+    *out_mapping = wrapper;
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_pixel_mapping_unlock_checked(NozzlePixelMapping **mapping) {
+    if (!mapping || !*mapping || !(*mapping)->obj) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+
+    NozzlePixelMapping *wrapper = *mapping;
+    auto result = wrapper->obj->unlock_checked();
+    delete wrapper;
+    *mapping = nullptr;
+    if (!result.ok()) return to_c_error(result.error().code);
+    return NOZZLE_OK;
+}
+
+void nozzle_pixel_mapping_unlock(NozzlePixelMapping **mapping) {
+    if (!mapping || !*mapping) {
+        return;
+    }
+    (void)nozzle_pixel_mapping_unlock_checked(mapping);
 }
 
 NozzleErrorCode nozzle_frame_unlock_writable_pixels_checked(NozzleFrame *frame) {

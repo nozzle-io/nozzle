@@ -30,6 +30,7 @@ typedef struct NozzleReceiver NozzleReceiver;
 typedef struct NozzleFrame NozzleFrame;
 typedef struct NozzleTexture NozzleTexture;
 typedef struct NozzleDevice NozzleDevice;
+typedef struct NozzlePixelMapping NozzlePixelMapping;
 
 // ========== Error Codes ==========
 
@@ -470,6 +471,15 @@ NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleMappedPixels *out_pixels
 );
 
+// Preferred read mapping API. The returned NozzleMappedPixels is a borrowed
+// view that remains valid until the returned NozzlePixelMapping is unlocked.
+NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_pixels_mapping_with_origin(
+    NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
+    NozzlePixelMapping **out_mapping,
+    NozzleMappedPixels *out_pixels
+);
+
 NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_pixels_with_origin(
     NozzleFrame *frame,
     NozzleTextureOrigin desired_origin,
@@ -480,11 +490,27 @@ NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_pixels_with_origin(
 
 NOZZLE_C_API void nozzle_frame_unlock_pixels(NozzleFrame *frame);
 
+// Legacy writable mapping API. This frame-level lock/unlock pair is retained
+// for compatibility and may be thread-affine on some backends. New bindings
+// should use nozzle_frame_lock_writable_pixels_mapping_with_origin instead.
 NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     NozzleFrame *frame,
     NozzleTextureOrigin desired_origin,
     NozzleMappedPixels *out_pixels
 );
+
+// Preferred writable mapping API. The mapping handle owns backend cleanup; the
+// returned NozzleMappedPixels is only valid until the handle is unlocked.
+NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_writable_pixels_mapping_with_origin(
+    NozzleFrame *frame,
+    NozzleTextureOrigin desired_origin,
+    NozzlePixelMapping **out_mapping,
+    NozzleMappedPixels *out_pixels
+);
+
+NOZZLE_C_API NozzleErrorCode nozzle_pixel_mapping_unlock_checked(NozzlePixelMapping **mapping);
+
+NOZZLE_C_API void nozzle_pixel_mapping_unlock(NozzlePixelMapping **mapping);
 
 NOZZLE_C_API NozzleErrorCode nozzle_frame_unlock_writable_pixels_checked(NozzleFrame *frame);
 
