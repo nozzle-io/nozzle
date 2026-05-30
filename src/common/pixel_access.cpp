@@ -20,7 +20,7 @@
 #include <unistd.h>
 #elif NOZZLE_PLATFORM_WINDOWS
 #include <nozzle/backends/d3d11.hpp>
-#include <d3d10.h>
+#include <d3d10_1.h>
 #include <d3d11.h>
 #include "backends/d3d11/d3d11_helpers.hpp"
 #endif
