@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <utility>
 
 #include <plog/Log.h>
 #include <new>
@@ -41,7 +42,28 @@ namespace {
 
 #if NOZZLE_ENABLE_TEST_HOOKS
 bool g_fail_next_writable_frame_wrapper_alloc = false;
+bool g_fail_next_c_api_wrapper_object_alloc = false;
 #endif
+
+
+template <typename type_name, typename ... arguments>
+NozzleErrorCode reset_unique_nothrow(
+    std::unique_ptr<type_name> &target,
+    arguments && ... args
+) {
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (g_fail_next_c_api_wrapper_object_alloc) {
+        g_fail_next_c_api_wrapper_object_alloc = false;
+        return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    }
+#endif
+
+    auto *value = new (std::nothrow) type_name(std::forward<arguments>(args) ...);
+    if (!value) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+
+    target.reset(value);
+    return NOZZLE_OK;
+}
 
 NozzleErrorCode to_c_error(nozzle::ErrorCode code) {
     switch (code) {
@@ -314,6 +336,7 @@ NozzleErrorCode nozzle_sender_create(
     NozzleSender **out_sender
 ) {
     if (!desc || !out_sender) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    *out_sender = nullptr;
 
     uint32_t fb_flags{0};
     NozzleErrorCode flag_ec = nozzle_resolve_fallback_flags(desc, &fb_flags);
@@ -331,7 +354,13 @@ NozzleErrorCode nozzle_sender_create(
     auto *wrapper = new (std::nothrow) NozzleSender{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<nozzle::sender>(std::move(result.value()));
+    NozzleErrorCode object_error = reset_unique_nothrow(
+        wrapper->obj, std::move(result.value()));
+    if (object_error != NOZZLE_OK) {
+        delete wrapper;
+        return object_error;
+    }
+
     *out_sender = wrapper;
     return NOZZLE_OK;
 }
@@ -342,6 +371,7 @@ NozzleErrorCode nozzle_sender_create_with_native_device(
     NozzleSender **out_sender
 ) {
     if (!desc || !out_sender || !native_device) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    *out_sender = nullptr;
     if (!native_device->device) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
     uint32_t fb_flags{0};
@@ -363,7 +393,13 @@ NozzleErrorCode nozzle_sender_create_with_native_device(
     auto *wrapper = new (std::nothrow) NozzleSender{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<nozzle::sender>(std::move(result.value()));
+    NozzleErrorCode object_error = reset_unique_nothrow(
+        wrapper->obj, std::move(result.value()));
+    if (object_error != NOZZLE_OK) {
+        delete wrapper;
+        return object_error;
+    }
+
     *out_sender = wrapper;
     return NOZZLE_OK;
 }
@@ -487,6 +523,7 @@ NozzleErrorCode nozzle_receiver_create(
     NozzleReceiver **out_receiver
 ) {
     if (!desc || !out_receiver) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    *out_receiver = nullptr;
 
     nozzle::receiver_desc cpp_desc{};
     if (desc->name) cpp_desc.name = desc->name;
@@ -499,7 +536,13 @@ NozzleErrorCode nozzle_receiver_create(
     auto *wrapper = new (std::nothrow) NozzleReceiver{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<nozzle::receiver>(std::move(result.value()));
+    NozzleErrorCode object_error = reset_unique_nothrow(
+        wrapper->obj, std::move(result.value()));
+    if (object_error != NOZZLE_OK) {
+        delete wrapper;
+        return object_error;
+    }
+
     *out_receiver = wrapper;
     return NOZZLE_OK;
 }
@@ -515,14 +558,22 @@ NozzleErrorCode nozzle_receiver_acquire_frame(
 ) {
     if (!receiver || !out_frame) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    auto make_frame_wrapper = [](nozzle::frame &&f) -> NozzleFrame * {
+    auto make_frame_wrapper = [](nozzle::frame &&f, NozzleFrame **out_wrapper) -> NozzleErrorCode {
         auto *w = new (std::nothrow) NozzleFrame{};
-        if (!w) return nullptr;
-        w->obj = std::make_unique<nozzle::frame>(std::move(f));
+        if (!w) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+
+        NozzleErrorCode object_error = reset_unique_nothrow(w->obj, std::move(f));
+        if (object_error != NOZZLE_OK) {
+            delete w;
+            return object_error;
+        }
+
         w->is_writable = false;
-        return w;
+        *out_wrapper = w;
+        return NOZZLE_OK;
     };
 
+    *out_frame = nullptr;
     NozzleFrame *wrapper = nullptr;
 
     if (desc) {
@@ -530,14 +581,17 @@ NozzleErrorCode nozzle_receiver_acquire_frame(
         ad.timeout_ms = desc->timeout_ms;
         auto result = receiver->obj->acquire_frame(ad);
         if (!result.ok()) return to_c_error(result.error().code);
-        wrapper = make_frame_wrapper(std::move(result.value()));
+        NozzleErrorCode wrapper_error = make_frame_wrapper(
+            std::move(result.value()), &wrapper);
+        if (wrapper_error != NOZZLE_OK) return wrapper_error;
     } else {
         auto result = receiver->obj->acquire_frame();
         if (!result.ok()) return to_c_error(result.error().code);
-        wrapper = make_frame_wrapper(std::move(result.value()));
+        NozzleErrorCode wrapper_error = make_frame_wrapper(
+            std::move(result.value()), &wrapper);
+        if (wrapper_error != NOZZLE_OK) return wrapper_error;
     }
 
-    if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
     *out_frame = wrapper;
     return NOZZLE_OK;
 }
@@ -705,13 +759,21 @@ NozzleErrorCode nozzle_device_get_default(
 ) {
     if (!out_device) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
+    *out_device = nullptr;
+
     auto result = nozzle::device::default_device();
     if (!result.ok()) return to_c_error(result.error().code);
 
     auto *wrapper = new (std::nothrow) NozzleDevice{};
     if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
 
-    wrapper->obj = std::make_unique<nozzle::device>(std::move(result.value()));
+    NozzleErrorCode object_error = reset_unique_nothrow(
+        wrapper->obj, std::move(result.value()));
+    if (object_error != NOZZLE_OK) {
+        delete wrapper;
+        return object_error;
+    }
+
     *out_device = wrapper;
     return NOZZLE_OK;
 }
@@ -820,6 +882,14 @@ void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame) {
 
 void nozzle_test_fail_next_writable_frame_wrapper_alloc(void) {
     g_fail_next_writable_frame_wrapper_alloc = true;
+}
+
+void nozzle_test_fail_next_c_api_wrapper_object_alloc(void) {
+    g_fail_next_c_api_wrapper_object_alloc = true;
+}
+
+void nozzle_test_clear_c_api_wrapper_object_alloc_failure(void) {
+    g_fail_next_c_api_wrapper_object_alloc = false;
 }
 #endif
 
@@ -967,6 +1037,7 @@ NozzleErrorCode nozzle_texture_wrap(
     NozzleTexture **out_texture
 ) {
     if (!desc || !out_texture || !desc->native_texture) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    *out_texture = nullptr;
 
 #if NOZZLE_HAS_METAL
     if (desc->backend == NOZZLE_BACKEND_METAL) {
@@ -983,7 +1054,14 @@ NozzleErrorCode nozzle_texture_wrap(
 
         auto *wrapper = new (std::nothrow) NozzleTexture{};
         if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
-        wrapper->obj = std::make_unique<nozzle::texture>(std::move(result.value()));
+
+        NozzleErrorCode object_error = reset_unique_nothrow(
+            wrapper->obj, std::move(result.value()));
+        if (object_error != NOZZLE_OK) {
+            delete wrapper;
+            return object_error;
+        }
+
         *out_texture = wrapper;
         return NOZZLE_OK;
     }

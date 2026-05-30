@@ -10,6 +10,8 @@
 #if NOZZLE_ENABLE_TEST_HOOKS
 extern "C" void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame);
 extern "C" void nozzle_test_fail_next_writable_frame_wrapper_alloc(void);
+extern "C" void nozzle_test_fail_next_c_api_wrapper_object_alloc(void);
+extern "C" void nozzle_test_clear_c_api_wrapper_object_alloc_failure(void);
 #endif
 
 TEST_CASE("C API: NozzleErrorCode enum values match C++ ErrorCode", "[c_api][error_codes]") {
@@ -62,6 +64,35 @@ struct FrameHandle {
 
 } // namespace
 
+TEST_CASE("C API: sender object wrapper allocation failure cleans registration", "[c_api][allocation]") {
+    NozzleSenderDesc probe_desc{};
+    probe_desc.name = "c_api_object_alloc_failure_sender_probe";
+    probe_desc.application_name = "test";
+    probe_desc.ring_buffer_size = 2;
+
+    SenderHandle probe;
+    NozzleErrorCode probe_rc = nozzle_sender_create(&probe_desc, &probe.p);
+    if (is_backend_unavailable_for_commit_lifecycle(probe_rc)) {
+        nozzle_test_clear_c_api_wrapper_object_alloc_failure();
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(probe_rc == NOZZLE_OK);
+
+    NozzleSenderDesc fail_desc{};
+    fail_desc.name = "c_api_object_alloc_failure_sender";
+    fail_desc.application_name = "test";
+    fail_desc.ring_buffer_size = 2;
+
+    NozzleSender *failed_sender =
+        reinterpret_cast<NozzleSender *>(static_cast<uintptr_t>(0x1));
+    nozzle_test_fail_next_c_api_wrapper_object_alloc();
+    CHECK(nozzle_sender_create(&fail_desc, &failed_sender)
+        == NOZZLE_ERROR_RESOURCE_CREATION_FAILED);
+    CHECK(failed_sender == nullptr);
+
+    SenderHandle retry;
+    REQUIRE(nozzle_sender_create(&fail_desc, &retry.p) == NOZZLE_OK);
+}
 
 TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access]") {
     SenderHandle sender;
