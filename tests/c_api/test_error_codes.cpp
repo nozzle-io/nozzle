@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 #if NOZZLE_ENABLE_TEST_HOOKS
 extern "C" void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame);
@@ -188,6 +189,24 @@ TEST_CASE("C API: read-only pixel copy helper rejects too-small destination", "[
         3,
         NOZZLE_FORMAT_R8_UNORM,
         NOZZLE_ORIGIN_TOP_LEFT,
+        1,
+        output.data(),
+        output.size(),
+        &mapped) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("C API: read-only pixel copy helper rejects INT64_MIN stride", "[c_api][pixel_access]") {
+    const std::array<uint8_t, 1> source{'A'};
+    std::array<uint8_t, 1> output{};
+    NozzleMappedPixels mapped{};
+
+    CHECK(nozzle_test_copy_mapped_pixels_to_buffer(
+        source.data(),
+        std::numeric_limits<int64_t>::min(),
+        1,
+        1,
+        NOZZLE_FORMAT_R8_UNORM,
+        NOZZLE_ORIGIN_BOTTOM_LEFT,
         1,
         output.data(),
         output.size(),

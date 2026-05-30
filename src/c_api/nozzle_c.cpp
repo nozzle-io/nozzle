@@ -301,6 +301,18 @@ NozzleErrorCode validate_dmabuf_publish_desc(
     return NOZZLE_OK;
 }
 
+bool checked_abs_i64_to_u64(int64_t value, uint64_t *out_abs_value) {
+    if (!out_abs_value) return false;
+    if (value == std::numeric_limits<int64_t>::min()) return false;
+
+    if (value < 0) {
+        *out_abs_value = static_cast<uint64_t>(-value);
+    } else {
+        *out_abs_value = static_cast<uint64_t>(value);
+    }
+    return true;
+}
+
 NozzleErrorCode copy_mapped_pixels_to_buffer(
     const nozzle::mapped_pixels &mapped,
     void *out_data,
@@ -323,9 +335,10 @@ NozzleErrorCode copy_mapped_pixels_to_buffer(
     if (out_data_size_bytes < required_size) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
     const int64_t source_stride = static_cast<int64_t>(mapped.row_stride_bytes);
-    const uint64_t source_abs_stride = source_stride < 0
-        ? static_cast<uint64_t>(-source_stride)
-        : static_cast<uint64_t>(source_stride);
+    uint64_t source_abs_stride{0};
+    if (!checked_abs_i64_to_u64(source_stride, &source_abs_stride)) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
     if (source_abs_stride < row_copy_bytes) return NOZZLE_ERROR_BACKEND_ERROR;
     if (row_copy_bytes > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
         return NOZZLE_ERROR_INVALID_ARGUMENT;
