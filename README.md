@@ -119,46 +119,71 @@ nozzle_sender_acquire_writable_frame(sender, 1920, 1080, NOZZLE_FORMAT_RGBA8_UNO
 nozzle_sender_commit_frame(sender, frame);
 ```
 
-### CPU pixel lock/unlock semantics
+### CPU pixel mapping semantics
 
-CPU pixel mappings are thread-affine. Call `unlock_frame_pixels(...)` and
-`unlock_writable_pixels_checked(...)` on the same OS thread that successfully
-locked the mapping. The legacy `unlock_writable_pixels(...)` C++ API and
-`nozzle_frame_unlock_writable_pixels(...)` C API remain compatibility shims; they
-discard unlock errors. New writable-pixel code should use the checked APIs:
+New CPU pixel mapping code should use the owned mapping-handle APIs. The handle
+owns backend cleanup; the returned pixel view is borrowed and remains valid only
+until the handle is unlocked or destroyed.
+
+Preferred C++ writable mapping API:
 
 ```cpp
-auto pixels = nozzle::lock_writable_pixels_with_origin(frame, nozzle::texture_origin::top_left);
-if (!pixels.ok()) {
+auto mapping_result =
+    nozzle::lock_writable_pixels_mapping_with_origin(frame, nozzle::texture_origin::top_left);
+if (!mapping_result.ok()) {
     // handle lock error
 }
-// write pixels
-auto unlock_result = nozzle::unlock_writable_pixels_checked(frame);
+
+auto mapping = std::move(mapping_result.value());
+const nozzle::mapped_pixels &pixels = mapping.pixels();
+// write pixels.data
+
+auto unlock_result = mapping.unlock_checked();
 if (!unlock_result.ok()) {
     // do not commit after checked unlock failure
 }
 auto commit_result = sender.commit_frame(frame);
 ```
 
+Preferred C writable mapping API:
+
 ```c
+NozzlePixelMapping *mapping = NULL;
 NozzleMappedPixels pixels;
-NozzleErrorCode rc = nozzle_frame_lock_writable_pixels_with_origin(
-    frame, NOZZLE_ORIGIN_TOP_LEFT, &pixels);
+NozzleErrorCode rc = nozzle_frame_lock_writable_pixels_mapping_with_origin(
+    frame, NOZZLE_ORIGIN_TOP_LEFT, &mapping, &pixels);
 if (rc != NOZZLE_OK) {
     /* handle lock error */
 }
-/* write pixels */
-rc = nozzle_frame_unlock_writable_pixels_checked(frame);
+
+/* write pixels.data */
+
+rc = nozzle_pixel_mapping_unlock_checked(&mapping);
 if (rc != NOZZLE_OK) {
     /* do not commit after checked unlock failure */
 }
 rc = nozzle_sender_commit_frame(sender, frame);
 ```
 
+`nozzle_pixel_mapping_unlock_checked(&mapping)` consumes the C mapping handle and
+sets `mapping` to `NULL` on success. The unchecked
+`nozzle_pixel_mapping_unlock(&mapping)` variant is only for discard-error cleanup.
+
+Read mappings have matching owned-handle APIs:
+`lock_frame_pixels_mapping_with_origin(...)` in C++ and
+`nozzle_frame_lock_pixels_mapping_with_origin(...)` in C. For readback into caller
+memory, `nozzle_frame_copy_pixels_with_origin(...)` remains the safest C ABI path.
+
+The older frame-level CPU mapping APIs are retained as compatibility shims:
+`lock_frame_pixels_with_origin(...)` / `unlock_frame_pixels(...)`,
+`lock_writable_pixels_with_origin(...)` / `unlock_writable_pixels_checked(...)`,
+and their C equivalents. They may be thread-affine on backend implementations and
+must not be treated as the preferred API for new native mapping code.
+
 Required writable order is:
 
 ```text
-acquire_writable_frame -> lock_writable_pixels -> write pixels -> checked unlock -> commit_frame
+acquire_writable_frame -> lock writable mapping handle -> write pixels -> checked unlock handle -> commit_frame
 ```
 
 `commit_frame()` publishes an already-prepared writable frame; it is not a
