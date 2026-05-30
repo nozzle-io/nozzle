@@ -5,8 +5,11 @@
 #include <nozzle/nozzle_c.h>
 #include <nozzle/result.hpp>
 
+#include <cstdint>
+
 #if NOZZLE_ENABLE_TEST_HOOKS
 extern "C" void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame);
+extern "C" void nozzle_test_fail_next_writable_frame_wrapper_alloc(void);
 #endif
 
 TEST_CASE("C API: NozzleErrorCode enum values match C++ ErrorCode", "[c_api][error_codes]") {
@@ -58,6 +61,40 @@ struct FrameHandle {
 };
 
 } // namespace
+
+
+TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access]") {
+    SenderHandle sender;
+    NozzleSenderDesc sdesc{};
+    sdesc.name = "writable_wrapper_alloc_failure_discard";
+    sdesc.application_name = "test";
+    sdesc.ring_buffer_size = 2;
+    NozzleErrorCode sender_rc = nozzle_sender_create(&sdesc, &sender.p);
+    if (is_backend_unavailable_for_commit_lifecycle(sender_rc)) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_rc == NOZZLE_OK);
+
+    NozzleFrame *failed_frame = reinterpret_cast<NozzleFrame *>(static_cast<uintptr_t>(0x1));
+    nozzle_test_fail_next_writable_frame_wrapper_alloc();
+    CHECK(nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &failed_frame)
+        == NOZZLE_ERROR_RESOURCE_CREATION_FAILED);
+    CHECK(failed_frame == nullptr);
+
+    NozzleFrame *raw_first = nullptr;
+    REQUIRE(nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_first) == NOZZLE_OK);
+    FrameHandle first{raw_first};
+
+    NozzleFrame *raw_second = nullptr;
+    REQUIRE(nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_second) == NOZZLE_OK);
+    FrameHandle second{raw_second};
+
+    CHECK(nozzle_sender_discard_frame(sender.p, first.p) == NOZZLE_OK);
+    CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
+}
 
 TEST_CASE("C API: commit rejects failed writable unlock state", "[c_api][pixel_access]") {
     SenderHandle sender;

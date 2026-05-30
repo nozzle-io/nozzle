@@ -39,6 +39,10 @@
 
 namespace {
 
+#if NOZZLE_ENABLE_TEST_HOOKS
+bool g_fail_next_writable_frame_wrapper_alloc = false;
+#endif
+
 NozzleErrorCode to_c_error(nozzle::ErrorCode code) {
     switch (code) {
         case nozzle::ErrorCode::Ok: return NOZZLE_OK;
@@ -387,6 +391,7 @@ NozzleErrorCode nozzle_sender_acquire_writable_frame(
     NozzleFrame **out_frame
 ) {
     if (!sender || !out_frame) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    *out_frame = nullptr;
 
     nozzle::texture_desc td{};
     td.width = width;
@@ -396,10 +401,31 @@ NozzleErrorCode nozzle_sender_acquire_writable_frame(
     auto result = sender->obj->acquire_writable_frame(td);
     if (!result.ok()) return to_c_error(result.error().code);
 
-    auto *wrapper = new (std::nothrow) NozzleFrame{};
-    if (!wrapper) return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    auto writable = std::move(result.value());
 
-    wrapper->writable = std::make_unique<nozzle::writable_frame>(std::move(result.value()));
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (g_fail_next_writable_frame_wrapper_alloc) {
+        g_fail_next_writable_frame_wrapper_alloc = false;
+        (void)sender->obj->discard_frame(writable);
+        return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    }
+#endif
+
+    auto *wrapper = new (std::nothrow) NozzleFrame{};
+    if (!wrapper) {
+        (void)sender->obj->discard_frame(writable);
+        return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    }
+
+    auto *writable_wrapper = new (std::nothrow) nozzle::writable_frame();
+    if (!writable_wrapper) {
+        (void)sender->obj->discard_frame(writable);
+        delete wrapper;
+        return NOZZLE_ERROR_RESOURCE_CREATION_FAILED;
+    }
+    *writable_wrapper = std::move(writable);
+
+    wrapper->writable.reset(writable_wrapper);
     wrapper->is_writable = true;
     *out_frame = wrapper;
     return NOZZLE_OK;
@@ -790,6 +816,10 @@ void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame) {
 void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame) {
     if (!frame || !frame->writable) return;
     nozzle::detail::mark_writable_frame_cpu_unlock_failed(*frame->writable);
+}
+
+void nozzle_test_fail_next_writable_frame_wrapper_alloc(void) {
+    g_fail_next_writable_frame_wrapper_alloc = true;
 }
 #endif
 
