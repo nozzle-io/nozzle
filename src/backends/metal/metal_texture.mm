@@ -198,6 +198,8 @@ Result<metal_texture_pair> create_iosurface_texture(
 
         uint32_t bytes_per_row = align_up(width * bytes_per_element, kIOSurfaceAlignBytes);
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         NSDictionary *surface_props = @{
             (id)kIOSurfaceIsGlobal:     @(YES),
             (id)kIOSurfaceWidth:        @(width),
@@ -206,6 +208,7 @@ Result<metal_texture_pair> create_iosurface_texture(
             (id)kIOSurfaceBytesPerRow:  @(bytes_per_row),
             (id)kIOSurfaceBytesPerElement: @(bytes_per_element),
         };
+#pragma clang diagnostic pop
 
         IOSurfaceRef surface = IOSurfaceCreate((CFDictionaryRef)surface_props);
         if (!surface) {
@@ -471,6 +474,18 @@ Result<texture> wrap_direct_publish_texture(
             return Error{ErrorCode::InvalidArgument,
                 "direct Metal publish requires an IOSurface-backed texture"};
         }
+
+        IOSurfaceID surface_id = IOSurfaceGetID(surface);
+        if (surface_id == 0) {
+            return Error{ErrorCode::InvalidArgument,
+                "direct Metal publish requires a globally lookupable IOSurface"};
+        }
+        IOSurfaceRef lookup_surface = IOSurfaceLookup(surface_id);
+        if (!lookup_surface) {
+            return Error{ErrorCode::InvalidArgument,
+                "direct Metal publish requires a globally lookupable IOSurface"};
+        }
+        CFRelease(lookup_surface);
 
         OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
         texture_format observed_storage = from_io_surface_pixel_format(static_cast<uint32_t>(surface_fourcc));
