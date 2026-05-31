@@ -487,8 +487,14 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	impl_->state->slots[slot].fallback_category = impl_->state->fallback_category;
 	impl_->state->slots[slot].fallback_quality_loss = impl_->state->fallback_quality_loss;
 
-	if (impl_->ring_textures_[slot].valid()) {
-		const auto &resolved = impl_->ring_textures_[slot].resolved();
+	// The slot's texture has been moved out of ring_textures_[slot] into the
+	// writable frame at acquire time and isn't moved back until the bottom of
+	// this function. Read native metadata from f.get_texture() (which is still
+	// the live texture) so strides/offsets/etc. actually propagate to the
+	// receiver — otherwise these fields stay zero and the receiver's DMA-BUF
+	// import fails with EGL_BAD_ACCESS.
+	if (f.valid()) {
+		const auto &resolved = f.get_texture().resolved();
 		impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(resolved.native.kind);
 		impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
 		impl_->state->slots[slot].native_format_value = resolved.native.value;
