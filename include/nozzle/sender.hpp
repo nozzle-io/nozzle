@@ -57,6 +57,20 @@ public:
     // provided. CVPixelBuffer/camera-pool users must retain/lock/protect backing
     // buffers if content stability matters. Non-IOSurface textures are rejected;
     // this API never silently falls back to snapshot blit.
+    //
+    // Direct Metal publish uses the current ID-based receiver protocol:
+    // receivers reconstruct the shared surface with IOSurfaceLookup(IOSurfaceID).
+    // Caller-created IOSurfaces must therefore be globally lookupable by the
+    // receiver process, for example by creating the IOSurface with
+    // kIOSurfaceIsGlobal on macOS versions where ID lookup is required.
+    //
+    // The implementation performs only a best-effort preflight for the current
+    // protocol, such as rejecting missing IOSurfaces, zero IOSurface IDs, and
+    // local IOSurfaceLookup failures before metadata is committed. It cannot
+    // prove that every arbitrary caller-owned IOSurface is lookupable from every
+    // receiver process. Passing a non-global/private IOSurface can still publish
+    // metadata that same-process checks accept while another process cannot
+    // acquire the frame.
     Result<void> publish_metal_texture_direct(const metal::direct_publish_desc &desc);
 
     Result<writable_frame> acquire_writable_frame(const texture_desc &desc);
