@@ -54,6 +54,14 @@ int g_drm_fd{-1};
 #define DRM_FORMAT_RGBA32323232 fourcc_code('R', 'A', '1', '2')
 #endif
 
+#ifndef DRM_FORMAT_ABGR16161616
+#define DRM_FORMAT_ABGR16161616 fourcc_code('A', 'B', '4', '8')
+#endif
+
+#ifndef DRM_FORMAT_ABGR16161616F
+#define DRM_FORMAT_ABGR16161616F fourcc_code('A', 'B', '4', 'H')
+#endif
+
 struct egl_ext_procs {
     PFNEGLCREATEIMAGEKHRPROC create_image{nullptr};
     PFNEGLDESTROYIMAGEKHRPROC destroy_image{nullptr};
@@ -148,22 +156,28 @@ void release_linux_device(void * /*device*/) {
 }
 
 uint32_t drm_format_from_nozzle(uint32_t nozzle_format) {
+    // DRM fourcc codes describe pixel bits high-to-low. On a little-endian
+    // host this is the REVERSE of the in-memory byte order. So nozzle's
+    // memory-byte-order names map to the inverted DRM fourcc, e.g.
+    // rgba8_unorm (bytes R,G,B,A) -> DRM_FORMAT_ABGR8888 (bits A,B,G,R).
+    // Most Mesa drivers won't allocate the "natural-looking" RGBA8888 fourcc
+    // (bits R,G,B,A / bytes A,B,G,R) because no GPU uses that byte order.
     switch (static_cast<texture_format>(nozzle_format)) {
         case texture_format::r8_unorm:         return DRM_FORMAT_R8;
-        case texture_format::rg8_unorm:        return DRM_FORMAT_RG88;
-        case texture_format::rgb8_unorm:       return DRM_FORMAT_RGB888;
-        case texture_format::rgba8_unorm:      return DRM_FORMAT_RGBA8888;
-        case texture_format::bgra8_unorm:      return DRM_FORMAT_BGRA8888;
-        case texture_format::rgba8_srgb:       return DRM_FORMAT_RGBA8888;
-        case texture_format::bgra8_srgb:       return DRM_FORMAT_BGRA8888;
+        case texture_format::rg8_unorm:        return DRM_FORMAT_GR88;
+        case texture_format::rgb8_unorm:       return DRM_FORMAT_BGR888;
+        case texture_format::rgba8_unorm:      return DRM_FORMAT_ABGR8888;
+        case texture_format::bgra8_unorm:      return DRM_FORMAT_ARGB8888;
+        case texture_format::rgba8_srgb:       return DRM_FORMAT_ABGR8888;
+        case texture_format::bgra8_srgb:       return DRM_FORMAT_ARGB8888;
         case texture_format::r16_unorm:        return DRM_FORMAT_R16;
-        case texture_format::rg16_unorm:       return DRM_FORMAT_RG1616;
-        case texture_format::rgb16_unorm:      return DRM_FORMAT_RGBA16161616;
-        case texture_format::rgba16_unorm:     return DRM_FORMAT_RGBA16161616;
+        case texture_format::rg16_unorm:       return DRM_FORMAT_GR1616;
+        case texture_format::rgb16_unorm:      return DRM_FORMAT_ABGR16161616;
+        case texture_format::rgba16_unorm:     return DRM_FORMAT_ABGR16161616;
         case texture_format::r16_float:        return DRM_FORMAT_R16;
-        case texture_format::rg16_float:       return DRM_FORMAT_RG1616;
-        case texture_format::rgb16_float:      return DRM_FORMAT_RGBA16161616;
-        case texture_format::rgba16_float:     return DRM_FORMAT_RGBA16161616;
+        case texture_format::rg16_float:       return DRM_FORMAT_GR1616;
+        case texture_format::rgb16_float:      return DRM_FORMAT_ABGR16161616F;
+        case texture_format::rgba16_float:     return DRM_FORMAT_ABGR16161616F;
         case texture_format::r32_float:        return DRM_FORMAT_R32;
         case texture_format::rg32_float:       return DRM_FORMAT_RG3232;
         case texture_format::rgb32_float:      return DRM_FORMAT_RGBA32323232;
