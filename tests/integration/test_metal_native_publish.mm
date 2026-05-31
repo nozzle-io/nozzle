@@ -55,23 +55,20 @@ static id<MTLTexture> create_blit_texture(id<MTLDevice> device) {
 	return [device newTextureWithDescriptor:desc];
 }
 
-static id<MTLTexture> create_iosurface_texture(id<MTLDevice> device, bool globally_lookupable = true) {
+static id<MTLTexture> create_iosurface_texture(id<MTLDevice> device) {
 	uint32_t bytes_per_row = ((kTestW * kBPP) + 63) & ~63u;
-	NSMutableDictionary *props = [@{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+	NSDictionary *props = @{
+		(id)kIOSurfaceIsGlobal:        @(YES),
 		(id)kIOSurfaceWidth:           @(kTestW),
 		(id)kIOSurfaceHeight:          @(kTestH),
 		(id)kIOSurfacePixelFormat:     @(static_cast<uint32_t>('BGRA')),
 		(id)kIOSurfaceBytesPerRow:     @(bytes_per_row),
 		(id)kIOSurfaceBytesPerElement: @(kBPP),
-	} mutableCopy];
-	if (globally_lookupable) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-		[props setObject:@(YES) forKey:(id)kIOSurfaceIsGlobal];
+	};
 #pragma clang diagnostic pop
-	}
 	IOSurfaceRef surface = IOSurfaceCreate((CFDictionaryRef)props);
-	[props release];
 	if (!surface) return nil;
 
 	MTLTextureDescriptor *desc =
