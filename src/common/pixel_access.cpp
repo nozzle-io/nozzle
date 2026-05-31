@@ -134,13 +134,6 @@ Result<pixel_mapping> make_pixel_mapping(pixel_mapping::Impl *impl) {
 
 namespace {
 
-struct macos_write_state {
-    IOSurfaceRef surface{nullptr};
-    const void *owner{};
-};
-
-thread_local macos_write_state tl_write_state;
-
 struct macos_read_mapping final : pixel_mapping::Impl {
     IOSurfaceRef surface{nullptr};
 
@@ -306,153 +299,9 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
     return make_pixel_mapping(mapping_impl);
 }
 
-Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
-    if (!frm.valid()) {
-        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
-    }
-
-    auto &tex = frm.get_texture();
-    void *surface_ptr = metal::get_io_surface(tex);
-    if (!surface_ptr) {
-        return Error{ErrorCode::BackendError, "no IOSurface in frame texture"};
-    }
-
-    IOSurfaceRef surface = static_cast<IOSurfaceRef>(surface_ptr);
-    IOReturn ret = IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr);
-    if (ret != kIOReturnSuccess) {
-        return Error{ErrorCode::BackendError, "IOSurfaceLock failed"};
-    }
-
-    auto info = frm.info();
-    uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
-    int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
-
-    OSType surface_fmt = IOSurfaceGetPixelFormat(surface);
-    texture_format actual_fmt = metal::from_io_surface_pixel_format(surface_fmt);
-    if (actual_fmt == texture_format::unknown) {
-        actual_fmt = info.format;
-    }
-
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, row_bytes, info.width, info.height, actual_fmt, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        return mapped_pixels{
-            base + static_cast<int64_t>(info.height - 1) * row_bytes,
-            -row_bytes,
-            info.width, info.height, actual_fmt, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-}
-
-void unlock_frame_pixels(const frame &frm) {
-    if (!frm.valid()) { return; }
-
-    auto &tex = frm.get_texture();
-    void *surface_ptr = metal::get_io_surface(tex);
-    if (!surface_ptr) { return; }
-
-    IOSurfaceUnlock(static_cast<IOSurfaceRef>(surface_ptr), kIOSurfaceLockReadOnly, nullptr);
-}
-
-Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
-    if (!frm.valid()) {
-        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
-    }
-    if (tl_write_state.surface) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists on this thread"};
-    }
-    if (detail::writable_frame_cpu_mapping_active(frm)) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
-    }
-    if (detail::writable_frame_cpu_unlock_failed(frm)) {
-        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
-    }
-
-    auto &tex = frm.get_texture();
-    void *surface_ptr = metal::get_io_surface(tex);
-    if (!surface_ptr) {
-        return Error{ErrorCode::BackendError, "no IOSurface in writable_frame texture"};
-    }
-
-    IOSurfaceRef surface = static_cast<IOSurfaceRef>(surface_ptr);
-    auto surface_ref = static_cast<IOSurfaceRef>(surface);
-
-    IOReturn ret = IOSurfaceLock(surface_ref, 0, nullptr);
-    if (ret != kIOReturnSuccess) {
-        return Error{ErrorCode::BackendError, "IOSurfaceLock failed"};
-    }
-
-    // Pixel mappings are thread-affine.  Retain the IOSurface while this
-    // thread owns the writable lock so checked unlock can detect no-active
-    // mapping and release the exact surface on the same OS thread.
-    CFRetain(surface_ref);
-    tl_write_state = macos_write_state{surface_ref, detail::get_writable_frame_state_token(frm)};
-    detail::mark_writable_frame_cpu_mapping_active(frm);
-
-    auto desc = frm.desc();
-    uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
-    int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
-
-    OSType surface_fmt = IOSurfaceGetPixelFormat(surface);
-    texture_format actual_fmt = metal::from_io_surface_pixel_format(surface_fmt);
-    if (actual_fmt == texture_format::unknown) {
-        actual_fmt = desc.format;
-    }
-
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, row_bytes, desc.width, desc.height, actual_fmt, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        return mapped_pixels{
-            base + static_cast<int64_t>(desc.height - 1) * row_bytes,
-            -row_bytes,
-            desc.width, desc.height, actual_fmt, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-}
-
-Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
-    if (!tl_write_state.surface) {
-        return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
-    }
-    if (tl_write_state.owner != detail::get_writable_frame_state_token(frm)) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping belongs to another frame"};
-    }
-
-    IOSurfaceRef surface = tl_write_state.surface;
-    tl_write_state = macos_write_state{};
-
-    IOReturn ret = IOSurfaceUnlock(surface, 0, nullptr);
-    CFRelease(surface);
-    if (ret != kIOReturnSuccess) {
-        detail::mark_writable_frame_cpu_unlock_failed(frm);
-        return Error{ErrorCode::BackendError, "IOSurfaceUnlock failed"};
-    }
-    detail::mark_writable_frame_cpu_mapping_unlocked(frm);
-    return {};
-}
-
-void unlock_writable_pixels(writable_frame &frm) {
-    (void)unlock_writable_pixels_checked(frm);
-}
-
 #elif NOZZLE_PLATFORM_LINUX
 
 namespace {
-
-struct linux_lock_state {
-    void *mapped_ptr{nullptr};
-    size_t mapped_size{0};
-    const void *owner{};
-};
-
-thread_local linux_lock_state tl_read_state;
-thread_local linux_lock_state tl_write_state;
 
 struct linux_mapping final : pixel_mapping::Impl {
     void *mapped_ptr{nullptr};
@@ -599,154 +448,9 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
     return make_pixel_mapping(mapping_impl);
 }
 
-Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
-    if (!frm.valid()) {
-        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
-    }
-
-    auto &tex = frm.get_texture();
-    int fd = dma_buf::get_dmabuf_fd(tex);
-    if (fd < 0) {
-        return Error{ErrorCode::BackendError, "no DMA-BUF fd in frame texture"};
-    }
-
-    auto info = frm.info();
-    uint32_t bpp = bytes_per_pixel(info.format);
-    if (bpp == 0) {
-        return Error{ErrorCode::UnsupportedFormat, "unsupported texture format for CPU access"};
-    }
-
-    size_t row_bytes = static_cast<size_t>(info.width) * bpp;
-    size_t map_size = row_bytes * info.height;
-
-    void *ptr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, fd, 0);
-    if (ptr == MAP_FAILED) {
-        return Error{ErrorCode::BackendError, "mmap of DMA-BUF fd failed"};
-    }
-
-    tl_read_state = linux_lock_state{ptr, map_size};
-
-    auto *base = static_cast<uint8_t *>(ptr);
-    int64_t stride = static_cast<int64_t>(row_bytes);
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        return mapped_pixels{
-            base + static_cast<int64_t>(info.height - 1) * stride,
-            -stride,
-            info.width, info.height, info.format, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-}
-
-void unlock_frame_pixels(const frame &) {
-    if (tl_read_state.mapped_ptr) {
-        munmap(tl_read_state.mapped_ptr, tl_read_state.mapped_size);
-        tl_read_state = linux_lock_state{};
-    }
-}
-
-Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
-    if (!frm.valid()) {
-        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
-    }
-    if (tl_write_state.mapped_ptr) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists on this thread"};
-    }
-    if (detail::writable_frame_cpu_mapping_active(frm)) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
-    }
-    if (detail::writable_frame_cpu_unlock_failed(frm)) {
-        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
-    }
-
-    auto &tex = frm.get_texture();
-    int fd = dma_buf::get_dmabuf_fd(tex);
-    if (fd < 0) {
-        return Error{ErrorCode::BackendError, "no DMA-BUF fd in writable_frame texture"};
-    }
-
-    auto desc = frm.desc();
-    uint32_t bpp = bytes_per_pixel(desc.format);
-    if (bpp == 0) {
-        return Error{ErrorCode::UnsupportedFormat, "unsupported texture format for CPU access"};
-    }
-
-    size_t row_bytes = static_cast<size_t>(desc.width) * bpp;
-    size_t map_size = row_bytes * desc.height;
-
-    void *ptr = mmap(nullptr, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (ptr == MAP_FAILED) {
-        return Error{ErrorCode::BackendError, "mmap of DMA-BUF fd failed"};
-    }
-
-    tl_write_state = linux_lock_state{ptr, map_size, detail::get_writable_frame_state_token(frm)};
-    detail::mark_writable_frame_cpu_mapping_active(frm);
-
-    auto *base = static_cast<uint8_t *>(ptr);
-    int64_t stride = static_cast<int64_t>(row_bytes);
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        return mapped_pixels{
-            base + static_cast<int64_t>(desc.height - 1) * stride,
-            -stride,
-            desc.width, desc.height, desc.format, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-}
-
-Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
-    if (!tl_write_state.mapped_ptr) {
-        return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
-    }
-    if (tl_write_state.owner != detail::get_writable_frame_state_token(frm)) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping belongs to another frame"};
-    }
-
-    void *mapped_ptr = tl_write_state.mapped_ptr;
-    size_t mapped_size = tl_write_state.mapped_size;
-    int rc = munmap(mapped_ptr, mapped_size);
-    tl_write_state = linux_lock_state{};
-    if (rc != 0) {
-        detail::mark_writable_frame_cpu_unlock_failed(frm);
-        return Error{ErrorCode::BackendError, "munmap failed"};
-    }
-    detail::mark_writable_frame_cpu_mapping_unlocked(frm);
-    return {};
-}
-
-void unlock_writable_pixels(writable_frame &frm) {
-    (void)unlock_writable_pixels_checked(frm);
-}
-
 #elif NOZZLE_PLATFORM_WINDOWS
 
 namespace {
-
-struct windows_read_state {
-    ID3D11Texture2D *staging{nullptr};
-    ID3D11DeviceContext *context{nullptr};
-    ID3D11Device *device{nullptr};
-};
-
-struct windows_write_state {
-    ID3D11Texture2D *source{nullptr};
-    ID3D11Texture2D *staging{nullptr};
-    ID3D11DeviceContext *context{nullptr};
-    ID3D11Device *device{nullptr};
-    IDXGIKeyedMutex *publish_mutex{nullptr};
-    const void *owner{};
-};
-
-thread_local windows_read_state tl_read_state;
-thread_local windows_write_state tl_write_state;
 
 void enter_multithread(ID3D10Multithread *multithread) noexcept {
     if (multithread) {
@@ -1136,205 +840,6 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
     return make_pixel_mapping(mapping_impl);
 }
 
-Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
-    if (!frm.valid()) {
-        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
-    }
-
-    auto &tex = frm.get_texture();
-    ID3D11Texture2D *d3d_tex = d3d11::get_texture(tex);
-    if (!d3d_tex) {
-        return Error{ErrorCode::BackendError, "no D3D11 texture in frame"};
-    }
-
-    ID3D11Device *device = nullptr;
-    d3d_tex->GetDevice(&device);
-    if (!device) {
-        return Error{ErrorCode::BackendError, "failed to get D3D11 device from texture"};
-    }
-
-    ID3D11DeviceContext *ctx = nullptr;
-    device->GetImmediateContext(&ctx);
-
-    D3D11_TEXTURE2D_DESC tex_desc{};
-    d3d_tex->GetDesc(&tex_desc);
-    tex_desc.Usage = D3D11_USAGE_STAGING;
-    tex_desc.BindFlags = 0;
-    tex_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    tex_desc.MiscFlags = 0;
-
-    ID3D11Texture2D *staging = nullptr;
-    HRESULT hr = device->CreateTexture2D(&tex_desc, nullptr, &staging);
-    if (FAILED(hr) || !staging) {
-        ctx->Release();
-        device->Release();
-        return Error{ErrorCode::ResourceCreationFailed, "failed to create staging texture"};
-    }
-
-    ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, d3d_tex, 0, nullptr);
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    hr = ctx->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    if (FAILED(hr)) {
-        staging->Release();
-        ctx->Release();
-        device->Release();
-        return Error{ErrorCode::BackendError, "failed to map staging texture"};
-    }
-
-    tl_read_state = windows_read_state{staging, ctx, device};
-
-    auto info = frm.info();
-    auto *base = static_cast<uint8_t *>(mapped.pData);
-    int64_t stride = static_cast<int64_t>(mapped.RowPitch);
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        return mapped_pixels{
-            base + static_cast<int64_t>(info.height - 1) * stride,
-            -stride,
-            info.width, info.height, info.format, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-}
-
-void unlock_frame_pixels(const frame &) {
-    if (tl_read_state.staging) {
-        tl_read_state.context->Unmap(tl_read_state.staging, 0);
-        tl_read_state.staging->Release();
-        tl_read_state.context->Release();
-        tl_read_state.device->Release();
-        tl_read_state = windows_read_state{};
-    }
-}
-
-Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
-    if (!frm.valid()) {
-        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
-    }
-    if (tl_write_state.staging) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists on this thread"};
-    }
-    if (detail::writable_frame_cpu_mapping_active(frm)) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping already exists for this frame"};
-    }
-    if (detail::writable_frame_cpu_unlock_failed(frm)) {
-        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
-    }
-
-    auto &tex = frm.get_texture();
-    ID3D11Texture2D *d3d_tex = d3d11::get_texture(tex);
-    if (!d3d_tex) {
-        return Error{ErrorCode::BackendError, "no D3D11 texture in writable_frame"};
-    }
-
-    ID3D11Device *device = nullptr;
-    d3d_tex->GetDevice(&device);
-    if (!device) {
-        return Error{ErrorCode::BackendError, "failed to get D3D11 device from texture"};
-    }
-
-    ID3D11DeviceContext *ctx = nullptr;
-    device->GetImmediateContext(&ctx);
-
-    D3D11_TEXTURE2D_DESC tex_desc{};
-    d3d_tex->GetDesc(&tex_desc);
-    tex_desc.Usage = D3D11_USAGE_STAGING;
-    tex_desc.BindFlags = 0;
-    tex_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    tex_desc.MiscFlags = 0;
-
-    ID3D11Texture2D *staging = nullptr;
-    HRESULT hr = device->CreateTexture2D(&tex_desc, nullptr, &staging);
-    if (FAILED(hr) || !staging) {
-        ctx->Release();
-        device->Release();
-        return Error{ErrorCode::ResourceCreationFailed, "failed to create staging texture"};
-    }
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    hr = ctx->Map(staging, 0, D3D11_MAP_WRITE, 0, &mapped);
-    if (FAILED(hr)) {
-        staging->Release();
-        ctx->Release();
-        device->Release();
-        return Error{ErrorCode::BackendError, "failed to map staging texture"};
-    }
-
-    IDXGIKeyedMutex *mutex = nullptr;
-    HRESULT mutex_hr = d3d_tex->QueryInterface(
-        __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&mutex));
-    if (SUCCEEDED(mutex_hr) && mutex) {
-        HRESULT acquire_hr = d3d11::acquire_publish_mutex(mutex);
-        if (acquire_hr != S_OK) {
-            mutex->Release();
-            ctx->Unmap(staging, 0);
-            staging->Release();
-            ctx->Release();
-            device->Release();
-            return Error{ErrorCode::Timeout, "timeout acquiring D3D11 writable keyed mutex"};
-        }
-    }
-
-    tl_write_state = windows_write_state{d3d_tex, staging, ctx, device, mutex, detail::get_writable_frame_state_token(frm)};
-    detail::mark_writable_frame_cpu_mapping_active(frm);
-
-    auto desc = frm.desc();
-    auto *base = static_cast<uint8_t *>(mapped.pData);
-    int64_t stride = static_cast<int64_t>(mapped.RowPitch);
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        return mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        return mapped_pixels{
-            base + static_cast<int64_t>(desc.height - 1) * stride,
-            -stride,
-            desc.width, desc.height, desc.format, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-}
-
-Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
-    if (!tl_write_state.staging) {
-        return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
-    }
-    if (tl_write_state.owner != detail::get_writable_frame_state_token(frm)) {
-        return Error{ErrorCode::InvalidArgument, "active writable pixel mapping belongs to another frame"};
-    }
-
-    HRESULT release_hr = S_OK;
-
-    tl_write_state.context->Unmap(tl_write_state.staging, 0);
-    tl_write_state.context->CopySubresourceRegion(
-        tl_write_state.source, 0, 0, 0, 0,
-        tl_write_state.staging, 0, nullptr);
-    tl_write_state.context->Flush();
-    if (tl_write_state.publish_mutex) {
-        release_hr = tl_write_state.publish_mutex->ReleaseSync(1);
-        tl_write_state.publish_mutex->Release();
-    }
-    tl_write_state.staging->Release();
-    tl_write_state.context->Release();
-    tl_write_state.device->Release();
-    tl_write_state = windows_write_state{};
-
-    if (FAILED(release_hr)) {
-        detail::mark_writable_frame_cpu_unlock_failed(frm);
-        return Error{ErrorCode::BackendError, "failed to release D3D11 writable keyed mutex"};
-    }
-    detail::mark_writable_frame_cpu_mapping_unlocked(frm);
-    return {};
-}
-
-void unlock_writable_pixels(writable_frame &frm) {
-    (void)unlock_writable_pixels_checked(frm);
-}
-
 #else
 
 Result<pixel_mapping> lock_frame_pixels_mapping_with_origin(const frame &, texture_origin) {
@@ -1345,24 +850,26 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &,
     return Error{ErrorCode::UnsupportedBackend, "pixel access not implemented for this platform"};
 }
 
-Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &, texture_origin) {
-    return Error{ErrorCode::UnsupportedBackend, "pixel access not implemented for this platform"};
+#endif
+
+Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin) {
+    return detail::lock_legacy_frame_pixels_with_origin(frm, desired_origin);
 }
 
-void unlock_frame_pixels(const frame &) {}
-
-Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &, texture_origin) {
-    return Error{ErrorCode::UnsupportedBackend, "pixel access not implemented for this platform"};
+void unlock_frame_pixels(const frame &frm) {
+    detail::unlock_legacy_frame_pixels(frm);
 }
 
-Result<void> unlock_writable_pixels_checked(writable_frame &) {
-    return Error{ErrorCode::InvalidArgument, "no active writable pixel mapping"};
+Result<mapped_pixels> lock_writable_pixels_with_origin(writable_frame &frm, texture_origin desired_origin) {
+    return detail::lock_legacy_writable_pixels_with_origin(frm, desired_origin);
+}
+
+Result<void> unlock_writable_pixels_checked(writable_frame &frm) {
+    return detail::unlock_legacy_writable_pixels_checked(frm);
 }
 
 void unlock_writable_pixels(writable_frame &frm) {
     (void)unlock_writable_pixels_checked(frm);
 }
-
-#endif
 
 } // namespace nozzle

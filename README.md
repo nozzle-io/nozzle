@@ -177,8 +177,11 @@ memory, `nozzle_frame_copy_pixels_with_origin(...)` remains the safest C ABI pat
 The older frame-level CPU mapping APIs are retained as compatibility shims:
 `lock_frame_pixels_with_origin(...)` / `unlock_frame_pixels(...)`,
 `lock_writable_pixels_with_origin(...)` / `unlock_writable_pixels_checked(...)`,
-and their C equivalents. They may be thread-affine on backend implementations and
-must not be treated as the preferred API for new native mapping code.
+and their C equivalents. They use one active compatibility mapping slot per
+frame or writable frame, while `unlock_frame_pixels(...)` is a no-op when no
+legacy read mapping is active and `unlock_writable_pixels_checked(...)` reports
+an invalid-argument error when no legacy writable mapping is active. They must
+not be treated as the preferred API for new native mapping code.
 
 Required writable order is:
 

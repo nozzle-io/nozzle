@@ -49,8 +49,9 @@ private:
 Result<pixel_mapping> lock_frame_pixels_mapping_with_origin(const frame &frm, texture_origin desired_origin);
 Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &frm, texture_origin desired_origin);
 
-// Legacy frame-level APIs retained for compatibility. Prefer the
-// pixel_mapping-returning APIs for explicit, mapping-owned cleanup.
+// Legacy frame-level APIs retained for compatibility. They use one active
+// compatibility mapping slot per frame/writable_frame. Prefer the
+// pixel_mapping-returning APIs for explicit, composable mapping-owned cleanup.
 Result<mapped_pixels> lock_frame_pixels_with_origin(const frame &frm, texture_origin desired_origin);
 void unlock_frame_pixels(const frame &frm);
 

@@ -49,6 +49,8 @@ Result<texture> frame::clone_to_owned_texture(device &) const {
 
 void frame::release() {
     if (impl_) {
+        std::lock_guard<std::mutex> lock(impl_->legacy_mutex_);
+        impl_->legacy_read_mapping_.unlock();
         if (impl_->valid_) {
             void *native_texture = detail::backend::get_native_texture(impl_->tex_);
             if (native_texture) {
@@ -78,9 +80,29 @@ Result<void> frame::copy_to_native_texture(void *native_texture, uint32_t width,
 }
 
 writable_frame::writable_frame() noexcept = default;
-writable_frame::~writable_frame() = default;
+writable_frame::~writable_frame() {
+    if (impl_) {
+        std::lock_guard<std::mutex> lock(impl_->legacy_mutex_);
+        impl_->legacy_writable_mapping_.unlock();
+        impl_->valid_ = false;
+        impl_->tex_ = texture{};
+        impl_->cpu_mapping_state_.reset();
+    }
+}
 writable_frame::writable_frame(writable_frame &&) noexcept = default;
-writable_frame &writable_frame::operator=(writable_frame &&) noexcept = default;
+writable_frame &writable_frame::operator=(writable_frame &&other) noexcept {
+    if (this != &other) {
+        if (impl_) {
+            std::lock_guard<std::mutex> lock(impl_->legacy_mutex_);
+            impl_->legacy_writable_mapping_.unlock();
+            impl_->valid_ = false;
+            impl_->tex_ = texture{};
+            impl_->cpu_mapping_state_.reset();
+        }
+        impl_ = std::move(other.impl_);
+    }
+    return *this;
+}
 
 texture &writable_frame::get_texture() {
     static texture empty{};
@@ -307,6 +329,81 @@ void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &state_re
 
 void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &state_ref) {
     set_writable_cpu_mapping_state(state_ref, false, true);
+}
+
+Result<mapped_pixels> lock_legacy_frame_pixels_with_origin(
+    const frame &f,
+    texture_origin desired_origin
+) {
+    if (!f.impl_) {
+        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
+    }
+
+    std::lock_guard<std::mutex> lock(f.impl_->legacy_mutex_);
+    if (!f.impl_->valid_) {
+        return Error{ErrorCode::InvalidArgument, "frame is not valid"};
+    }
+    if (f.impl_->legacy_read_mapping_.valid()) {
+        return Error{ErrorCode::InvalidArgument, "active legacy read pixel mapping already exists for this frame"};
+    }
+
+    auto mapping_result = lock_frame_pixels_mapping_with_origin(f, desired_origin);
+    if (!mapping_result.ok()) {
+        return mapping_result.error();
+    }
+
+    pixel_mapping mapping = std::move(mapping_result.value());
+    mapped_pixels pixels = mapping.pixels();
+    f.impl_->legacy_read_mapping_ = std::move(mapping);
+    return pixels;
+}
+
+void unlock_legacy_frame_pixels(const frame &f) {
+    if (!f.impl_) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(f.impl_->legacy_mutex_);
+    f.impl_->legacy_read_mapping_.unlock();
+}
+
+Result<mapped_pixels> lock_legacy_writable_pixels_with_origin(
+    writable_frame &f,
+    texture_origin desired_origin
+) {
+    if (!f.impl_) {
+        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
+    }
+
+    std::lock_guard<std::mutex> lock(f.impl_->legacy_mutex_);
+    if (!f.impl_->valid_) {
+        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
+    }
+    if (f.impl_->legacy_writable_mapping_.valid()) {
+        return Error{ErrorCode::InvalidArgument, "active legacy writable pixel mapping already exists for this frame"};
+    }
+
+    auto mapping_result = lock_writable_pixels_mapping_with_origin(f, desired_origin);
+    if (!mapping_result.ok()) {
+        return mapping_result.error();
+    }
+
+    pixel_mapping mapping = std::move(mapping_result.value());
+    mapped_pixels pixels = mapping.pixels();
+    f.impl_->legacy_writable_mapping_ = std::move(mapping);
+    return pixels;
+}
+
+Result<void> unlock_legacy_writable_pixels_checked(writable_frame &f) {
+    if (!f.impl_) {
+        return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
+    }
+
+    std::lock_guard<std::mutex> lock(f.impl_->legacy_mutex_);
+    if (!f.impl_->legacy_writable_mapping_.valid()) {
+        return Error{ErrorCode::InvalidArgument, "no active legacy writable pixel mapping"};
+    }
+    return f.impl_->legacy_writable_mapping_.unlock_checked();
 }
 
 } // namespace detail

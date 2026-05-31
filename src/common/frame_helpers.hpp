@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nozzle/frame.hpp>
+#include <nozzle/pixel_access.hpp>
 #include <nozzle/result.hpp>
 #include <nozzle/types.hpp>
 
@@ -51,6 +52,10 @@ void mark_writable_frame_cpu_unlock_failed(writable_frame &f);
 Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &f);
 void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &state_ref);
 void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &state_ref);
+Result<mapped_pixels> lock_legacy_frame_pixels_with_origin(const frame &f, texture_origin desired_origin);
+void unlock_legacy_frame_pixels(const frame &f);
+Result<mapped_pixels> lock_legacy_writable_pixels_with_origin(writable_frame &f, texture_origin desired_origin);
+Result<void> unlock_legacy_writable_pixels_checked(writable_frame &f);
 
 } // namespace detail
 
@@ -59,6 +64,8 @@ struct frame::Impl {
     frame_info info_{};
     uint32_t slot_index_{0};
     bool valid_{true};
+    mutable std::mutex legacy_mutex_{};
+    mutable pixel_mapping legacy_read_mapping_{};
 };
 
 struct writable_frame::Impl {
@@ -67,6 +74,8 @@ struct writable_frame::Impl {
     uint32_t slot_index_{0};
     bool valid_{true};
     detail::writable_cpu_mapping_state_ref cpu_mapping_state_{};
+    mutable std::mutex legacy_mutex_{};
+    pixel_mapping legacy_writable_mapping_{};
 };
 
 } // namespace nozzle

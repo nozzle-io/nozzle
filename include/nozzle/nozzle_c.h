@@ -477,6 +477,9 @@ typedef struct NozzleMappedPixels {
     NozzleTextureOrigin origin;
 } NozzleMappedPixels;
 
+// Legacy read mapping API. This frame-level lock/unlock pair is retained for
+// compatibility and uses one active compatibility mapping slot per frame.
+// Prefer nozzle_frame_lock_pixels_mapping_with_origin for new code.
 NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_pixels_with_origin(
     NozzleFrame *frame,
     NozzleTextureOrigin desired_origin,
@@ -500,11 +503,14 @@ NOZZLE_C_API NozzleErrorCode nozzle_frame_copy_pixels_with_origin(
     NozzleMappedPixels *out_pixels
 );
 
+// Releases the legacy read compatibility mapping if one is active. No-op when
+// no legacy read mapping is active.
 NOZZLE_C_API void nozzle_frame_unlock_pixels(NozzleFrame *frame);
 
 // Legacy writable mapping API. This frame-level lock/unlock pair is retained
-// for compatibility and may be thread-affine on some backends. New bindings
-// should use nozzle_frame_lock_writable_pixels_mapping_with_origin instead.
+// for compatibility and uses one active compatibility mapping slot per writable
+// frame. New bindings should use
+// nozzle_frame_lock_writable_pixels_mapping_with_origin instead.
 NOZZLE_C_API NozzleErrorCode nozzle_frame_lock_writable_pixels_with_origin(
     NozzleFrame *frame,
     NozzleTextureOrigin desired_origin,
@@ -524,6 +530,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_pixel_mapping_unlock_checked(NozzlePixelMapp
 
 NOZZLE_C_API void nozzle_pixel_mapping_unlock(NozzlePixelMapping **mapping);
 
+// Releases the active legacy writable compatibility mapping. Returns
+// NOZZLE_ERROR_INVALID_ARGUMENT when no legacy writable mapping is active.
 NOZZLE_C_API NozzleErrorCode nozzle_frame_unlock_writable_pixels_checked(NozzleFrame *frame);
 
 NOZZLE_C_API void nozzle_frame_unlock_writable_pixels(NozzleFrame *frame);

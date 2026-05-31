@@ -10,6 +10,7 @@ namespace nozzle {
 
 class frame;
 class writable_frame;
+struct mapped_pixels;
 
 namespace detail {
 frame make_frame(texture, frame_info);
@@ -26,6 +27,10 @@ class writable_cpu_mapping_state_ref;
 Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &);
 void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &);
 void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &);
+Result<mapped_pixels> lock_legacy_frame_pixels_with_origin(const frame &, texture_origin);
+void unlock_legacy_frame_pixels(const frame &);
+Result<mapped_pixels> lock_legacy_writable_pixels_with_origin(writable_frame &, texture_origin);
+Result<void> unlock_legacy_writable_pixels_checked(writable_frame &);
 }
 
 class frame {
@@ -53,6 +58,8 @@ public:
 private:
     friend frame detail::make_frame(texture, frame_info);
     friend frame detail::make_frame(texture, frame_info, uint32_t);
+    friend Result<mapped_pixels> detail::lock_legacy_frame_pixels_with_origin(const frame &, texture_origin);
+    friend void detail::unlock_legacy_frame_pixels(const frame &);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
@@ -82,6 +89,8 @@ private:
     friend void detail::mark_writable_frame_cpu_mapping_unlocked(writable_frame &);
     friend void detail::mark_writable_frame_cpu_unlock_failed(writable_frame &);
     friend Result<detail::writable_cpu_mapping_state_ref> detail::begin_writable_frame_cpu_mapping(writable_frame &);
+    friend Result<mapped_pixels> detail::lock_legacy_writable_pixels_with_origin(writable_frame &, texture_origin);
+    friend Result<void> detail::unlock_legacy_writable_pixels_checked(writable_frame &);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
