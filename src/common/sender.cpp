@@ -438,6 +438,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 		return Error{ErrorCode::InvalidArgument, "frame is not valid"};
 	}
 
+	writable_frame frame_to_release;
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	uint32_t slot = detail::get_writable_frame_slot(f);
@@ -451,7 +452,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 			"writable frame has active CPU pixel mapping"};
 	}
 	if (detail::writable_frame_cpu_unlock_failed(f)) {
-		f = writable_frame{};
+		frame_to_release = std::move(f);
 		impl_->slot_in_use_[slot] = false;
 		return Error{ErrorCode::BackendError,
 			"writable frame CPU unlock failed"};
@@ -459,7 +460,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 
 	uint64_t resource_id = detail::backend::get_shared_resource_id(f.get_texture());
 	if (resource_id == detail::kInvalidSharedResourceId) {
-		f = writable_frame{};
+		frame_to_release = std::move(f);
 		impl_->slot_in_use_[slot] = false;
 		return Error{ErrorCode::BackendError,
 			"frame texture has no shared resource"};
@@ -470,7 +471,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	void *native_texture = detail::backend::get_native_texture(f.get_texture());
 	auto signal_result = detail::backend::signal_texture_ready(native_texture, slot);
 	if (!signal_result.ok()) {
-		f = writable_frame{};
+		frame_to_release = std::move(f);
 		impl_->slot_in_use_[slot] = false;
 		return signal_result.error();
 	}
@@ -505,7 +506,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	if (f.valid()) {
 		impl_->ring_textures_[slot] = std::move(f.get_texture());
 	}
-	f = writable_frame{};
+	frame_to_release = std::move(f);
 	impl_->slot_in_use_[slot] = false;
 
 	return {};
@@ -520,6 +521,7 @@ Result<void> sender::discard_frame(writable_frame &f) {
 		return Error{ErrorCode::InvalidArgument, "frame is not valid"};
 	}
 
+	writable_frame frame_to_release;
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	uint32_t slot = detail::get_writable_frame_slot(f);
@@ -536,7 +538,7 @@ Result<void> sender::discard_frame(writable_frame &f) {
 	if (f.valid() && !detail::writable_frame_cpu_unlock_failed(f)) {
 		impl_->ring_textures_[slot] = std::move(f.get_texture());
 	}
-	f = writable_frame{};
+	frame_to_release = std::move(f);
 	impl_->slot_in_use_[slot] = false;
 
 	return {};
