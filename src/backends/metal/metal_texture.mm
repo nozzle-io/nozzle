@@ -475,21 +475,6 @@ Result<texture> wrap_direct_publish_texture(
                 "direct Metal publish requires an IOSurface-backed texture"};
         }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        CFTypeRef global_value = IOSurfaceCopyValue(surface, kIOSurfaceIsGlobal);
-#pragma clang diagnostic pop
-        bool globally_lookupable = false;
-        if (global_value) {
-            globally_lookupable = CFGetTypeID(global_value) == CFBooleanGetTypeID() &&
-                CFBooleanGetValue(static_cast<CFBooleanRef>(global_value));
-            CFRelease(global_value);
-        }
-        if (!globally_lookupable) {
-            return Error{ErrorCode::InvalidArgument,
-                "direct Metal publish requires a globally lookupable IOSurface"};
-        }
-
         IOSurfaceID surface_id = IOSurfaceGetID(surface);
         if (surface_id == 0) {
             return Error{ErrorCode::InvalidArgument,

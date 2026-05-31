@@ -533,40 +533,6 @@ TEST_CASE("Metal direct: non-IOSurface rejection does not publish a new frame", 
 	}
 }
 
-TEST_CASE("Metal direct: non-global IOSurface rejection is atomic", "[metal][direct_publish]") {
-	@autoreleasepool {
-		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-		if (device == nil) { SKIP("Metal device is not available on this runner"); }
-
-		id<MTLTexture> valid = create_iosurface_texture(device);
-		REQUIRE(valid != nil);
-		fill_texture(valid, 0x42);
-		IOSurfaceID valid_id = texture_iosurface_id(valid);
-
-		auto sender = create_sender("test_direct_reject_non_global_iosurface", device);
-		REQUIRE(publish_direct_bgra8(sender, valid).ok());
-
-		id<MTLTexture> invalid = create_iosurface_texture(device, false);
-		REQUIRE(invalid != nil);
-		fill_texture(invalid, 0xA7);
-		auto reject_result = publish_direct_bgra8(sender, invalid);
-		REQUIRE_FALSE(reject_result.ok());
-		REQUIRE(reject_result.error().code == nozzle::ErrorCode::InvalidArgument);
-
-		auto recv = create_receiver("test_direct_reject_non_global_iosurface");
-		auto frame_result = recv.acquire_frame();
-		REQUIRE(frame_result.ok());
-		auto frame = std::move(frame_result.value());
-		REQUIRE(frame.info().frame_index == 1);
-		REQUIRE(frame_iosurface_id(frame) == valid_id);
-		require_frame_payload(frame, device, 0x42);
-
-		[valid release];
-		[invalid release];
-		[device release];
-	}
-}
-
 TEST_CASE("Metal direct: IOSurface storage mismatch rejection is atomic", "[metal][direct_publish]") {
 	@autoreleasepool {
 		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
