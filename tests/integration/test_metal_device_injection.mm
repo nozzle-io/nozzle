@@ -69,3 +69,65 @@ TEST_CASE("C API: nozzle_sender_create_with_native_device returns injected devic
     nozzle_sender_destroy(sender);
     [mtl_device release];
 }
+
+TEST_CASE("C API: default Metal sender can acquire, map, and commit an rgba8 writable frame", "[c_api][metal][writable]") {
+    id<MTLDevice> mtl_device = MTLCreateSystemDefaultDevice();
+    if (mtl_device == nil) {
+        SKIP("Metal device is not available on this runner");
+    }
+    [mtl_device release];
+
+    NozzleSenderDesc desc{};
+    desc.name = "test_metal_default_writable_rgba8";
+    desc.application_name = "test";
+    desc.ring_buffer_size = 2;
+
+    NozzleSender *sender = nullptr;
+    NozzleErrorCode error = nozzle_sender_create(&desc, &sender);
+    if (error == NOZZLE_ERROR_BACKEND_ERROR ||
+        error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED ||
+        error == NOZZLE_ERROR_UNSUPPORTED_BACKEND) {
+        SKIP("default Metal sender creation is not available on this runner");
+    }
+    REQUIRE(error == NOZZLE_OK);
+    REQUIRE(sender != nullptr);
+
+    NozzleFrame *frame = nullptr;
+    error = nozzle_sender_acquire_writable_frame(
+        sender,
+        320,
+        240,
+        NOZZLE_FORMAT_RGBA8_UNORM,
+        &frame);
+    REQUIRE(error == NOZZLE_OK);
+    REQUIRE(frame != nullptr);
+
+    NozzlePixelMapping *mapping = nullptr;
+    NozzleMappedPixels pixels{};
+    error = nozzle_frame_lock_writable_pixels_mapping_with_origin(
+        frame,
+        NOZZLE_ORIGIN_TOP_LEFT,
+        &mapping,
+        &pixels);
+    REQUIRE(error == NOZZLE_OK);
+    REQUIRE(mapping != nullptr);
+    REQUIRE(pixels.data != nullptr);
+    REQUIRE(pixels.row_stride_bytes >= 320 * 4);
+
+    uint8_t *row = static_cast<uint8_t *>(pixels.data);
+    for (uint32_t y = 0; y < 240; ++y) {
+        for (uint32_t x = 0; x < 320; ++x) {
+            uint8_t *pixel = row + y * pixels.row_stride_bytes + x * 4;
+            pixel[0] = static_cast<uint8_t>(x & 0xffu);
+            pixel[1] = static_cast<uint8_t>(y & 0xffu);
+            pixel[2] = 0x7f;
+            pixel[3] = 0xff;
+        }
+    }
+
+    nozzle_pixel_mapping_unlock(&mapping);
+    REQUIRE(mapping == nullptr);
+    REQUIRE(nozzle_sender_commit_frame(sender, frame) == NOZZLE_OK);
+    nozzle_frame_release(frame);
+    nozzle_sender_destroy(sender);
+}

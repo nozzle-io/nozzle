@@ -223,8 +223,13 @@ Result<metal_texture_pair> create_iosurface_texture(
                                                                width:width
                                                               height:height
                                                            mipmapped:NO];
-        tex_desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
-        tex_desc.resourceOptions = MTLResourceStorageModeShared;
+        // Ring textures are filled through IOSurface CPU mappings or Metal blits,
+        // then read by receivers. Requiring ShaderWrite here is unnecessarily
+        // restrictive for IOSurface-backed BGRA/RGBA textures on some macOS
+        // devices/runners and can make newTextureWithDescriptor:iosurface:
+        // return nil before any frame is published.
+        tex_desc.usage = MTLTextureUsageShaderRead;
+        tex_desc.storageMode = MTLStorageModeShared;
 
         id<MTLTexture> texture = [mtl_device newTextureWithDescriptor:tex_desc
                                                             iosurface:surface
@@ -378,7 +383,7 @@ Result<texture> lookup_iosurface_texture(
                                                               height:height
                                                            mipmapped:NO];
         tex_desc.usage = MTLTextureUsageShaderRead;
-        tex_desc.resourceOptions = MTLResourceStorageModeShared;
+        tex_desc.storageMode = MTLStorageModeShared;
 
         id<MTLTexture> base_texture = [device newTextureWithDescriptor:tex_desc
                                                               iosurface:surface
