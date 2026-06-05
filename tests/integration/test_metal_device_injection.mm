@@ -70,7 +70,7 @@ TEST_CASE("C API: nozzle_sender_create_with_native_device returns injected devic
     [mtl_device release];
 }
 
-TEST_CASE("C API: default Metal sender can acquire, map, and commit an rgba8 writable frame", "[c_api][metal][writable]") {
+TEST_CASE("C API: Metal sender with safe fallbacks can acquire, map, and commit an rgba8 writable frame", "[c_api][metal][writable]") {
     id<MTLDevice> mtl_device = MTLCreateSystemDefaultDevice();
     if (mtl_device == nil) {
         SKIP("Metal device is not available on this runner");
@@ -107,6 +107,8 @@ TEST_CASE("C API: default Metal sender can acquire, map, and commit an rgba8 wri
     desc.name = "test_metal_default_writable_rgba8";
     desc.application_name = "test";
     desc.ring_buffer_size = 2;
+    desc.fallback_flags_valid = 1;
+    desc.fallback_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS;
 
     NozzleSender *sender = nullptr;
     NozzleErrorCode error = nozzle_sender_create(&desc, &sender);
