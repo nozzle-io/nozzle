@@ -77,6 +77,32 @@ TEST_CASE("C API: default Metal sender can acquire, map, and commit an rgba8 wri
     }
     [mtl_device release];
 
+    nozzle::sender_desc cpp_desc{};
+    cpp_desc.name = "test_cpp_metal_default_writable_rgba8";
+    cpp_desc.application_name = "test";
+    cpp_desc.ring_buffer_size = 2;
+
+    auto sender_result = nozzle::sender::create(cpp_desc);
+    if (!sender_result.ok() &&
+        (sender_result.error().code == nozzle::ErrorCode::BackendError ||
+         sender_result.error().code == nozzle::ErrorCode::ResourceCreationFailed ||
+         sender_result.error().code == nozzle::ErrorCode::UnsupportedBackend)) {
+        SKIP("default Metal sender creation is not available on this runner: " << sender_result.error().message);
+    }
+    INFO("sender_create error: " << sender_result.error().message);
+    REQUIRE(sender_result.ok());
+
+    auto cpp_sender = std::move(sender_result.value());
+    nozzle::texture_desc texture_desc{};
+    texture_desc.width = 320;
+    texture_desc.height = 240;
+    texture_desc.format = nozzle::texture_format::rgba8_unorm;
+    auto writable_result = cpp_sender.acquire_writable_frame(texture_desc);
+    INFO("acquire_writable_frame error: " << writable_result.error().message);
+    REQUIRE(writable_result.ok());
+    auto cpp_writable = std::move(writable_result.value());
+    REQUIRE(cpp_sender.discard_frame(cpp_writable).ok());
+
     NozzleSenderDesc desc{};
     desc.name = "test_metal_default_writable_rgba8";
     desc.application_name = "test";
