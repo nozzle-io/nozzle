@@ -332,28 +332,37 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
         return Error{ErrorCode::UnsupportedFormat, "unsupported format for GL interop"};
     }
 
-    // CGL only accepts BGRA for 8-bit IOSurface textures (RGBA → error 10008).
-    // Force bgra8_unorm for the writable frame regardless of source format.
-    // Since CGL binding always uses GL_BGRA, GL packs colors as BGRA into the
-    // BGRA IOSurface — bytes are already correct after blit. No swap needed.
-    texture_format publish_format = gl_desc.format;
-    if (gl_desc.format == texture_format::rgba8_unorm ||
-        gl_desc.format == texture_format::rgba8_srgb) {
-        publish_format = texture_format::bgra8_unorm;
-    } else if (gl_desc.format == texture_format::bgra8_srgb) {
-        publish_format = texture_format::bgra8_unorm;
+    if (gl_desc.format == texture_format::rgba8_srgb ||
+        gl_desc.format == texture_format::bgra8_srgb) {
+        return Error{ErrorCode::UnsupportedFormat,
+            "macOS GL publish does not support sRGB IOSurface storage"};
+    }
+
+    // CGLTexImageIOSurface2D is reliable for 8-bit color IOSurfaces through
+    // BGRA binding. Keep the caller-requested format as semantic metadata, but
+    // materialize RGBA8 GL sources into BGRA8 IOSurface storage.
+    texture_format storage_format = gl_desc.format;
+    if (gl_desc.format == texture_format::rgba8_unorm) {
+        storage_format = texture_format::bgra8_unorm;
     }
 
     nozzle::texture_desc td{};
     td.width = gl_desc.width;
     td.height = gl_desc.height;
-    td.format = publish_format;
+    td.format = storage_format;
+    td.semantic_format = gl_desc.format;
     td.swizzle = channel_swizzle::identity;
 
     auto frame_result = snd.acquire_writable_frame(td);
     if (!frame_result) { return frame_result.error(); }
 
     auto &wframe = frame_result.value();
+    texture_format publish_format = wframe.get_texture().desc().format;
+    if (publish_format != storage_format) {
+        return Error{ErrorCode::UnsupportedFormat,
+            "GL publish acquired an unexpected storage format"};
+    }
+
     void *surface_ptr = metal::get_io_surface(wframe.get_texture());
     if (!surface_ptr) {
         return Error{ErrorCode::BackendError, "no IOSurface in writable frame"};

@@ -33,6 +33,44 @@
 
 namespace nozzle {
 
+namespace {
+
+texture_format effective_semantic_format(const texture_desc &tdesc) {
+	if (tdesc.semantic_format != texture_format::unknown) {
+		return tdesc.semantic_format;
+	}
+	return tdesc.format;
+}
+
+Result<format_fallback_info> make_acquired_frame_fallback_info(
+	const texture_desc &tdesc,
+	texture_format observed_format,
+	fallback_category category,
+	texture_format fallback_target) {
+	texture_format semantic_format = effective_semantic_format(tdesc);
+	if (semantic_format != tdesc.format) {
+		if (!is_storage_compatible(semantic_format, observed_format)) {
+			return Error{ErrorCode::UnsupportedFormat,
+				"explicit semantic/storage writable frame formats are not storage-compatible"};
+		}
+		format_fallback_info info{};
+		info.requested_format = semantic_format;
+		info.storage_format = observed_format;
+		info.fallback_target = texture_format::unknown;
+		info.category = fallback_category::none;
+		info.swizzle = tdesc.swizzle;
+		info.quality_loss = false;
+		return info;
+	}
+	return resolve_format_fallback_info(
+		tdesc.format,
+		observed_format,
+		category,
+		fallback_target);
+}
+
+} // anonymous namespace
+
 struct sender::Impl {
 	detail::registry::Registration registration_{};
 	detail::SenderSharedState *state{nullptr};
@@ -375,7 +413,11 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		texture_desc actual_desc{tdesc.width, tdesc.height, observed_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 		impl_->slot_in_use_[slot] = true;
 
-		auto fb_result = resolve_format_fallback_info(tdesc.format, observed_format, final_category, fallback_target);
+		auto fb_result = make_acquired_frame_fallback_info(
+			tdesc,
+			observed_format,
+			final_category,
+			fallback_target);
 		if (!fb_result.ok()) {
 			impl_->slot_in_use_[slot] = false;
 			return fb_result.error();
@@ -408,7 +450,11 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	}
 	fallback_category reuse_category = category_result.value();
 
-	auto fb_result = resolve_format_fallback_info(tdesc.format, reused_format, reuse_category, texture_format::unknown);
+	auto fb_result = make_acquired_frame_fallback_info(
+		tdesc,
+		reused_format,
+		reuse_category,
+		texture_format::unknown);
 	if (!fb_result.ok()) {
 		impl_->slot_in_use_[slot] = false;
 		return fb_result.error();
