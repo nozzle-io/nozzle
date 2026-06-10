@@ -2,6 +2,7 @@
 
 #include <nozzle/nozzle.hpp>
 #include <nozzle/backends/metal.hpp>
+#include <nozzle/pixel_access.hpp>
 #include "backends/metal/metal_helpers.hpp"
 
 #import <Metal/Metal.h>
@@ -84,6 +85,47 @@ static id<MTLTexture> create_iosurface_texture(id<MTLDevice> device) {
 	return tex;
 }
 
+static id<MTLTexture> create_iosurface_texture_with_format(
+	id<MTLDevice> device,
+	MTLPixelFormat mtl_format)
+{
+	uint32_t iosurface_pf = 0;
+	uint32_t bytes_per_element = 0;
+	if (!nozzle::metal::mtl_format_to_iosurface(
+		static_cast<uint32_t>(mtl_format),
+		iosurface_pf,
+		bytes_per_element)) {
+		return nil;
+	}
+
+	uint32_t bytes_per_row = ((kTestW * bytes_per_element) + 63) & ~63u;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+	NSDictionary *props = @{
+		(id)kIOSurfaceIsGlobal:        @(YES),
+		(id)kIOSurfaceWidth:           @(kTestW),
+		(id)kIOSurfaceHeight:          @(kTestH),
+		(id)kIOSurfacePixelFormat:     @(iosurface_pf),
+		(id)kIOSurfaceBytesPerRow:     @(bytes_per_row),
+		(id)kIOSurfaceBytesPerElement: @(bytes_per_element),
+	};
+#pragma clang diagnostic pop
+	IOSurfaceRef surface = IOSurfaceCreate((CFDictionaryRef)props);
+	if (!surface) return nil;
+
+	MTLTextureDescriptor *desc =
+		[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:mtl_format
+		                                                   width:kTestW
+		                                                  height:kTestH
+		                                               mipmapped:NO];
+	desc.usage = MTLTextureUsageShaderRead;
+	desc.resourceOptions = MTLResourceStorageModeShared;
+
+	id<MTLTexture> tex = [device newTextureWithDescriptor:desc iosurface:surface plane:0];
+	CFRelease(surface);
+	return tex;
+}
+
 static IOSurfaceID texture_iosurface_id(id<MTLTexture> tex) {
 	REQUIRE(tex != nil);
 	REQUIRE([tex iosurface] != nil);
@@ -119,6 +161,22 @@ static nozzle::Result<void> publish_direct_bgra8(
 	id<MTLTexture> texture,
 	nozzle::texture_format storage_format = nozzle::texture_format::bgra8_unorm,
 	nozzle::texture_format semantic_format = nozzle::texture_format::bgra8_unorm)
+{
+	nozzle::metal::direct_publish_desc desc{};
+	desc.texture = static_cast<void *>(texture);
+	desc.width = kTestW;
+	desc.height = kTestH;
+	desc.storage_format = storage_format;
+	desc.semantic_format = semantic_format;
+	desc.swizzle = nozzle::channel_swizzle::identity;
+	return sender.publish_metal_texture_direct(desc);
+}
+
+static nozzle::Result<void> publish_direct_texture(
+	nozzle::sender &sender,
+	id<MTLTexture> texture,
+	nozzle::texture_format storage_format,
+	nozzle::texture_format semantic_format)
 {
 	nozzle::metal::direct_publish_desc desc{};
 	desc.texture = static_cast<void *>(texture);
@@ -250,7 +308,7 @@ TEST_CASE("Metal lookup uses sender-recorded native format", "[metal][native_pub
 			static_cast<uint32_t>(source_id),
 			kTestW,
 			kTestH,
-			static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm),
+			static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm),
 			0,
 			static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm),
 			static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format),
@@ -260,7 +318,8 @@ TEST_CASE("Metal lookup uses sender-recorded native format", "[metal][native_pub
 		const auto &resolved = lookup_result.value().resolved();
 		REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
 		REQUIRE(resolved.native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
-		REQUIRE(resolved.storage_format == nozzle::texture_format::rgba8_unorm);
+		REQUIRE(resolved.storage_format == nozzle::texture_format::bgra8_unorm);
+		REQUIRE(resolved.semantic_format == nozzle::texture_format::rgba8_unorm);
 
 		[src release];
 		[device release];
@@ -489,6 +548,156 @@ TEST_CASE("Metal direct: IOSurface-backed texture is shared by identity", "[meta
 		REQUIRE(frame.get_texture().resolved().native.value == static_cast<uint32_t>(src.pixelFormat));
 		REQUIRE(frame.get_texture().desc().format == nozzle::texture_format::bgra8_unorm);
 		REQUIRE(frame.get_texture().resolved().semantic_format == nozzle::texture_format::bgra8_unorm);
+
+		[src release];
+		[device release];
+	}
+}
+
+TEST_CASE("Metal direct: IOSurface aliases preserve typed Metal metadata", "[metal][direct_publish][native_format]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
+
+		struct alias_case {
+			const char *name;
+			MTLPixelFormat mtl_format;
+			nozzle::texture_format storage_format;
+			uint32_t expected_fourcc;
+			bool expect_integer;
+			bool expect_float;
+		};
+
+		const alias_case cases[] = {
+			{"test_direct_alias_rgba32_float", MTLPixelFormatRGBA32Float, nozzle::texture_format::rgba32_float, 'RGfA', false, true},
+			{"test_direct_alias_rgba32_uint", MTLPixelFormatRGBA32Uint, nozzle::texture_format::rgba32_uint, 'RGfA', true, false},
+		};
+
+		for (const auto &c : cases) {
+			id<MTLTexture> src = create_iosurface_texture_with_format(device, c.mtl_format);
+			if (src == nil) {
+				SKIP("Metal runtime did not create the requested IOSurface alias texture");
+			}
+			REQUIRE([src iosurface] != nil);
+			REQUIRE(IOSurfaceGetPixelFormat([src iosurface]) == c.expected_fourcc);
+			IOSurfaceID source_id = texture_iosurface_id(src);
+
+			auto sender = create_sender(c.name, device);
+			REQUIRE(publish_direct_texture(sender, src, c.storage_format, c.storage_format).ok());
+			nozzle::texture_format wrong_semantic = c.storage_format == nozzle::texture_format::rgba32_uint
+				? nozzle::texture_format::rgba32_float
+				: nozzle::texture_format::rgba32_uint;
+			auto reject_semantic = publish_direct_texture(sender, src, c.storage_format, wrong_semantic);
+			REQUIRE_FALSE(reject_semantic.ok());
+			REQUIRE(reject_semantic.error().code == nozzle::ErrorCode::UnsupportedFormat);
+			auto reject_storage = publish_direct_texture(sender, src, wrong_semantic, wrong_semantic);
+			REQUIRE_FALSE(reject_storage.ok());
+			REQUIRE(reject_storage.error().code == nozzle::ErrorCode::UnsupportedFormat);
+
+			auto recv = create_receiver(c.name);
+			auto frame_result = recv.acquire_frame();
+			REQUIRE(frame_result.ok());
+			auto frame = std::move(frame_result.value());
+			REQUIRE(frame_iosurface_id(frame) == source_id);
+			REQUIRE(frame.info().frame_index == 1);
+
+			const auto &resolved = frame.get_texture().resolved();
+			REQUIRE(resolved.storage_format == c.storage_format);
+			REQUIRE(resolved.semantic_format == c.storage_format);
+			REQUIRE(resolved.native.backend == nozzle::backend_type::metal);
+			REQUIRE(resolved.native.kind == nozzle::native_format_kind::mtl_pixel_format);
+			REQUIRE(resolved.native.value == static_cast<uint32_t>(c.mtl_format));
+			REQUIRE(resolved.sampling.integer == c.expect_integer);
+			REQUIRE(resolved.sampling.floating_point == c.expect_float);
+
+			auto pixels_result = nozzle::lock_frame_pixels_with_origin(frame, nozzle::texture_origin::top_left);
+			REQUIRE(pixels_result.ok());
+			REQUIRE(pixels_result.value().format == c.storage_format);
+			nozzle::unlock_frame_pixels(frame);
+
+			id<MTLTexture> recv_texture =
+				(id<MTLTexture>)nozzle::metal::get_texture(frame.get_texture());
+			REQUIRE(recv_texture != nil);
+			REQUIRE(recv_texture.pixelFormat == c.mtl_format);
+
+			auto ci = recv.connected_info();
+			REQUIRE(ci.native_format_kind == static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format));
+			REQUIRE(ci.native_format_value == static_cast<uint32_t>(c.mtl_format));
+			REQUIRE(ci.format == c.storage_format);
+			REQUIRE(ci.semantic_format == c.storage_format);
+
+			[src release];
+		}
+
+		[device release];
+	}
+}
+
+TEST_CASE("Metal lookup: ambiguous IOSurface aliases require native Metal metadata", "[metal][direct_publish][native_format]") {
+	@autoreleasepool {
+		id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+		if (device == nil) { SKIP("Metal device is not available on this runner"); }
+
+		id<MTLTexture> src = create_iosurface_texture_with_format(device, MTLPixelFormatRGBA32Uint);
+		if (src == nil) {
+			SKIP("Metal runtime did not create the requested RGfA uint alias texture");
+		}
+		REQUIRE([src iosurface] != nil);
+		REQUIRE(IOSurfaceGetPixelFormat([src iosurface]) == 'RGfA');
+		IOSurfaceID source_id = texture_iosurface_id(src);
+
+		auto missing_native = nozzle::metal::lookup_iosurface_texture(
+			static_cast<uint32_t>(source_id),
+			kTestW,
+			kTestH,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			0,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			static_cast<uint8_t>(nozzle::native_format_kind::unknown),
+			0);
+		REQUIRE_FALSE(missing_native.ok());
+		REQUIRE(missing_native.error().code == nozzle::ErrorCode::UnsupportedFormat);
+
+		auto invalid_native = nozzle::metal::lookup_iosurface_texture(
+			static_cast<uint32_t>(source_id),
+			kTestW,
+			kTestH,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			0,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format),
+			static_cast<uint32_t>(MTLPixelFormatRGBA8Unorm));
+		REQUIRE_FALSE(invalid_native.ok());
+		REQUIRE(invalid_native.error().code == nozzle::ErrorCode::UnsupportedFormat);
+
+		auto wrong_alias_native = nozzle::metal::lookup_iosurface_texture(
+			static_cast<uint32_t>(source_id),
+			kTestW,
+			kTestH,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			0,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format),
+			static_cast<uint32_t>(MTLPixelFormatRGBA32Float));
+		REQUIRE_FALSE(wrong_alias_native.ok());
+		REQUIRE(wrong_alias_native.error().code == nozzle::ErrorCode::UnsupportedFormat);
+
+		auto valid_native = nozzle::metal::lookup_iosurface_texture(
+			static_cast<uint32_t>(source_id),
+			kTestW,
+			kTestH,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			0,
+			static_cast<uint32_t>(nozzle::texture_format::rgba32_uint),
+			static_cast<uint8_t>(nozzle::native_format_kind::mtl_pixel_format),
+			static_cast<uint32_t>(MTLPixelFormatRGBA32Uint));
+		REQUIRE(valid_native.ok());
+		REQUIRE(valid_native.value().resolved().storage_format == nozzle::texture_format::rgba32_uint);
+		REQUIRE(valid_native.value().resolved().native.value == static_cast<uint32_t>(MTLPixelFormatRGBA32Uint));
+		id<MTLTexture> recv_texture =
+			(id<MTLTexture>)nozzle::metal::get_texture(valid_native.value());
+		REQUIRE(recv_texture != nil);
+		REQUIRE(recv_texture.pixelFormat == MTLPixelFormatRGBA32Uint);
 
 		[src release];
 		[device release];

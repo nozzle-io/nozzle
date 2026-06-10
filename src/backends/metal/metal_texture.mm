@@ -45,83 +45,87 @@ static MTLPixelFormat to_mtl_pixel_format(uint32_t nozzle_format) {
     }
 }
 
+struct metal_iosurface_format_desc {
+    MTLPixelFormat mtl_format{MTLPixelFormatInvalid};
+    texture_format storage_format{texture_format::unknown};
+    uint32_t iosurface_fourcc{0};
+    uint32_t bytes_per_element{0};
+    bool ambiguous_iosurface_alias{false};
+};
+
+static const metal_iosurface_format_desc *lookup_metal_iosurface_format(MTLPixelFormat mtl_format) {
+    static const metal_iosurface_format_desc descs[] = {
+        {MTLPixelFormatR8Unorm, texture_format::r8_unorm, 'L008', 1, false},
+        {MTLPixelFormatRG8Unorm, texture_format::rg8_unorm, '2C08', 2, false},
+        {MTLPixelFormatBGRA8Unorm, texture_format::bgra8_unorm, 'BGRA', 4, true},
+        {MTLPixelFormatRGBA8Unorm, texture_format::rgba8_unorm, 'RGBA', 4, true},
+        {MTLPixelFormatRGBA8Unorm_sRGB, texture_format::rgba8_srgb, 'RGBA', 4, true},
+        {MTLPixelFormatBGRA8Unorm_sRGB, texture_format::bgra8_srgb, 'BGRA', 4, true},
+        {MTLPixelFormatR16Unorm, texture_format::r16_unorm, 'L016', 2, false},
+        {MTLPixelFormatRG16Unorm, texture_format::rg16_unorm, '2C16', 4, false},
+        {MTLPixelFormatRGBA16Unorm, texture_format::rgba16_unorm, 'RGhA', 8, true},
+        {MTLPixelFormatR16Float, texture_format::r16_float, 'L00h', 2, false},
+        {MTLPixelFormatRG16Float, texture_format::rg16_float, '2C0h', 4, false},
+        {MTLPixelFormatRGBA16Float, texture_format::rgba16_float, 'RGhA', 8, true},
+        {MTLPixelFormatR32Float, texture_format::r32_float, 'L00f', 4, true},
+        {MTLPixelFormatRG32Float, texture_format::rg32_float, '2C0f', 8, false},
+        {MTLPixelFormatRGBA32Float, texture_format::rgba32_float, 'RGfA', 16, true},
+        {MTLPixelFormatR32Uint, texture_format::r32_uint, 'L00f', 4, true},
+        {MTLPixelFormatRGBA32Uint, texture_format::rgba32_uint, 'RGfA', 16, true},
+    };
+
+    for (const auto &desc : descs) {
+        if (desc.mtl_format == mtl_format) {
+            return &desc;
+        }
+    }
+    return nullptr;
+}
+
+static bool iosurface_fourcc_is_ambiguous(uint32_t fourcc) {
+    for (const MTLPixelFormat mtl_format : {
+            MTLPixelFormatR8Unorm,
+            MTLPixelFormatRG8Unorm,
+            MTLPixelFormatBGRA8Unorm,
+            MTLPixelFormatRGBA8Unorm,
+            MTLPixelFormatRGBA8Unorm_sRGB,
+            MTLPixelFormatBGRA8Unorm_sRGB,
+            MTLPixelFormatR16Unorm,
+            MTLPixelFormatRG16Unorm,
+            MTLPixelFormatRGBA16Unorm,
+            MTLPixelFormatR16Float,
+            MTLPixelFormatRG16Float,
+            MTLPixelFormatRGBA16Float,
+            MTLPixelFormatR32Float,
+            MTLPixelFormatRG32Float,
+            MTLPixelFormatRGBA32Float,
+            MTLPixelFormatR32Uint,
+            MTLPixelFormatRGBA32Uint}) {
+        const auto *desc = lookup_metal_iosurface_format(mtl_format);
+        if (desc && desc->iosurface_fourcc == fourcc && desc->ambiguous_iosurface_alias) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool iosurface_layout_accepts_mtl_format(uint32_t fourcc, MTLPixelFormat mtl_format) {
+    const auto *desc = lookup_metal_iosurface_format(mtl_format);
+    return desc && desc->iosurface_fourcc == fourcc;
+}
+
 static bool map_pixel_format(
     MTLPixelFormat mtl_format,
     uint32_t &out_iosurface_pf,
     uint32_t &out_bytes_per_element
 ) {
-    switch (mtl_format) {
-        case MTLPixelFormatR8Unorm:
-            out_iosurface_pf = 'L008'; // kCVPixelFormatType_OneComponent8
-            out_bytes_per_element = 1;
-            return true;
-        case MTLPixelFormatRG8Unorm:
-            out_iosurface_pf = '2C08'; // kCVPixelFormatType_TwoComponent8
-            out_bytes_per_element = 2;
-            return true;
-        case MTLPixelFormatBGRA8Unorm:
-            out_iosurface_pf = 'BGRA'; // kCVPixelFormatType_32BGRA
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatRGBA8Unorm:
-            out_iosurface_pf = 'RGBA'; // kCVPixelFormatType_32RGBA
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatRGBA8Unorm_sRGB:
-            out_iosurface_pf = 'RGBA'; // kCVPixelFormatType_32RGBA (sRGB handled by Metal)
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatBGRA8Unorm_sRGB:
-            out_iosurface_pf = 'BGRA'; // kCVPixelFormatType_32BGRA (sRGB handled by Metal)
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatR16Unorm:
-            out_iosurface_pf = 'L016'; // kCVPixelFormatType_OneComponent16
-            out_bytes_per_element = 2;
-            return true;
-        case MTLPixelFormatRG16Unorm:
-            out_iosurface_pf = '2C16'; // kCVPixelFormatType_TwoComponent16
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatRGBA16Unorm:
-            out_iosurface_pf = 'RGhA'; // same layout as RGBA16Float
-            out_bytes_per_element = 8;
-            return true;
-        case MTLPixelFormatR16Float:
-            out_iosurface_pf = 'L00h'; // kCVPixelFormatType_OneComponent16Half
-            out_bytes_per_element = 2;
-            return true;
-        case MTLPixelFormatRG16Float:
-            out_iosurface_pf = '2C0h'; // kCVPixelFormatType_TwoComponent16Half
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatRGBA16Float:
-            out_iosurface_pf = 'RGhA'; // kCVPixelFormatType_64RGBAHalf
-            out_bytes_per_element = 8;
-            return true;
-        case MTLPixelFormatR32Float:
-            out_iosurface_pf = 'L00f'; // kCVPixelFormatType_OneComponent32Float
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatRG32Float:
-            out_iosurface_pf = '2C0f'; // kCVPixelFormatType_TwoComponent32Float
-            out_bytes_per_element = 8;
-            return true;
-        case MTLPixelFormatRGBA32Float:
-            out_iosurface_pf = 'RGfA'; // kCVPixelFormatType_128RGBAFloat
-            out_bytes_per_element = 16;
-            return true;
-        case MTLPixelFormatR32Uint:
-            out_iosurface_pf = 'L00f'; // same layout as R32Float
-            out_bytes_per_element = 4;
-            return true;
-        case MTLPixelFormatRGBA32Uint:
-            out_iosurface_pf = 'RGfA'; // same layout as RGBA32Float
-            out_bytes_per_element = 16;
-            return true;
-        default:
-            return false;
+    const auto *desc = lookup_metal_iosurface_format(mtl_format);
+    if (!desc) {
+        return false;
     }
+    out_iosurface_pf = desc->iosurface_fourcc;
+    out_bytes_per_element = desc->bytes_per_element;
+    return true;
 }
 
 uint32_t nozzle_format_to_mtl(uint32_t nozzle_format) {
@@ -130,6 +134,25 @@ uint32_t nozzle_format_to_mtl(uint32_t nozzle_format) {
 
 bool mtl_format_to_iosurface(uint32_t mtl_format, uint32_t &out_pf, uint32_t &out_bpe) {
     return map_pixel_format(static_cast<MTLPixelFormat>(mtl_format), out_pf, out_bpe);
+}
+
+bool mtl_format_to_storage_format(uint32_t mtl_format, uint32_t &out_storage_format) {
+    const auto *desc = lookup_metal_iosurface_format(static_cast<MTLPixelFormat>(mtl_format));
+    if (!desc) {
+        return false;
+    }
+    out_storage_format = static_cast<uint32_t>(desc->storage_format);
+    return true;
+}
+
+bool iosurface_format_accepts_mtl(uint32_t iosurface_fourcc, uint32_t mtl_format) {
+    return iosurface_layout_accepts_mtl_format(
+        iosurface_fourcc,
+        static_cast<MTLPixelFormat>(mtl_format));
+}
+
+bool iosurface_format_requires_native_mtl(uint32_t iosurface_fourcc) {
+    return iosurface_fourcc_is_ambiguous(iosurface_fourcc);
 }
 
 static uint32_t align_up(uint32_t value, uint32_t alignment) {
@@ -250,7 +273,9 @@ Result<metal_texture_pair> create_iosurface_texture(
         result.height = height;
 
         OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
-        result.pixel_format = static_cast<uint32_t>(nozzle_fmt);
+        const auto *mtl_desc = lookup_metal_iosurface_format(mtl_format);
+        result.pixel_format = static_cast<uint32_t>(
+            mtl_desc ? mtl_desc->storage_format : nozzle_fmt);
         result.fourcc = static_cast<uint32_t>(actual_fourcc);
         result.mtl_pixel_format = static_cast<uint32_t>(mtl_format);
 
@@ -283,8 +308,6 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
     }
     @autoreleasepool {
         id<MTLTexture> mtl_tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, desc.texture);
-        NOZZLE_RETAIN(mtl_tex);
-        void *tex_ptr = NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, mtl_tex);
 
         void *surface_ptr = nullptr;
         uint32_t actual_fmt = desc.format;
@@ -292,15 +315,30 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
         native.backend = backend_type::metal;
         native.kind = native_format_kind::mtl_pixel_format;
         native.value = static_cast<uint32_t>(mtl_tex.pixelFormat);
+        const auto *mtl_desc = lookup_metal_iosurface_format(mtl_tex.pixelFormat);
+        if (mtl_desc) {
+            if (desc.format != static_cast<uint32_t>(mtl_desc->storage_format)) {
+                return Error{ErrorCode::UnsupportedFormat,
+                    "wrapped Metal texture format does not match MTLPixelFormat"};
+            }
+            actual_fmt = static_cast<uint32_t>(mtl_desc->storage_format);
+        }
         if (desc.io_surface) {
             IOSurfaceRef surface = (IOSurfaceRef)desc.io_surface;
             CFRetain(surface);
             surface_ptr = (void *)surface;
-            texture_format observed = from_io_surface_pixel_format(IOSurfaceGetPixelFormat(surface));
-            if (observed != texture_format::unknown) {
-                actual_fmt = static_cast<uint32_t>(observed);
+            if (mtl_desc &&
+                !iosurface_layout_accepts_mtl_format(
+                    static_cast<uint32_t>(IOSurfaceGetPixelFormat(surface)),
+                    mtl_tex.pixelFormat)) {
+                CFRelease(surface);
+                return Error{ErrorCode::UnsupportedFormat,
+                    "wrapped IOSurface pixel format is not compatible with MTLPixelFormat"};
             }
         }
+
+        NOZZLE_RETAIN(mtl_tex);
+        void *tex_ptr = NOZZLE_BRIDGE_RETAIN(id<MTLTexture>, mtl_tex);
 
         return detail::make_texture_from_backend(
             tex_ptr,
@@ -356,25 +394,50 @@ Result<texture> lookup_iosurface_texture(
 
         OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
         texture_format nozzle_fmt = static_cast<texture_format>(pixel_format);
-
-        if (nozzle_fmt == texture_format::unknown) {
-            nozzle_fmt = from_io_surface_pixel_format(surface_fourcc);
-        }
-        if (nozzle_fmt == texture_format::unknown) {
-            CFRelease(surface);
-            return Error{ErrorCode::UnsupportedFormat, "Unknown IOSurface pixel format"};
-        }
+        bool native_mtl_metadata = false;
 
         auto mtl_format = MTLPixelFormatInvalid;
         if (native_format_kind_val == static_cast<uint8_t>(native_format_kind::mtl_pixel_format) &&
             native_format_value != 0) {
             mtl_format = static_cast<MTLPixelFormat>(native_format_value);
+            native_mtl_metadata = true;
         } else {
+            if (iosurface_fourcc_is_ambiguous(static_cast<uint32_t>(surface_fourcc))) {
+                CFRelease(surface);
+                return Error{
+                    ErrorCode::UnsupportedFormat,
+                    "Ambiguous IOSurface pixel format requires native Metal format metadata"
+                };
+            }
+            if (nozzle_fmt == texture_format::unknown) {
+                nozzle_fmt = from_io_surface_pixel_format(surface_fourcc);
+            }
+            if (nozzle_fmt == texture_format::unknown) {
+                CFRelease(surface);
+                return Error{ErrorCode::UnsupportedFormat, "Unknown IOSurface pixel format"};
+            }
             mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(nozzle_fmt));
         }
         if (mtl_format == MTLPixelFormatInvalid) {
             CFRelease(surface);
             return Error{ErrorCode::UnsupportedFormat, "Unsupported nozzle pixel format"};
+        }
+        const auto *mtl_desc = lookup_metal_iosurface_format(mtl_format);
+        if (!mtl_desc) {
+            CFRelease(surface);
+            return Error{ErrorCode::UnsupportedFormat, "Unsupported Metal pixel format"};
+        }
+        if (!iosurface_layout_accepts_mtl_format(static_cast<uint32_t>(surface_fourcc), mtl_format)) {
+            CFRelease(surface);
+            return Error{ErrorCode::UnsupportedFormat, "IOSurface pixel format is not compatible with native Metal format"};
+        }
+        if (native_mtl_metadata) {
+            if (nozzle_fmt == texture_format::unknown) {
+                nozzle_fmt = mtl_desc->storage_format;
+            } else if (nozzle_fmt != mtl_desc->storage_format) {
+                CFRelease(surface);
+                return Error{ErrorCode::UnsupportedFormat, "Published storage format does not match native Metal format"};
+            }
         }
 
         MTLTextureDescriptor *tex_desc =
@@ -458,6 +521,10 @@ Result<texture> wrap_direct_publish_texture(
         return Error{ErrorCode::UnsupportedFormat,
             "direct Metal publish requires explicit storage and semantic formats"};
     }
+    if (desc.semantic_format != desc.storage_format) {
+        return Error{ErrorCode::UnsupportedFormat,
+            "direct Metal publish requires semantic format to match storage format"};
+    }
 
     @autoreleasepool {
         id<MTLDevice> device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);
@@ -492,15 +559,15 @@ Result<texture> wrap_direct_publish_texture(
         }
         CFRelease(lookup_surface);
 
-        OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
-        texture_format observed_storage = from_io_surface_pixel_format(static_cast<uint32_t>(surface_fourcc));
-        if (observed_storage == texture_format::unknown) {
+        const auto *mtl_desc = lookup_metal_iosurface_format(mtl_texture.pixelFormat);
+        if (!mtl_desc) {
             return Error{ErrorCode::UnsupportedFormat,
-                "direct Metal publish requires a supported IOSurface pixel format"};
+                "direct Metal publish requires a supported MTLPixelFormat"};
         }
-        if (observed_storage != desc.storage_format) {
+
+        if (mtl_desc->storage_format != desc.storage_format) {
             return Error{ErrorCode::UnsupportedFormat,
-                "direct Metal publish storage format does not match IOSurface pixel format"};
+                "direct Metal publish storage format does not match MTLPixelFormat"};
         }
 
         MTLPixelFormat expected_mtl_format = to_mtl_pixel_format(static_cast<uint32_t>(desc.storage_format));
@@ -511,6 +578,12 @@ Result<texture> wrap_direct_publish_texture(
         if (mtl_texture.pixelFormat != expected_mtl_format) {
             return Error{ErrorCode::UnsupportedFormat,
                 "direct Metal publish storage format does not match MTLPixelFormat"};
+        }
+
+        OSType surface_fourcc = IOSurfaceGetPixelFormat(surface);
+        if (!iosurface_layout_accepts_mtl_format(static_cast<uint32_t>(surface_fourcc), mtl_texture.pixelFormat)) {
+            return Error{ErrorCode::UnsupportedFormat,
+                "direct Metal publish IOSurface pixel format is not compatible with MTLPixelFormat"};
         }
 
 #if __has_feature(objc_arc)

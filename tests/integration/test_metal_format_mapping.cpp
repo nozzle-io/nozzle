@@ -191,6 +191,95 @@ TEST_CASE("unorm and float 16-bit RGBA share same IOSurface FourCC", "[metal_for
     REQUIRE(pf_unorm == pf_float);
 }
 
+TEST_CASE("Metal IOSurface descriptor keeps alias storage formats typed", "[metal_format]") {
+    uint32_t storage = 0;
+    uint32_t pf_float = 0, pf_uint = 0, bpe = 0;
+
+    auto rgba32f = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba32_float));
+    auto rgba32u = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba32_uint));
+    REQUIRE(rgba32f != rgba32u);
+    REQUIRE(metal::mtl_format_to_iosurface(rgba32f, pf_float, bpe));
+    REQUIRE(metal::mtl_format_to_iosurface(rgba32u, pf_uint, bpe));
+    REQUIRE(pf_float == 'RGfA');
+    REQUIRE(pf_uint == 'RGfA');
+    REQUIRE(metal::mtl_format_to_storage_format(rgba32f, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba32_float));
+    REQUIRE(metal::mtl_format_to_storage_format(rgba32u, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba32_uint));
+    REQUIRE(metal::iosurface_format_accepts_mtl('RGfA', rgba32f));
+    REQUIRE(metal::iosurface_format_accepts_mtl('RGfA', rgba32u));
+    REQUIRE(metal::iosurface_format_requires_native_mtl('RGfA'));
+
+    auto r32f = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::r32_float));
+    auto r32u = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::r32_uint));
+    REQUIRE(r32f != r32u);
+    REQUIRE(metal::mtl_format_to_iosurface(r32f, pf_float, bpe));
+    REQUIRE(metal::mtl_format_to_iosurface(r32u, pf_uint, bpe));
+    REQUIRE(pf_float == 'L00f');
+    REQUIRE(pf_uint == 'L00f');
+    REQUIRE(metal::mtl_format_to_storage_format(r32f, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::r32_float));
+    REQUIRE(metal::mtl_format_to_storage_format(r32u, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::r32_uint));
+    REQUIRE(metal::iosurface_format_accepts_mtl('L00f', r32f));
+    REQUIRE(metal::iosurface_format_accepts_mtl('L00f', r32u));
+    REQUIRE(metal::iosurface_format_requires_native_mtl('L00f'));
+
+    auto rgba16f = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba16_float));
+    auto rgba16n = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba16_unorm));
+    REQUIRE(rgba16f != rgba16n);
+    REQUIRE(metal::mtl_format_to_iosurface(rgba16f, pf_float, bpe));
+    REQUIRE(metal::mtl_format_to_iosurface(rgba16n, pf_uint, bpe));
+    REQUIRE(pf_float == 'RGhA');
+    REQUIRE(pf_uint == 'RGhA');
+    REQUIRE(metal::mtl_format_to_storage_format(rgba16f, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba16_float));
+    REQUIRE(metal::mtl_format_to_storage_format(rgba16n, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba16_unorm));
+    REQUIRE(metal::iosurface_format_accepts_mtl('RGhA', rgba16f));
+    REQUIRE(metal::iosurface_format_accepts_mtl('RGhA', rgba16n));
+    REQUIRE(metal::iosurface_format_requires_native_mtl('RGhA'));
+}
+
+TEST_CASE("Metal IOSurface descriptor treats sRGB FourCC aliases as native-required", "[metal_format]") {
+    auto rgba8 = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba8_unorm));
+    auto rgba8_srgb = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgba8_srgb));
+    auto bgra8 = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::bgra8_unorm));
+    auto bgra8_srgb = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::bgra8_srgb));
+    REQUIRE(rgba8 != rgba8_srgb);
+    REQUIRE(bgra8 != bgra8_srgb);
+    REQUIRE(metal::iosurface_format_accepts_mtl('RGBA', rgba8));
+    REQUIRE(metal::iosurface_format_accepts_mtl('RGBA', rgba8_srgb));
+    REQUIRE(metal::iosurface_format_accepts_mtl('BGRA', bgra8));
+    REQUIRE(metal::iosurface_format_accepts_mtl('BGRA', bgra8_srgb));
+    REQUIRE(metal::iosurface_format_requires_native_mtl('RGBA'));
+    REQUIRE(metal::iosurface_format_requires_native_mtl('BGRA'));
+}
+
+TEST_CASE("Metal IOSurface descriptor reports actual RGBA storage for RGB requests", "[metal_format]") {
+    uint32_t storage = 0;
+
+    auto rgb8 = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgb8_unorm));
+    REQUIRE(metal::mtl_format_to_storage_format(rgb8, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba8_unorm));
+
+    auto rgb16_unorm = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgb16_unorm));
+    REQUIRE(metal::mtl_format_to_storage_format(rgb16_unorm, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba16_unorm));
+
+    auto rgb16_float = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgb16_float));
+    REQUIRE(metal::mtl_format_to_storage_format(rgb16_float, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba16_float));
+
+    auto rgb32_float = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgb32_float));
+    REQUIRE(metal::mtl_format_to_storage_format(rgb32_float, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba32_float));
+
+    auto rgb32_uint = metal::nozzle_format_to_mtl(static_cast<uint32_t>(texture_format::rgb32_uint));
+    REQUIRE(metal::mtl_format_to_storage_format(rgb32_uint, storage));
+    REQUIRE(storage == static_cast<uint32_t>(texture_format::rgba32_uint));
+}
+
 // ---------- bytes_per_element consistency with resolve_bytes_per_pixel ----------
 
 TEST_CASE("mtl_format_to_iosurface: bpe matches resolve_bytes_per_pixel for all formats", "[metal_format]") {

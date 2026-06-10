@@ -220,13 +220,11 @@ Result<pixel_mapping> lock_frame_pixels_mapping_with_origin(const frame &frm, te
     uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
     int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
 
-    OSType surface_fmt = IOSurfaceGetPixelFormat(surface);
-    texture_format actual_fmt = metal::from_io_surface_pixel_format(surface_fmt);
+    auto resolved = tex.resolved();
+    texture_format actual_fmt = resolved.storage_format;
     if (actual_fmt == texture_format::unknown) {
         actual_fmt = info.format;
     }
-
-    auto resolved = tex.resolved();
 
     if (desired_origin == texture_origin::top_left) {
         mapping_impl->pixels = mapped_pixels{base, row_bytes, info.width, info.height, actual_fmt, texture_origin::top_left, resolved.cpu_layout, resolved.source};
@@ -278,13 +276,11 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
     uint8_t *base = static_cast<uint8_t *>(IOSurfaceGetBaseAddress(surface));
     int64_t row_bytes = static_cast<int64_t>(IOSurfaceGetBytesPerRow(surface));
 
-    OSType surface_fmt = IOSurfaceGetPixelFormat(surface);
-    texture_format actual_fmt = metal::from_io_surface_pixel_format(surface_fmt);
+    auto resolved = tex.resolved();
+    texture_format actual_fmt = resolved.storage_format;
     if (actual_fmt == texture_format::unknown) {
         actual_fmt = desc.format;
     }
-
-    auto resolved = tex.resolved();
 
     if (desired_origin == texture_origin::top_left) {
         mapping_impl->pixels = mapped_pixels{base, row_bytes, desc.width, desc.height, actual_fmt, texture_origin::top_left, resolved.cpu_layout, resolved.source};

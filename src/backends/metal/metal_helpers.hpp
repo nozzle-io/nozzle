@@ -38,6 +38,9 @@ void release_mtl_texture_resources(void *texture, void *surface);
 
 uint32_t nozzle_format_to_mtl(uint32_t nozzle_format);
 bool mtl_format_to_iosurface(uint32_t mtl_format, uint32_t &out_pf, uint32_t &out_bpe);
+bool mtl_format_to_storage_format(uint32_t mtl_format, uint32_t &out_storage_format);
+bool iosurface_format_accepts_mtl(uint32_t iosurface_fourcc, uint32_t mtl_format);
+bool iosurface_format_requires_native_mtl(uint32_t iosurface_fourcc);
 
 Result<texture> lookup_iosurface_texture(
     uint32_t iosurface_id,

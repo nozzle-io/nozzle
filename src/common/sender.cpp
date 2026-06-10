@@ -69,6 +69,24 @@ Result<format_fallback_info> make_acquired_frame_fallback_info(
 		fallback_target);
 }
 
+void infer_successful_storage_fallback(
+	texture_format requested,
+	texture_format observed,
+	uint32_t fallback_flags,
+	fallback_category &category,
+	texture_format &fallback_target) {
+	if (requested == observed ||
+		category != fallback_category::none ||
+		fallback_target != texture_format::unknown) {
+		return;
+	}
+	auto plan = detail::make_single_step_texture_attempt_plan(requested, fallback_flags);
+	if (plan.has_fallback && observed == plan.fallback) {
+		category = plan.fallback_cat;
+		fallback_target = plan.fallback;
+	}
+}
+
 } // anonymous namespace
 
 struct sender::Impl {
@@ -396,12 +414,18 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			return tex_result.error();
 		}
 
-		impl_->ring_textures_[slot] = std::move(tex_result.value());
+			impl_->ring_textures_[slot] = std::move(tex_result.value());
 
-		texture_format observed_format = impl_->ring_textures_[slot].desc().format;
+			texture_format observed_format = impl_->ring_textures_[slot].desc().format;
+			infer_successful_storage_fallback(
+				tdesc.format,
+				observed_format,
+				impl_->fallback_flags_,
+				attempted_category,
+				fallback_target);
 
-		auto category_result = classify_observed_format(
-			tdesc.format, observed_format,
+			auto category_result = classify_observed_format(
+				tdesc.format, observed_format,
 			attempted_category, fallback_target,
 			impl_->fallback_flags_);
 		if (!category_result.ok()) {
@@ -436,14 +460,22 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		return writable_result;
 	}
 
-	impl_->slot_in_use_[slot] = true;
+		impl_->slot_in_use_[slot] = true;
 
-	texture_format reused_format = impl_->ring_textures_[slot].desc().format;
+		texture_format reused_format = impl_->ring_textures_[slot].desc().format;
+		fallback_category reuse_attempted_category{fallback_category::none};
+		texture_format reuse_fallback_target{texture_format::unknown};
+		infer_successful_storage_fallback(
+			tdesc.format,
+			reused_format,
+			impl_->fallback_flags_,
+			reuse_attempted_category,
+			reuse_fallback_target);
 
-	auto category_result = classify_observed_format(
-		tdesc.format, reused_format,
-		fallback_category::none, texture_format::unknown,
-		impl_->fallback_flags_);
+		auto category_result = classify_observed_format(
+			tdesc.format, reused_format,
+			reuse_attempted_category, reuse_fallback_target,
+			impl_->fallback_flags_);
 	if (!category_result.ok()) {
 		impl_->slot_in_use_[slot] = false;
 		return category_result.error();
@@ -451,10 +483,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	fallback_category reuse_category = category_result.value();
 
 	auto fb_result = make_acquired_frame_fallback_info(
-		tdesc,
-		reused_format,
-		reuse_category,
-		texture_format::unknown);
+			tdesc,
+			reused_format,
+			reuse_category,
+			reuse_fallback_target);
 	if (!fb_result.ok()) {
 		impl_->slot_in_use_[slot] = false;
 		return fb_result.error();
@@ -533,18 +565,19 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	impl_->state->slots[slot].fallback_category = impl_->state->fallback_category;
 	impl_->state->slots[slot].fallback_quality_loss = impl_->state->fallback_quality_loss;
 
-	if (impl_->ring_textures_[slot].valid()) {
-		const auto &resolved = impl_->ring_textures_[slot].resolved();
-		impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(resolved.native.kind);
-		impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
-		impl_->state->slots[slot].native_format_value = resolved.native.value;
-		impl_->state->slots[slot].native_format_modifier = resolved.native.modifier;
-		impl_->state->slots[slot].plane_count = resolved.native.plane_count;
-		for (uint32_t i = 0; i < resolved.native.plane_count && i < 4; ++i) {
-			impl_->state->slots[slot].plane_strides[i] = resolved.native.plane_strides[i];
-			impl_->state->slots[slot].plane_offsets[i] = resolved.native.plane_offsets[i];
+		const auto &committed_texture = f.get_texture();
+		if (committed_texture.valid()) {
+			const auto &resolved = committed_texture.resolved();
+			impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(resolved.native.kind);
+			impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
+			impl_->state->slots[slot].native_format_value = resolved.native.value;
+			impl_->state->slots[slot].native_format_modifier = resolved.native.modifier;
+			impl_->state->slots[slot].plane_count = resolved.native.plane_count;
+			for (uint32_t i = 0; i < resolved.native.plane_count && i < 4; ++i) {
+				impl_->state->slots[slot].plane_strides[i] = resolved.native.plane_strides[i];
+				impl_->state->slots[slot].plane_offsets[i] = resolved.native.plane_offsets[i];
+			}
 		}
-	}
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
