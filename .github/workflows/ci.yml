@@ -42,6 +42,12 @@ jobs:
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact
 
+      # Explicit evidence for #82 Metal IOSurface alias runtime coverage.
+      # --allow-running-no-tests keeps runner capability skips visible in the log
+      # without turning an unsupported macOS runner into a false test failure.
+      - name: Metal IOSurface alias runtime tests
+        run: ./build/tests/nozzle_integration_tests "[metal][direct_publish][native_format]" --reporter compact --success --allow-running-no-tests
+
   build-windows:
     runs-on: windows-2022
     steps:
