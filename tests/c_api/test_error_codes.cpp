@@ -77,6 +77,45 @@ TEST_CASE("C API: read-only pixel copy rejects invalid arguments", "[c_api][pixe
         == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
+TEST_CASE("C API: frame info rejects null and unbacked wrappers", "[c_api][frame_info]") {
+    NozzleFrameInfo frame_info{};
+    NozzleResolvedTextureFormat resolved{};
+    NozzleFormatFallbackInfo fallback{};
+    NozzleFrame frame{};
+    NozzleFrame writable_frame{};
+    writable_frame.is_writable = true;
+
+    CHECK(nozzle_frame_get_info(nullptr, &frame_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_info(&frame, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_info(&frame, &frame_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_info(&writable_frame, &frame_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    CHECK(nozzle_frame_get_resolved_format(nullptr, &resolved) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_resolved_format(&frame, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_resolved_format(&frame, &resolved) == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    CHECK(nozzle_frame_get_format_fallback_info(nullptr, &fallback) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_format_fallback_info(&frame, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_format_fallback_info(&frame, &fallback) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_frame_get_format_fallback_info(&writable_frame, &fallback) == NOZZLE_OK);
+    CHECK(fallback.requested_format == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(fallback.storage_format == NOZZLE_FORMAT_UNKNOWN);
+    CHECK(fallback.category == NOZZLE_FALLBACK_CATEGORY_NONE);
+}
+
+TEST_CASE("C API: sender and receiver info getters reject null boundaries", "[c_api][info]") {
+    NozzleSenderInfo sender_info{};
+    NozzleNativeDevice native_device{};
+    NozzleConnectedSenderInfo connected_info{};
+
+    CHECK(nozzle_sender_get_info(nullptr, &sender_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_sender_get_info(nullptr, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_sender_get_native_device(nullptr, &native_device) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_sender_get_native_device(nullptr, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_receiver_get_connected_info(nullptr, &connected_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
+    CHECK(nozzle_receiver_get_connected_info(nullptr, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
+}
+
 #if NOZZLE_ENABLE_TEST_HOOKS
 
 namespace {

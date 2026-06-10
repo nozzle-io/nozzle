@@ -798,6 +798,7 @@ NozzleErrorCode nozzle_frame_get_info(
     if (!frame || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
     if (frame->is_writable) {
+        if (!frame->writable) return NOZZLE_ERROR_INVALID_ARGUMENT;
         const auto &td = frame->writable->desc();
         out_info->frame_index = 0;
         out_info->timestamp_ns = 0;
@@ -809,6 +810,7 @@ NozzleErrorCode nozzle_frame_get_info(
         out_info->sync_mode = NOZZLE_SYNC_NONE;
         out_info->dropped_frame_count = 0;
     } else {
+        if (!frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
         const auto fi = frame->obj->info();
         out_info->frame_index = fi.frame_index;
         out_info->timestamp_ns = fi.timestamp_ns;
@@ -833,6 +835,7 @@ NozzleErrorCode nozzle_frame_get_format_fallback_info(
     if (frame->is_writable) {
         fb = {};
     } else {
+        if (!frame->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
         fb = frame->obj->info().fallback;
     }
 
