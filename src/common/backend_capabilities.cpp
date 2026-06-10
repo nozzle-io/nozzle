@@ -68,13 +68,16 @@ constexpr uint64_t four_channel_storage_formats =
         texture_format::r32_uint,
         texture_format::rgba32_uint);
 
+constexpr uint64_t metal_requested_formats =
+    requested_color_formats &
+    ~texture_format_bit(texture_format::rgba8_srgb) &
+    ~texture_format_bit(texture_format::bgra8_srgb);
+
 constexpr uint64_t metal_iosurface_storage_formats =
     bits(texture_format::r8_unorm,
         texture_format::rg8_unorm,
         texture_format::rgba8_unorm,
         texture_format::bgra8_unorm,
-        texture_format::rgba8_srgb,
-        texture_format::bgra8_srgb,
         texture_format::r16_unorm,
         texture_format::rg16_unorm,
         texture_format::rgba16_unorm,
@@ -107,8 +110,6 @@ constexpr uint64_t opengl_interop_formats =
         texture_format::rgb8_unorm,
         texture_format::rgba8_unorm,
         texture_format::bgra8_unorm,
-        texture_format::rgba8_srgb,
-        texture_format::bgra8_srgb,
         texture_format::r16_unorm,
         texture_format::rg16_unorm,
         texture_format::rgb16_unorm,
@@ -153,7 +154,7 @@ constexpr backend_capabilities metal_capabilities{
     native_format_kind::mtl_pixel_format,
     fallback_safe_defaults,
     0,
-    requested_color_formats,
+    metal_requested_formats,
     metal_iosurface_storage_formats,
     metal_iosurface_storage_formats,
     metal_iosurface_storage_formats,

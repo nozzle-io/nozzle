@@ -82,6 +82,36 @@ TEST_CASE("backend capability keeps RGB semantic separate from Metal and D3D11 s
     CHECK(supports_format(metal->writable_storage_format_bits, texture_format::rgba8_unorm));
 }
 
+TEST_CASE("backend capability does not advertise Metal sRGB IOSurface paths rejected by backend", "[backend_capabilities]") {
+    auto metal = get_backend_capabilities(backend_type::metal);
+    REQUIRE(metal.ok());
+
+    // create_iosurface_texture() rejects rgba8_srgb/bgra8_srgb for IOSurface-backed
+    // storage. Writable frames, native publish ring textures, CPU mapping, and the
+    // high-level requested semantic path all depend on that storage path.
+    CHECK(!supports_format(metal->requested_format_bits, texture_format::rgba8_srgb));
+    CHECK(!supports_format(metal->requested_format_bits, texture_format::bgra8_srgb));
+    CHECK(!supports_format(metal->writable_storage_format_bits, texture_format::rgba8_srgb));
+    CHECK(!supports_format(metal->writable_storage_format_bits, texture_format::bgra8_srgb));
+    CHECK(!supports_format(metal->native_publish_format_bits, texture_format::rgba8_srgb));
+    CHECK(!supports_format(metal->native_publish_format_bits, texture_format::bgra8_srgb));
+    CHECK(!supports_format(metal->direct_publish_format_bits, texture_format::rgba8_srgb));
+    CHECK(!supports_format(metal->direct_publish_format_bits, texture_format::bgra8_srgb));
+    CHECK(!supports_format(metal->cpu_read_format_bits, texture_format::rgba8_srgb));
+    CHECK(!supports_format(metal->cpu_write_format_bits, texture_format::bgra8_srgb));
+}
+
+TEST_CASE("backend capability does not advertise OpenGL sRGB publish rejected on macOS IOSurface path", "[backend_capabilities]") {
+    auto opengl = get_backend_capabilities(backend_type::opengl);
+    REQUIRE(opengl.ok());
+
+    // The macOS publish_gl_texture() path rejects sRGB IOSurface storage. Keep
+    // the static contract conservative until a platform-specific non-IOSurface
+    // sRGB publish path is tested and documented.
+    CHECK(!supports_format(opengl->native_publish_format_bits, texture_format::rgba8_srgb));
+    CHECK(!supports_format(opengl->native_publish_format_bits, texture_format::bgra8_srgb));
+}
+
 TEST_CASE("backend capability docs matrix matches compiled table", "[backend_capabilities][docs]") {
     auto docs = read_file(NOZZLE_SOURCE_DIR "/docs/backend-capabilities.md");
     CHECK(extract_generated_block(docs) == nozzle::detail::backend_capabilities_markdown_matrix());

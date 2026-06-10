@@ -89,6 +89,46 @@ TEST_CASE("C API: RGB semantic is not reported as D3D11 direct storage", "[c_api
         caps.writable_storage_format_bits) == 1);
 }
 
+TEST_CASE("C API: Metal capability excludes sRGB IOSurface paths rejected by backend", "[c_api][backend_capabilities]") {
+    NozzleBackendCapabilities caps{};
+    REQUIRE(nozzle_get_backend_capabilities(NOZZLE_BACKEND_METAL, &caps) == NOZZLE_OK);
+
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_RGBA8_SRGB,
+        caps.requested_format_bits) == 0);
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_BGRA8_SRGB,
+        caps.requested_format_bits) == 0);
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_RGBA8_SRGB,
+        caps.writable_storage_format_bits) == 0);
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_BGRA8_SRGB,
+        caps.native_publish_format_bits) == 0);
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_RGBA8_SRGB,
+        caps.direct_publish_format_bits) == 0);
+}
+
+TEST_CASE("C API: OpenGL capability excludes sRGB publish rejected on macOS IOSurface path", "[c_api][backend_capabilities]") {
+    NozzleBackendCapabilities caps{};
+    REQUIRE(nozzle_get_backend_capabilities(NOZZLE_BACKEND_OPENGL, &caps) == NOZZLE_OK);
+
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_RGBA8_SRGB,
+        caps.native_publish_format_bits) == 0);
+    CHECK(nozzle_backend_capabilities_support_format(
+        &caps,
+        NOZZLE_FORMAT_BGRA8_SRGB,
+        caps.native_publish_format_bits) == 0);
+}
+
 #if NOZZLE_HAS_D3D11
 TEST_CASE("C API: current platform D3D11 capability has operation format bits", "[c_api][backend_capabilities]") {
     NozzleBackendCapabilities caps{};
