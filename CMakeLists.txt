@@ -111,6 +111,7 @@ target_sources(nozzle PRIVATE
     src/common/channel_swizzle.cpp
     src/common/format_convert.cpp
     src/common/format_resolve.cpp
+    src/common/backend_capabilities.cpp
     src/c_api/nozzle_c.cpp
 )
 

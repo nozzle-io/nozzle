@@ -132,6 +132,47 @@ enum class native_format_kind : uint8_t {
     gl_internal_format = 4
 };
 
+enum class backend_sharing_mechanism : uint32_t {
+    none = 0,
+    iosurface = 1u << 0,
+    d3d11_nt_handle = 1u << 1,
+    dma_buf = 1u << 2,
+    opengl_texture = 1u << 3,
+};
+
+enum class backend_capability_flags : uint32_t {
+    none = 0,
+    sender = 1u << 0,
+    receiver = 1u << 1,
+    writable_frames = 1u << 2,
+    native_texture_publish = 1u << 3,
+    direct_external_publish = 1u << 4,
+    cpu_read = 1u << 5,
+    cpu_write = 1u << 6,
+    zero_copy_receive = 1u << 7,
+    zero_copy_publish = 1u << 8,
+    requires_matching_backend = 1u << 9,
+    single_sender_per_process = 1u << 10,
+    may_require_runtime_probe = 1u << 11,
+};
+
+struct backend_capabilities {
+    uint32_t version{1};
+    backend_type backend{backend_type::unknown};
+    uint32_t capability_flags{0};
+    uint32_t sharing_mechanisms{0};
+    native_format_kind native_kind{native_format_kind::unknown};
+    uint32_t default_fallback_flags{0};
+    uint32_t max_senders_per_process{0};
+    uint64_t requested_format_bits{0};
+    uint64_t writable_storage_format_bits{0};
+    uint64_t native_publish_format_bits{0};
+    uint64_t direct_publish_format_bits{0};
+    uint64_t cpu_read_format_bits{0};
+    uint64_t cpu_write_format_bits{0};
+    uint64_t known_quality_loss_format_bits{0};
+};
+
 struct native_format_desc {
     backend_type backend{backend_type::unknown};
     native_format_kind kind{native_format_kind::unknown};

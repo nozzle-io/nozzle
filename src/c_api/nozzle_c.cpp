@@ -12,6 +12,7 @@
 #include <nozzle/channel_swizzle.hpp>
 #include <nozzle/format_convert.hpp>
 #include <nozzle/format_resolve.hpp>
+#include <nozzle/backend_capabilities.hpp>
 
 #include "common/frame_helpers.hpp"
 
@@ -259,6 +260,42 @@ static_assert(offsetof(NozzleFormatFallbackInfo, category) == 12, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, swizzle) == 16, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, quality_loss) == 20, "");
 
+static_assert(NOZZLE_BACKEND_CAPABILITIES_VERSION == nozzle::backend_capabilities_version, "");
+static_assert(NOZZLE_SHARING_IOSURFACE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::iosurface), "");
+static_assert(NOZZLE_SHARING_D3D11_NT_HANDLE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::d3d11_nt_handle), "");
+static_assert(NOZZLE_SHARING_DMA_BUF == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::dma_buf), "");
+static_assert(NOZZLE_SHARING_OPENGL_TEXTURE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::opengl_texture), "");
+static_assert(NOZZLE_BACKEND_CAP_SENDER == static_cast<uint32_t>(nozzle::backend_capability_flags::sender), "");
+static_assert(NOZZLE_BACKEND_CAP_RECEIVER == static_cast<uint32_t>(nozzle::backend_capability_flags::receiver), "");
+static_assert(NOZZLE_BACKEND_CAP_WRITABLE_FRAMES == static_cast<uint32_t>(nozzle::backend_capability_flags::writable_frames), "");
+static_assert(NOZZLE_BACKEND_CAP_NATIVE_TEXTURE_PUBLISH == static_cast<uint32_t>(nozzle::backend_capability_flags::native_texture_publish), "");
+static_assert(NOZZLE_BACKEND_CAP_DIRECT_EXTERNAL_PUBLISH == static_cast<uint32_t>(nozzle::backend_capability_flags::direct_external_publish), "");
+static_assert(NOZZLE_BACKEND_CAP_CPU_READ == static_cast<uint32_t>(nozzle::backend_capability_flags::cpu_read), "");
+static_assert(NOZZLE_BACKEND_CAP_CPU_WRITE == static_cast<uint32_t>(nozzle::backend_capability_flags::cpu_write), "");
+static_assert(NOZZLE_BACKEND_CAP_ZERO_COPY_RECEIVE == static_cast<uint32_t>(nozzle::backend_capability_flags::zero_copy_receive), "");
+static_assert(NOZZLE_BACKEND_CAP_ZERO_COPY_PUBLISH == static_cast<uint32_t>(nozzle::backend_capability_flags::zero_copy_publish), "");
+static_assert(NOZZLE_BACKEND_CAP_REQUIRES_MATCHING_BACKEND == static_cast<uint32_t>(nozzle::backend_capability_flags::requires_matching_backend), "");
+static_assert(NOZZLE_BACKEND_CAP_SINGLE_SENDER_PER_PROCESS == static_cast<uint32_t>(nozzle::backend_capability_flags::single_sender_per_process), "");
+static_assert(NOZZLE_BACKEND_CAP_MAY_REQUIRE_RUNTIME_PROBE == static_cast<uint32_t>(nozzle::backend_capability_flags::may_require_runtime_probe), "");
+
+static_assert(sizeof(NozzleBackendCapabilities) == 88, "");
+static_assert(alignof(NozzleBackendCapabilities) == 8, "");
+static_assert(offsetof(NozzleBackendCapabilities, struct_size) == 0, "");
+static_assert(offsetof(NozzleBackendCapabilities, version) == 4, "");
+static_assert(offsetof(NozzleBackendCapabilities, backend) == 8, "");
+static_assert(offsetof(NozzleBackendCapabilities, capability_flags) == 12, "");
+static_assert(offsetof(NozzleBackendCapabilities, sharing_mechanisms) == 16, "");
+static_assert(offsetof(NozzleBackendCapabilities, native_format_kind) == 20, "");
+static_assert(offsetof(NozzleBackendCapabilities, default_fallback_flags) == 24, "");
+static_assert(offsetof(NozzleBackendCapabilities, max_senders_per_process) == 28, "");
+static_assert(offsetof(NozzleBackendCapabilities, requested_format_bits) == 32, "");
+static_assert(offsetof(NozzleBackendCapabilities, writable_storage_format_bits) == 40, "");
+static_assert(offsetof(NozzleBackendCapabilities, native_publish_format_bits) == 48, "");
+static_assert(offsetof(NozzleBackendCapabilities, direct_publish_format_bits) == 56, "");
+static_assert(offsetof(NozzleBackendCapabilities, cpu_read_format_bits) == 64, "");
+static_assert(offsetof(NozzleBackendCapabilities, cpu_write_format_bits) == 72, "");
+static_assert(offsetof(NozzleBackendCapabilities, known_quality_loss_format_bits) == 80, "");
+
 NozzleErrorCode fill_fallback(
     NozzleFormatFallbackInfo *out_info,
     const nozzle::format_fallback_info &fb
@@ -406,6 +443,54 @@ NozzleErrorCode nozzle_resolve_fallback_flags(
         }
     }
     return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_get_backend_capabilities(
+    NozzleBackendType backend,
+    NozzleBackendCapabilities *out_caps
+) {
+    if (!out_caps) return NOZZLE_ERROR_INVALID_ARGUMENT;
+    uint32_t caller_struct_size = out_caps->struct_size;
+    if (caller_struct_size != 0 && caller_struct_size < sizeof(NozzleBackendCapabilities)) {
+        return NOZZLE_ERROR_INVALID_ARGUMENT;
+    }
+
+    auto result = nozzle::get_backend_capabilities(to_cpp_backend_type(backend));
+    if (!result.ok()) {
+        std::memset(out_caps, 0, sizeof(*out_caps));
+        return to_c_error(result.error().code);
+    }
+
+    const auto &caps = result.value();
+    std::memset(out_caps, 0, sizeof(*out_caps));
+    out_caps->struct_size = sizeof(*out_caps);
+    out_caps->version = caps.version;
+    out_caps->backend = to_c_backend_type(caps.backend);
+    out_caps->capability_flags = caps.capability_flags;
+    out_caps->sharing_mechanisms = caps.sharing_mechanisms;
+    out_caps->native_format_kind = to_c_native_kind(caps.native_kind);
+    out_caps->default_fallback_flags = caps.default_fallback_flags;
+    out_caps->max_senders_per_process = caps.max_senders_per_process;
+    out_caps->requested_format_bits = caps.requested_format_bits;
+    out_caps->writable_storage_format_bits = caps.writable_storage_format_bits;
+    out_caps->native_publish_format_bits = caps.native_publish_format_bits;
+    out_caps->direct_publish_format_bits = caps.direct_publish_format_bits;
+    out_caps->cpu_read_format_bits = caps.cpu_read_format_bits;
+    out_caps->cpu_write_format_bits = caps.cpu_write_format_bits;
+    out_caps->known_quality_loss_format_bits = caps.known_quality_loss_format_bits;
+    return NOZZLE_OK;
+}
+
+int nozzle_backend_capabilities_support_format(
+    const NozzleBackendCapabilities *caps,
+    NozzleTextureFormat format,
+    uint64_t format_bits
+) {
+    if (!caps) return 0;
+    if (caps->struct_size < sizeof(NozzleBackendCapabilities)) return 0;
+    if (caps->version != NOZZLE_BACKEND_CAPABILITIES_VERSION) return 0;
+    (void)caps;
+    return nozzle::supports_format(format_bits, to_cpp_format(format)) ? 1 : 0;
 }
 
 NozzleErrorCode nozzle_sender_create(

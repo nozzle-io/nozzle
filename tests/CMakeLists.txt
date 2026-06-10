@@ -17,6 +17,7 @@ set(UNIT_TEST_SOURCES
     unit/test_discovery.cpp
     unit/test_channel_swizzle.cpp
     unit/test_format_resolve.cpp
+    unit/test_backend_capabilities.cpp
     unit/test_resolved_format.cpp
     unit/test_format_convert.cpp
     unit/test_shared_metadata.cpp
@@ -28,6 +29,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_SOURCE_DIR}/src/common/format_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_convert_sse2.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_convert_neon.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/backend_capabilities.cpp
 )
 
 if(APPLE)
@@ -57,16 +59,19 @@ target_include_directories(nozzle_tests PRIVATE
 
 if(WIN32)
     target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
         NOZZLE_PLATFORM_WINDOWS=1
         NOZZLE_HAS_D3D11=1
     )
 elseif(APPLE)
     target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
         NOZZLE_PLATFORM_MACOS=1
         NOZZLE_HAS_METAL=1
     )
 elseif(UNIX AND NOT APPLE)
     target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
         NOZZLE_PLATFORM_LINUX=1
         NOZZLE_HAS_DMA_BUF=1
     )
@@ -168,6 +173,7 @@ add_executable(nozzle_c_api_tests
     c_api/test_fill_alpha.cpp
     c_api/test_error_codes.cpp
     c_api/test_dmabuf_publish.cpp
+    c_api/test_backend_capabilities.cpp
 )
 
 target_link_libraries(nozzle_c_api_tests PRIVATE

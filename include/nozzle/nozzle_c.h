@@ -133,6 +133,50 @@ typedef enum NozzleNativeFormatKind {
     NOZZLE_NATIVE_KIND_GL_INTERNAL_FORMAT = 4,
 } NozzleNativeFormatKind;
 
+typedef enum NozzleBackendSharingMechanism {
+    NOZZLE_SHARING_NONE = 0,
+    NOZZLE_SHARING_IOSURFACE = 1u << 0,
+    NOZZLE_SHARING_D3D11_NT_HANDLE = 1u << 1,
+    NOZZLE_SHARING_DMA_BUF = 1u << 2,
+    NOZZLE_SHARING_OPENGL_TEXTURE = 1u << 3,
+} NozzleBackendSharingMechanism;
+
+typedef enum NozzleBackendCapabilityFlags {
+    NOZZLE_BACKEND_CAP_NONE = 0,
+    NOZZLE_BACKEND_CAP_SENDER = 1u << 0,
+    NOZZLE_BACKEND_CAP_RECEIVER = 1u << 1,
+    NOZZLE_BACKEND_CAP_WRITABLE_FRAMES = 1u << 2,
+    NOZZLE_BACKEND_CAP_NATIVE_TEXTURE_PUBLISH = 1u << 3,
+    NOZZLE_BACKEND_CAP_DIRECT_EXTERNAL_PUBLISH = 1u << 4,
+    NOZZLE_BACKEND_CAP_CPU_READ = 1u << 5,
+    NOZZLE_BACKEND_CAP_CPU_WRITE = 1u << 6,
+    NOZZLE_BACKEND_CAP_ZERO_COPY_RECEIVE = 1u << 7,
+    NOZZLE_BACKEND_CAP_ZERO_COPY_PUBLISH = 1u << 8,
+    NOZZLE_BACKEND_CAP_REQUIRES_MATCHING_BACKEND = 1u << 9,
+    NOZZLE_BACKEND_CAP_SINGLE_SENDER_PER_PROCESS = 1u << 10,
+    NOZZLE_BACKEND_CAP_MAY_REQUIRE_RUNTIME_PROBE = 1u << 11,
+} NozzleBackendCapabilityFlags;
+
+#define NOZZLE_BACKEND_CAPABILITIES_VERSION 1u
+
+typedef struct NozzleBackendCapabilities {
+    uint32_t struct_size;
+    uint32_t version;
+    NozzleBackendType backend;
+    uint32_t capability_flags;
+    uint32_t sharing_mechanisms;
+    NozzleNativeFormatKind native_format_kind;
+    uint32_t default_fallback_flags;
+    uint32_t max_senders_per_process;
+    uint64_t requested_format_bits;
+    uint64_t writable_storage_format_bits;
+    uint64_t native_publish_format_bits;
+    uint64_t direct_publish_format_bits;
+    uint64_t cpu_read_format_bits;
+    uint64_t cpu_write_format_bits;
+    uint64_t known_quality_loss_format_bits;
+} NozzleBackendCapabilities;
+
 // ========== Fallback Category & Swizzle ==========
 
 typedef enum NozzleFallbackCategory {
@@ -251,6 +295,17 @@ typedef struct NozzleFrameInfo {
 NOZZLE_C_API NozzleErrorCode nozzle_resolve_fallback_flags(
     const NozzleSenderDesc *desc,
     uint32_t *out_flags
+);
+
+NOZZLE_C_API NozzleErrorCode nozzle_get_backend_capabilities(
+    NozzleBackendType backend,
+    NozzleBackendCapabilities *out_caps
+);
+
+NOZZLE_C_API int nozzle_backend_capabilities_support_format(
+    const NozzleBackendCapabilities *caps,
+    NozzleTextureFormat format,
+    uint64_t format_bits
 );
 
 // ========== Sender API ==========

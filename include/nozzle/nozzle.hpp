@@ -8,3 +8,4 @@
 #include <nozzle/sender.hpp>
 #include <nozzle/receiver.hpp>
 #include <nozzle/discovery.hpp>
+#include <nozzle/backend_capabilities.hpp>
