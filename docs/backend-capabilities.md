@@ -4,6 +4,29 @@ This matrix is the first-slice public contract for backend capability queries.
 It is intentionally conservative: operation-specific format columns must not be
 read as a generic “supported formats” list.
 
+## Static capabilities vs availability
+
+`get_backend_capabilities(...)` / `nozzle_get_backend_capabilities(...)` return
+the static reference contract for a backend implementation. They do not mean
+that the backend is compiled into the current library, selectable on the current
+platform, or usable by the current process/device.
+
+Use `is_backend_available(...)` / `nozzle_backend_is_available(...)` to answer
+only the current-build question: “does this compiled nozzle library contain this
+backend?”. A nonzero result is not a runtime/device probe. Backends marked with
+`may_require_runtime_probe` can still fail when the required API, device,
+context, permissions, or external resource is not available.
+
+OpenGL is represented as an interop/native-texture publish path with runtime
+context requirements. It is not advertised as a normal sender/receiver backend
+in the static capability flags.
+
+The C ABI v1 `NozzleBackendCapabilities` policy is exact-size: callers may pass
+`struct_size == 0` for a zero-initialized output struct, or
+`struct_size == sizeof(NozzleBackendCapabilities)`. Any other nonzero size is
+invalid. Future extensions must bump `NOZZLE_BACKEND_CAPABILITIES_VERSION` or
+add a new struct/API instead of silently changing this v1 layout.
+
 - `requested_formats` are semantic formats accepted by the high-level API.
 - `writable_storage_formats` are actual storage formats for writable frames.
 - `native_publish_formats` are formats usable through native texture copy/blit

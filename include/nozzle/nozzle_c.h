@@ -302,6 +302,10 @@ NOZZLE_C_API NozzleErrorCode nozzle_get_backend_capabilities(
     NozzleBackendCapabilities *out_caps
 );
 
+// Returns nonzero only when this compiled nozzle library includes the backend.
+// This is a current-build availability check, not a runtime/device probe.
+NOZZLE_C_API int nozzle_backend_is_available(NozzleBackendType backend);
+
 NOZZLE_C_API int nozzle_backend_capabilities_support_format(
     const NozzleBackendCapabilities *caps,
     NozzleTextureFormat format,

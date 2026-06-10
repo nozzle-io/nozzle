@@ -451,7 +451,7 @@ NozzleErrorCode nozzle_get_backend_capabilities(
 ) {
     if (!out_caps) return NOZZLE_ERROR_INVALID_ARGUMENT;
     uint32_t caller_struct_size = out_caps->struct_size;
-    if (caller_struct_size != 0 && caller_struct_size < sizeof(NozzleBackendCapabilities)) {
+    if (caller_struct_size != 0 && caller_struct_size != sizeof(NozzleBackendCapabilities)) {
         return NOZZLE_ERROR_INVALID_ARGUMENT;
     }
 
@@ -481,13 +481,17 @@ NozzleErrorCode nozzle_get_backend_capabilities(
     return NOZZLE_OK;
 }
 
+int nozzle_backend_is_available(NozzleBackendType backend) {
+    return nozzle::is_backend_available(to_cpp_backend_type(backend)) ? 1 : 0;
+}
+
 int nozzle_backend_capabilities_support_format(
     const NozzleBackendCapabilities *caps,
     NozzleTextureFormat format,
     uint64_t format_bits
 ) {
     if (!caps) return 0;
-    if (caps->struct_size < sizeof(NozzleBackendCapabilities)) return 0;
+    if (caps->struct_size != sizeof(NozzleBackendCapabilities)) return 0;
     if (caps->version != NOZZLE_BACKEND_CAPABILITIES_VERSION) return 0;
     (void)caps;
     return nozzle::supports_format(format_bits, to_cpp_format(format)) ? 1 : 0;

@@ -61,6 +61,34 @@ TEST_CASE("backend capability query returns static backend metadata", "[backend_
     }
 }
 
+TEST_CASE("backend availability reports current compiled library, not static reference table", "[backend_capabilities]") {
+#if NOZZLE_HAS_METAL
+    CHECK(is_backend_available(backend_type::metal));
+#else
+    CHECK(!is_backend_available(backend_type::metal));
+#endif
+
+#if NOZZLE_HAS_D3D11
+    CHECK(is_backend_available(backend_type::d3d11));
+#else
+    CHECK(!is_backend_available(backend_type::d3d11));
+#endif
+
+#if NOZZLE_HAS_DMA_BUF
+    CHECK(is_backend_available(backend_type::dma_buf));
+#else
+    CHECK(!is_backend_available(backend_type::dma_buf));
+#endif
+
+#if NOZZLE_HAS_OPENGL
+    CHECK(is_backend_available(backend_type::opengl));
+#else
+    CHECK(!is_backend_available(backend_type::opengl));
+#endif
+
+    CHECK(!is_backend_available(backend_type::unknown));
+}
+
 TEST_CASE("backend capability format helper rejects unknown and out-of-range formats", "[backend_capabilities]") {
     uint64_t bits = texture_format_bit(texture_format::rgba8_unorm);
     CHECK(supports_format(bits, texture_format::rgba8_unorm));

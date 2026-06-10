@@ -290,6 +290,38 @@ Result<backend_capabilities> get_backend_capabilities(backend_type backend) {
     return *caps;
 }
 
+bool is_backend_available(backend_type backend) noexcept {
+    switch (backend) {
+        case backend_type::metal:
+#if NOZZLE_HAS_METAL
+            return true;
+#else
+            return false;
+#endif
+        case backend_type::d3d11:
+#if NOZZLE_HAS_D3D11
+            return true;
+#else
+            return false;
+#endif
+        case backend_type::dma_buf:
+#if NOZZLE_HAS_DMA_BUF
+            return true;
+#else
+            return false;
+#endif
+        case backend_type::opengl:
+#if NOZZLE_HAS_OPENGL
+            return true;
+#else
+            return false;
+#endif
+        case backend_type::unknown:
+        default:
+            return false;
+    }
+}
+
 const char *backend_type_name(backend_type backend) noexcept {
     switch (backend) {
         case backend_type::d3d11: return "d3d11";

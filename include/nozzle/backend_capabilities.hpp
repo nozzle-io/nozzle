@@ -24,6 +24,8 @@ constexpr bool supports_format(uint64_t format_bits, texture_format format) noex
 
 Result<backend_capabilities> get_backend_capabilities(backend_type backend);
 
+bool is_backend_available(backend_type backend) noexcept;
+
 const char *backend_type_name(backend_type backend) noexcept;
 
 } // namespace nozzle

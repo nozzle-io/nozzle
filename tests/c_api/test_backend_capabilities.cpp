@@ -3,14 +3,12 @@
 #include <nozzle/nozzle_c.h>
 
 #include <cstdint>
-#include <cstring>
 
 TEST_CASE("C API: backend capability query rejects invalid arguments", "[c_api][backend_capabilities]") {
     CHECK(nozzle_get_backend_capabilities(NOZZLE_BACKEND_D3D11, nullptr)
         == NOZZLE_ERROR_INVALID_ARGUMENT);
 
     NozzleBackendCapabilities caps{};
-    std::memset(&caps, 0xff, sizeof(caps));
     CHECK(nozzle_get_backend_capabilities(NOZZLE_BACKEND_UNKNOWN, &caps)
         == NOZZLE_ERROR_UNSUPPORTED_BACKEND);
     CHECK(caps.struct_size == 0);
@@ -18,6 +16,11 @@ TEST_CASE("C API: backend capability query rejects invalid arguments", "[c_api][
 
     caps = {};
     caps.struct_size = sizeof(NozzleBackendCapabilities) - 1;
+    CHECK(nozzle_get_backend_capabilities(NOZZLE_BACKEND_D3D11, &caps)
+        == NOZZLE_ERROR_INVALID_ARGUMENT);
+
+    caps = {};
+    caps.struct_size = sizeof(NozzleBackendCapabilities) + 8;
     CHECK(nozzle_get_backend_capabilities(NOZZLE_BACKEND_D3D11, &caps)
         == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
@@ -58,6 +61,13 @@ TEST_CASE("C API: backend capability format helper validates struct and format r
         NOZZLE_FORMAT_RGBA8_UNORM,
         too_small.writable_storage_format_bits) == 0);
 
+    auto too_large = caps;
+    too_large.struct_size = sizeof(NozzleBackendCapabilities) + 8;
+    CHECK(nozzle_backend_capabilities_support_format(
+        &too_large,
+        NOZZLE_FORMAT_RGBA8_UNORM,
+        too_large.writable_storage_format_bits) == 0);
+
     auto wrong_version = caps;
     wrong_version.version = NOZZLE_BACKEND_CAPABILITIES_VERSION + 1;
     CHECK(nozzle_backend_capabilities_support_format(
@@ -87,6 +97,34 @@ TEST_CASE("C API: RGB semantic is not reported as D3D11 direct storage", "[c_api
         &caps,
         NOZZLE_FORMAT_RGBA8_UNORM,
         caps.writable_storage_format_bits) == 1);
+}
+
+TEST_CASE("C API: backend availability reports current compiled library", "[c_api][backend_capabilities]") {
+#if NOZZLE_HAS_METAL
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_METAL) == 1);
+#else
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_METAL) == 0);
+#endif
+
+#if NOZZLE_HAS_D3D11
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_D3D11) == 1);
+#else
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_D3D11) == 0);
+#endif
+
+#if NOZZLE_HAS_DMA_BUF
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_DMA_BUF) == 1);
+#else
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_DMA_BUF) == 0);
+#endif
+
+#if NOZZLE_HAS_OPENGL
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_OPENGL) == 1);
+#else
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_OPENGL) == 0);
+#endif
+
+    CHECK(nozzle_backend_is_available(NOZZLE_BACKEND_UNKNOWN) == 0);
 }
 
 TEST_CASE("C API: Metal capability excludes sRGB IOSurface paths rejected by backend", "[c_api][backend_capabilities]") {
