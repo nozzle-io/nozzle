@@ -98,6 +98,11 @@ static bool is_backend_unavailable(const nozzle::Error &error) {
         || error.code == nozzle::ErrorCode::BackendError;
 }
 
+static bool is_backend_capability_unavailable(const nozzle::Error &error) {
+    return error.code == nozzle::ErrorCode::UnsupportedBackend
+        || error.code == nozzle::ErrorCode::ResourceCreationFailed;
+}
+
 static bool contains_sender_named(
     const std::vector<nozzle::sender_info> &senders,
     const std::string &name)
@@ -119,6 +124,22 @@ static nozzle::sender_info find_sender_named(
     }
     return {};
 }
+
+static void require_fallback_metadata(
+    const nozzle::format_fallback_info &fallback,
+    nozzle::texture_format requested_format,
+    nozzle::texture_format storage_format,
+    nozzle::texture_format fallback_target,
+    nozzle::channel_swizzle swizzle)
+{
+    REQUIRE(fallback.requested_format == requested_format);
+    REQUIRE(fallback.storage_format == storage_format);
+    REQUIRE(fallback.fallback_target == fallback_target);
+    REQUIRE(fallback.category == nozzle::fallback_category::channel_expansion);
+    REQUIRE(fallback.swizzle == swizzle);
+    REQUIRE(fallback.quality_loss == false);
+}
+
 
 TEST_CASE("Integration: sender registers and receiver discovers", "[integration]") {
     clear_all_registered_senders();
@@ -270,6 +291,158 @@ TEST_CASE("Integration: sender publish and receiver acquire", "[integration]") {
         REQUIRE(f.info().frame_index > 0);
         REQUIRE(f.info().transfer_mode_val == nozzle::transfer_mode::zero_copy_shared_texture);
     }
+}
+
+static void run_rgb_semantic_receiver_metadata_case(
+    const char *name_suffix,
+    nozzle::texture_format requested_format,
+    nozzle::texture_format fallback_target,
+    nozzle::texture_format metal_storage_format,
+    nozzle::texture_format d3d11_storage_format,
+    nozzle::channel_swizzle metal_swizzle,
+    nozzle::channel_swizzle d3d11_swizzle)
+{
+    clear_all_registered_senders();
+
+    std::string sender_name = std::string("rgb_semantic_receiver_") + name_suffix;
+
+    nozzle::sender_desc sender_desc{};
+    sender_desc.name = sender_name;
+    sender_desc.application_name = "integ_app";
+    sender_desc.ring_buffer_size = 2;
+
+    auto sender_result = nozzle::sender::create(sender_desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_result.ok());
+    auto sender = std::move(sender_result.value());
+
+    nozzle::backend_type backend = sender.native_device().backend;
+    nozzle::texture_format expected_storage_format = nozzle::texture_format::unknown;
+    nozzle::channel_swizzle expected_swizzle = nozzle::channel_swizzle::identity;
+    nozzle::native_format_kind expected_native_kind = nozzle::native_format_kind::unknown;
+
+    if (backend == nozzle::backend_type::metal) {
+        expected_storage_format = metal_storage_format;
+        expected_swizzle = metal_swizzle;
+        expected_native_kind = nozzle::native_format_kind::mtl_pixel_format;
+    } else if (backend == nozzle::backend_type::d3d11) {
+        expected_storage_format = d3d11_storage_format;
+        expected_swizzle = d3d11_swizzle;
+        expected_native_kind = nozzle::native_format_kind::dxgi_format;
+    } else {
+        SKIP("RGB semantic receiver metadata expectations are currently defined for Metal and D3D11 only");
+    }
+
+    INFO("case=" << name_suffix
+        << " backend=" << static_cast<int>(backend)
+        << " requested=" << static_cast<int>(requested_format)
+        << " expected_storage=" << static_cast<int>(expected_storage_format)
+        << " fallback_target=" << static_cast<int>(fallback_target)
+        << " expected_swizzle=" << static_cast<int>(expected_swizzle));
+
+    nozzle::receiver_desc receiver_desc{};
+    receiver_desc.name = sender_name;
+    receiver_desc.application_name = "integ_app";
+
+    auto receiver_result = nozzle::receiver::create(receiver_desc);
+    REQUIRE(receiver_result.ok());
+    auto receiver = std::move(receiver_result.value());
+
+    nozzle::texture_desc texture_desc{};
+    texture_desc.width = 16;
+    texture_desc.height = 16;
+    texture_desc.format = requested_format;
+
+    auto writable_result = sender.acquire_writable_frame(texture_desc);
+    if (!writable_result.ok() && is_backend_capability_unavailable(writable_result.error())) {
+        SKIP("GPU writable frame creation is not available on this runner for this RGB semantic row");
+    }
+    REQUIRE(writable_result.ok());
+    auto writable_frame = std::move(writable_result.value());
+    REQUIRE(writable_frame.valid());
+    REQUIRE(writable_frame.desc().format == expected_storage_format);
+
+    auto commit_result = sender.commit_frame(writable_frame);
+    REQUIRE(commit_result.ok());
+
+    nozzle::acquire_desc acquire_desc{};
+    acquire_desc.timeout_ms = 500;
+
+    auto frame_result = receiver.acquire_frame(acquire_desc);
+    if (!frame_result.ok() && is_backend_capability_unavailable(frame_result.error())) {
+        SKIP("receiver texture import is not available on this runner for this RGB semantic row");
+    }
+    REQUIRE(frame_result.ok());
+    auto frame = std::move(frame_result.value());
+    REQUIRE(frame.valid());
+
+    auto frame_info = frame.info();
+    REQUIRE(frame_info.width == 16);
+    REQUIRE(frame_info.height == 16);
+    REQUIRE(frame_info.semantic_format == requested_format);
+    REQUIRE(frame_info.format == expected_storage_format);
+    require_fallback_metadata(
+        frame_info.fallback,
+        requested_format,
+        expected_storage_format,
+        fallback_target,
+        expected_swizzle);
+
+    auto connected_info = receiver.connected_info();
+    REQUIRE(connected_info.width == 16);
+    REQUIRE(connected_info.height == 16);
+    REQUIRE(connected_info.semantic_format == requested_format);
+    REQUIRE(connected_info.format == expected_storage_format);
+    require_fallback_metadata(
+        connected_info.fallback,
+        requested_format,
+        expected_storage_format,
+        fallback_target,
+        expected_swizzle);
+
+    const auto &resolved = frame.get_texture().resolved();
+    REQUIRE(resolved.semantic_format == requested_format);
+    REQUIRE(resolved.storage_format == expected_storage_format);
+    REQUIRE(resolved.swizzle == expected_swizzle);
+    REQUIRE(resolved.native.kind == expected_native_kind);
+    REQUIRE(resolved.native.value != 0);
+    REQUIRE(connected_info.native_format_kind == static_cast<uint8_t>(expected_native_kind));
+    REQUIRE(connected_info.native_format_value == resolved.native.value);
+}
+
+TEST_CASE("Integration: receiver sees rgb8_unorm semantic expansion metadata", "[integration][fallback][rgb_semantic]") {
+    run_rgb_semantic_receiver_metadata_case(
+        "rgb8",
+        nozzle::texture_format::rgb8_unorm,
+        nozzle::texture_format::rgba8_unorm,
+        nozzle::texture_format::rgba8_unorm,
+        nozzle::texture_format::rgba8_unorm,
+        nozzle::channel_swizzle::identity,
+        nozzle::channel_swizzle::identity);
+}
+
+TEST_CASE("Integration: receiver sees rgb32_float semantic expansion metadata", "[integration][fallback][rgb_semantic]") {
+    run_rgb_semantic_receiver_metadata_case(
+        "rgb32_float",
+        nozzle::texture_format::rgb32_float,
+        nozzle::texture_format::rgba32_float,
+        nozzle::texture_format::rgba32_float,
+        nozzle::texture_format::rgba32_float,
+        nozzle::channel_swizzle::identity,
+        nozzle::channel_swizzle::identity);
+}
+
+TEST_CASE("Integration: receiver sees rgb32_uint semantic expansion metadata", "[integration][fallback][rgb_semantic]") {
+    run_rgb_semantic_receiver_metadata_case(
+        "rgb32_uint",
+        nozzle::texture_format::rgb32_uint,
+        nozzle::texture_format::rgba32_uint,
+        nozzle::texture_format::rgba32_uint,
+        nozzle::texture_format::rgba32_uint,
+        nozzle::channel_swizzle::identity,
+        nozzle::channel_swizzle::identity);
 }
 
 TEST_CASE("Integration: receiver rejects torn committed frame/slot pair", "[integration]") {

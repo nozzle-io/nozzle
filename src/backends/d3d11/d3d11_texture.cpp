@@ -16,6 +16,30 @@
 namespace nozzle {
 namespace d3d11 {
 
+static texture_format dxgi_format_to_storage_format(DXGI_FORMAT format) {
+    switch (format) {
+        case DXGI_FORMAT_R8_UNORM:                  return texture_format::r8_unorm;
+        case DXGI_FORMAT_R8G8_UNORM:                return texture_format::rg8_unorm;
+        case DXGI_FORMAT_R8G8B8A8_UNORM:            return texture_format::rgba8_unorm;
+        case DXGI_FORMAT_B8G8R8A8_UNORM:            return texture_format::bgra8_unorm;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:       return texture_format::rgba8_srgb;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:       return texture_format::bgra8_srgb;
+        case DXGI_FORMAT_R16_UNORM:                 return texture_format::r16_unorm;
+        case DXGI_FORMAT_R16G16_UNORM:              return texture_format::rg16_unorm;
+        case DXGI_FORMAT_R16G16B16A16_UNORM:        return texture_format::rgba16_unorm;
+        case DXGI_FORMAT_R16_FLOAT:                 return texture_format::r16_float;
+        case DXGI_FORMAT_R16G16_FLOAT:              return texture_format::rg16_float;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:        return texture_format::rgba16_float;
+        case DXGI_FORMAT_R32_FLOAT:                 return texture_format::r32_float;
+        case DXGI_FORMAT_R32G32_FLOAT:              return texture_format::rg32_float;
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:        return texture_format::rgba32_float;
+        case DXGI_FORMAT_R32_UINT:                  return texture_format::r32_uint;
+        case DXGI_FORMAT_R32G32B32A32_UINT:         return texture_format::rgba32_uint;
+        case DXGI_FORMAT_D32_FLOAT:                 return texture_format::depth32_float;
+        default:                                    return texture_format::unknown;
+    }
+}
+
 static DXGI_FORMAT to_dxgi_format(uint32_t nozzle_format) {
     switch (static_cast<texture_format>(nozzle_format)) {
         case texture_format::r8_unorm:         return DXGI_FORMAT_R8_UNORM;
@@ -109,14 +133,22 @@ Result<texture> create_shared_texture(
     native.kind = native_format_kind::dxgi_format;
     native.value = static_cast<uint32_t>(dxgi_fmt);
 
+    texture_format storage_format = dxgi_format_to_storage_format(dxgi_fmt);
+    if (storage_format == texture_format::unknown) {
+        texture->Release();
+        CloseHandle(shared_handle);
+        return Error{ErrorCode::UnsupportedFormat, "Unsupported D3D11 storage format"};
+    }
+
     return detail::make_texture_from_backend(
         reinterpret_cast<void *>(texture),
         reinterpret_cast<void *>(shared_handle),
         width,
         height,
-        format,
+        static_cast<uint32_t>(storage_format),
         0,
-        &native
+        &native,
+        format
     );
 }
 
@@ -201,12 +233,19 @@ Result<texture> lookup_shared_texture(
     native.kind = native_format_kind::dxgi_format;
     native.value = static_cast<uint32_t>(tex_desc.Format);
 
+    texture_format storage_format = dxgi_format_to_storage_format(tex_desc.Format);
+    if (storage_format == texture_format::unknown) {
+        texture->Release();
+        CloseHandle(local_handle);
+        return Error{ErrorCode::UnsupportedFormat, "Unsupported D3D11 storage format"};
+    }
+
     return detail::make_texture_from_backend(
         reinterpret_cast<void *>(texture),
         reinterpret_cast<void *>(local_handle),
         width,
         height,
-        format,
+        static_cast<uint32_t>(storage_format),
         0,
         &native,
         semantic_format
