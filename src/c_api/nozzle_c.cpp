@@ -311,6 +311,25 @@ NozzleErrorCode fill_fallback(
     return NOZZLE_OK;
 }
 
+
+#if NOZZLE_HAS_DMA_BUF
+bool is_dmabuf_float_format(nozzle::texture_format format) {
+    switch (format) {
+        case nozzle::texture_format::r16_float:
+        case nozzle::texture_format::rg16_float:
+        case nozzle::texture_format::rgb16_float:
+        case nozzle::texture_format::rgba16_float:
+        case nozzle::texture_format::r32_float:
+        case nozzle::texture_format::rg32_float:
+        case nozzle::texture_format::rgb32_float:
+        case nozzle::texture_format::rgba32_float:
+            return true;
+        default:
+            return false;
+    }
+}
+#endif
+
 NozzleErrorCode validate_dmabuf_publish_desc(
     const NozzleDmaBufPublishDesc *desc
 ) {
@@ -327,8 +346,14 @@ NozzleErrorCode validate_dmabuf_publish_desc(
 #if NOZZLE_HAS_DMA_BUF
     if (desc->drm_fourcc == DRM_FORMAT_INVALID) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
+    auto storage_format = to_cpp_format(desc->storage_format);
+    auto semantic_format = to_cpp_format(desc->semantic_format);
+    if (is_dmabuf_float_format(storage_format) || is_dmabuf_float_format(semantic_format)) {
+        return NOZZLE_ERROR_UNSUPPORTED_FORMAT;
+    }
+
     uint32_t expected_fourcc = nozzle::detail::linux_backend::drm_format_from_nozzle(
-        static_cast<uint32_t>(to_cpp_format(desc->storage_format)));
+        static_cast<uint32_t>(storage_format));
     if (expected_fourcc == 0 ||
         expected_fourcc == DRM_FORMAT_INVALID ||
         expected_fourcc != desc->drm_fourcc) {

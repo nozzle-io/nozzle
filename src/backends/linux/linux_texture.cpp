@@ -160,14 +160,14 @@ uint32_t drm_format_from_nozzle(uint32_t nozzle_format) {
         case texture_format::rg16_unorm:       return DRM_FORMAT_RG1616;
         case texture_format::rgb16_unorm:      return DRM_FORMAT_RGBA16161616;
         case texture_format::rgba16_unorm:     return DRM_FORMAT_RGBA16161616;
-        case texture_format::r16_float:        return DRM_FORMAT_R16;
-        case texture_format::rg16_float:       return DRM_FORMAT_RG1616;
-        case texture_format::rgb16_float:      return DRM_FORMAT_RGBA16161616;
-        case texture_format::rgba16_float:     return DRM_FORMAT_RGBA16161616;
-        case texture_format::r32_float:        return DRM_FORMAT_R32;
-        case texture_format::rg32_float:       return DRM_FORMAT_RG3232;
-        case texture_format::rgb32_float:      return DRM_FORMAT_RGBA32323232;
-        case texture_format::rgba32_float:     return DRM_FORMAT_RGBA32323232;
+        case texture_format::r16_float:        return DRM_FORMAT_INVALID;
+        case texture_format::rg16_float:       return DRM_FORMAT_INVALID;
+        case texture_format::rgb16_float:      return DRM_FORMAT_INVALID;
+        case texture_format::rgba16_float:     return DRM_FORMAT_INVALID;
+        case texture_format::r32_float:        return DRM_FORMAT_INVALID;
+        case texture_format::rg32_float:       return DRM_FORMAT_INVALID;
+        case texture_format::rgb32_float:      return DRM_FORMAT_INVALID;
+        case texture_format::rgba32_float:     return DRM_FORMAT_INVALID;
         case texture_format::r32_uint:         return DRM_FORMAT_R32;
         case texture_format::rgba32_uint:      return DRM_FORMAT_RGBA32323232;
         case texture_format::rgb32_uint:       return DRM_FORMAT_RGBA32323232;
@@ -181,10 +181,6 @@ Result<dmabuf_allocation> allocate_dmabuf(
     uint32_t height,
     uint32_t format
 ) {
-    auto *dev = static_cast<struct gbm_device *>(gbm_dev);
-    if (!dev) {
-        return Error{ErrorCode::InvalidArgument, "GBM device is null"};
-    }
     if (width == 0 || height == 0) {
         return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
     }
@@ -192,7 +188,12 @@ Result<dmabuf_allocation> allocate_dmabuf(
     uint32_t fourcc = drm_format_from_nozzle(format);
     if (fourcc == DRM_FORMAT_INVALID) {
         return Error{ErrorCode::UnsupportedFormat,
-            "Unsupported nozzle pixel format for DMA-BUF allocation"};
+            "No supported DRM FourCC for nozzle pixel format in DMA-BUF allocation"};
+    }
+
+    auto *dev = static_cast<struct gbm_device *>(gbm_dev);
+    if (!dev) {
+        return Error{ErrorCode::InvalidArgument, "GBM device is null"};
     }
 
     uint32_t flags = GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR;
@@ -383,6 +384,16 @@ Result<texture> create_dmabuf_texture(
     uint32_t height,
     uint32_t format
 ) {
+    if (width == 0 || height == 0) {
+        return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
+    }
+
+    uint32_t fourcc = drm_format_from_nozzle(format);
+    if (fourcc == DRM_FORMAT_INVALID) {
+        return Error{ErrorCode::UnsupportedFormat,
+            "No supported DRM FourCC for nozzle pixel format in DMA-BUF allocation"};
+    }
+
     void *gbm_dev = device ? device : get_default_gbm_device();
     if (!gbm_dev) {
         return Error{ErrorCode::BackendError, "No GBM device available"};
@@ -400,7 +411,6 @@ Result<texture> create_dmabuf_texture(
         return Error{ErrorCode::BackendError, "No EGL display available"};
     }
 
-    uint32_t fourcc = drm_format_from_nozzle(format);
     void *egl_image = import_egl_image(
         egl_disp, alloc.fd, width, height, fourcc, alloc.plane_count, alloc.planes, alloc.modifier);
     if (!egl_image) {

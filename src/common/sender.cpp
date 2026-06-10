@@ -832,6 +832,23 @@ Result<void> sender::publish_metal_texture_direct(const metal::direct_publish_de
 #if NOZZLE_HAS_DMA_BUF
 namespace {
 
+
+bool is_dmabuf_float_format(texture_format format) {
+	switch (format) {
+		case texture_format::r16_float:
+		case texture_format::rg16_float:
+		case texture_format::rgb16_float:
+		case texture_format::rgba16_float:
+		case texture_format::r32_float:
+		case texture_format::rg32_float:
+		case texture_format::rgb32_float:
+		case texture_format::rgba32_float:
+			return true;
+		default:
+			return false;
+	}
+}
+
 Result<void> validate_dmabuf_publish_desc(const dma_buf::publish_desc &desc) {
 	if (desc.dmabuf_fd < 0) {
 		return Error{ErrorCode::InvalidArgument, "DMA-BUF fd is invalid"};
@@ -854,6 +871,12 @@ Result<void> validate_dmabuf_publish_desc(const dma_buf::publish_desc &desc) {
 	}
 	if (desc.fourcc == 0 || desc.fourcc == DRM_FORMAT_INVALID) {
 		return Error{ErrorCode::InvalidArgument, "DMA-BUF fourcc is invalid"};
+	}
+
+	if (is_dmabuf_float_format(desc.storage_format) ||
+		is_dmabuf_float_format(desc.semantic_format)) {
+		return Error{ErrorCode::UnsupportedFormat,
+			"DMA-BUF float formats require a float-preserving DRM fourcc mapping"};
 	}
 
 	uint32_t expected_fourcc = detail::linux_backend::drm_format_from_nozzle(

@@ -168,12 +168,32 @@ TEST_CASE("compiled Metal capability table has required operation bits", "[backe
 #endif
 
 #if NOZZLE_HAS_DMA_BUF
-TEST_CASE("compiled DMA-BUF capability table is conservative about direct float publish", "[backend_capabilities]") {
+TEST_CASE("compiled DMA-BUF capability table is conservative about float formats", "[backend_capabilities]") {
     auto result = get_backend_capabilities(backend_type::dma_buf);
     REQUIRE(result.ok());
     CHECK((result->capability_flags & static_cast<uint32_t>(backend_capability_flags::sender)) != 0);
     CHECK((result->capability_flags & static_cast<uint32_t>(backend_capability_flags::single_sender_per_process)) != 0);
+    CHECK(supports_format(result->requested_format_bits, texture_format::rgba8_unorm));
     CHECK(supports_format(result->direct_publish_format_bits, texture_format::rgba8_unorm));
-    CHECK(!supports_format(result->direct_publish_format_bits, texture_format::rgba32_float));
+
+    const texture_format float_formats[] = {
+        texture_format::r16_float,
+        texture_format::rg16_float,
+        texture_format::rgb16_float,
+        texture_format::rgba16_float,
+        texture_format::r32_float,
+        texture_format::rg32_float,
+        texture_format::rgb32_float,
+        texture_format::rgba32_float,
+    };
+
+    for (auto format : float_formats) {
+        CHECK(!supports_format(result->requested_format_bits, format));
+        CHECK(!supports_format(result->writable_storage_format_bits, format));
+        CHECK(!supports_format(result->direct_publish_format_bits, format));
+        CHECK(!supports_format(result->cpu_read_format_bits, format));
+        CHECK(!supports_format(result->cpu_write_format_bits, format));
+        CHECK(!supports_format(result->known_quality_loss_format_bits, format));
+    }
 }
 #endif

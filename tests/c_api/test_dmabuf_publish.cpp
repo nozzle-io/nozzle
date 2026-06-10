@@ -5,6 +5,8 @@
 #include <nozzle/config.hpp>
 #include <nozzle/nozzle_c.h>
 
+#include <string>
+
 #if NOZZLE_HAS_DMA_BUF
 #include "backends/backend_dispatch.hpp"
 #include "backends/linux/linux_helpers.hpp"
@@ -18,6 +20,11 @@
 namespace {
 
 #if NOZZLE_HAS_DMA_BUF
+uint32_t invalid_fourcc() {
+    return nozzle::detail::linux_backend::drm_format_from_nozzle(
+        static_cast<uint32_t>(nozzle::texture_format::unknown));
+}
+
 uint32_t rgba8_fourcc() {
     return nozzle::detail::linux_backend::drm_format_from_nozzle(
         static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
@@ -101,6 +108,47 @@ auto open_fd_count() -> std::size_t {
     closedir(dir);
     return count;
 }
+TEST_CASE("DMA-BUF backend: float nozzle formats have no DRM FourCC mapping", "[dmabuf][format]") {
+    const nozzle::texture_format float_formats[] = {
+        nozzle::texture_format::r16_float,
+        nozzle::texture_format::rg16_float,
+        nozzle::texture_format::rgb16_float,
+        nozzle::texture_format::rgba16_float,
+        nozzle::texture_format::r32_float,
+        nozzle::texture_format::rg32_float,
+        nozzle::texture_format::rgb32_float,
+        nozzle::texture_format::rgba32_float,
+    };
+
+    for (auto format : float_formats) {
+        CHECK(nozzle::detail::linux_backend::drm_format_from_nozzle(
+            static_cast<uint32_t>(format)) == invalid_fourcc());
+    }
+}
+
+TEST_CASE("DMA-BUF backend: float allocation rejects before GBM device use", "[dmabuf][format]") {
+    auto result = nozzle::detail::linux_backend::allocate_dmabuf(
+        nullptr,
+        16,
+        16,
+        static_cast<uint32_t>(nozzle::texture_format::rgba16_float));
+
+    REQUIRE(!result.ok());
+    CHECK(result.error().code == nozzle::ErrorCode::UnsupportedFormat);
+    CHECK(result.error().message.find("No supported DRM FourCC") != std::string::npos);
+}
+
+TEST_CASE("DMA-BUF backend: float create rejects before GBM device probe", "[dmabuf][format]") {
+    auto result = nozzle::detail::linux_backend::create_dmabuf_texture(
+        nullptr,
+        16,
+        16,
+        static_cast<uint32_t>(nozzle::texture_format::rgba16_float));
+
+    REQUIRE(!result.ok());
+    CHECK(result.error().code == nozzle::ErrorCode::UnsupportedFormat);
+    CHECK(result.error().message.find("No supported DRM FourCC") != std::string::npos);
+}
 #endif
 
 } // anonymous namespace
@@ -164,6 +212,22 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
 #if NOZZLE_HAS_DMA_BUF
     SECTION("fourcc must exactly match storage format") {
         desc.drm_fourcc = rgba8_fourcc() + 1;
+        CHECK(nozzle_sender_publish_dmabuf(nullptr, &desc) == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
+    }
+
+    SECTION("float storage format rejects old non-float fourcc mapping") {
+        desc.storage_format = NOZZLE_FORMAT_RGBA16_FLOAT;
+        desc.semantic_format = NOZZLE_FORMAT_RGBA16_FLOAT;
+        desc.drm_fourcc = nozzle::detail::linux_backend::drm_format_from_nozzle(
+            static_cast<uint32_t>(nozzle::texture_format::rgba16_unorm));
+        CHECK(nozzle_sender_publish_dmabuf(nullptr, &desc) == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
+    }
+
+    SECTION("float semantic format rejects non-float storage fourcc") {
+        desc.storage_format = NOZZLE_FORMAT_RGBA16_UNORM;
+        desc.semantic_format = NOZZLE_FORMAT_RGBA16_FLOAT;
+        desc.drm_fourcc = nozzle::detail::linux_backend::drm_format_from_nozzle(
+            static_cast<uint32_t>(nozzle::texture_format::rgba16_unorm));
         CHECK(nozzle_sender_publish_dmabuf(nullptr, &desc) == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
     }
 #endif

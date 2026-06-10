@@ -190,16 +190,54 @@ TEST_CASE("C API: current platform Metal capability has operation format bits", 
 #endif
 
 #if NOZZLE_HAS_DMA_BUF
-TEST_CASE("C API: current platform DMA-BUF capability has conservative direct publish bits", "[c_api][backend_capabilities]") {
+TEST_CASE("C API: current platform DMA-BUF capability rejects float formats", "[c_api][backend_capabilities]") {
     NozzleBackendCapabilities caps{};
     REQUIRE(nozzle_get_backend_capabilities(NOZZLE_BACKEND_DMA_BUF, &caps) == NOZZLE_OK);
     CHECK(nozzle_backend_capabilities_support_format(
         &caps,
         NOZZLE_FORMAT_RGBA8_UNORM,
-        caps.direct_publish_format_bits) == 1);
+        caps.requested_format_bits) == 1);
     CHECK(nozzle_backend_capabilities_support_format(
         &caps,
+        NOZZLE_FORMAT_RGBA8_UNORM,
+        caps.direct_publish_format_bits) == 1);
+
+    const NozzleTextureFormat float_formats[] = {
+        NOZZLE_FORMAT_R16_FLOAT,
+        NOZZLE_FORMAT_RG16_FLOAT,
+        NOZZLE_FORMAT_RGB16_FLOAT,
+        NOZZLE_FORMAT_RGBA16_FLOAT,
+        NOZZLE_FORMAT_R32_FLOAT,
+        NOZZLE_FORMAT_RG32_FLOAT,
+        NOZZLE_FORMAT_RGB32_FLOAT,
         NOZZLE_FORMAT_RGBA32_FLOAT,
-        caps.direct_publish_format_bits) == 0);
+    };
+
+    for (auto format : float_formats) {
+        CHECK(nozzle_backend_capabilities_support_format(
+            &caps,
+            format,
+            caps.requested_format_bits) == 0);
+        CHECK(nozzle_backend_capabilities_support_format(
+            &caps,
+            format,
+            caps.writable_storage_format_bits) == 0);
+        CHECK(nozzle_backend_capabilities_support_format(
+            &caps,
+            format,
+            caps.direct_publish_format_bits) == 0);
+        CHECK(nozzle_backend_capabilities_support_format(
+            &caps,
+            format,
+            caps.cpu_read_format_bits) == 0);
+        CHECK(nozzle_backend_capabilities_support_format(
+            &caps,
+            format,
+            caps.cpu_write_format_bits) == 0);
+        CHECK(nozzle_backend_capabilities_support_format(
+            &caps,
+            format,
+            caps.known_quality_loss_format_bits) == 0);
+    }
 }
 #endif
