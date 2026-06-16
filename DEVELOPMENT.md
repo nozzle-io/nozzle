@@ -160,10 +160,14 @@ Key functions:
 
 #### OpenGL Interop (Layer 3)
 
-Copy-based path in `src/backends/opengl/`. No direct GPU interop — WGL_NV_DX_interop2 is NVIDIA-only.
+OpenGL interop lives in `src/backends/opengl/`.
 
 - **macOS**: GL → IOSurface via `CGLTexImageIOSurface2D` + FBO blit
-- **Windows**: GL → `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion` (and reverse)
+- **Windows publish**: GL → D3D11 via `WGL_NV_DX_interop2` when the current
+  WGL context advertises the extension and required entry points. The existing
+  `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion` path remains
+  the explicit fallback and logs why the GPU path was unavailable.
+- **Windows receive/copy-to-GL**: D3D11 staging texture → `glTexSubImage2D`.
 
 Key functions:
 - `gl::publish_gl_texture()` — Copy GL texture to sender via backend

@@ -23,12 +23,15 @@ struct gl_texture_desc {
 };
 
 // Publish GL texture to sender's shared texture.
-// macOS: GPU-side blit via IOSurface. Windows: CPU copy via staging texture.
+// macOS: GPU-side blit via IOSurface.
+// Windows: WGL_NV_DX_interop2 GPU publish when available, with explicit
+// D3D11 staging CPU fallback when the current WGL context/driver cannot use it.
 // Requires active GL context on calling thread.
 Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc);
 
 // Copy frame's shared texture to GL texture.
-// macOS: GPU-side blit via IOSurface. Windows: CPU copy via staging texture.
+// macOS: GPU-side blit via IOSurface.
+// Windows: D3D11 staging CPU copy to GL texture.
 // Requires active GL context on calling thread.
 Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &gl_desc);
 

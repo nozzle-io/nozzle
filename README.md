@@ -201,7 +201,7 @@ discard, or return the reserved sender ring-buffer slot.
 
 ```
 Layer 4: Integration wrappers (ofxNozzle, jit.nozzle, py.nozzle, nozzle.zig, nozzle.go, nozzle.dart, nozzle.java, nozzle.kotlin, etc.)
-Layer 3: OpenGL interop (copy-based GL↔backend)
+Layer 3: OpenGL interop (GPU interop where available, explicit copy fallback)
 Layer 2: Backend-native API (Metal/IOSurface, D3D11, DMA-BUF)
 Layer 1: Common API (sender, receiver, frame, texture, device, discovery)
 Layer 0: Platform infrastructure (registry, IPC, shared memory)
@@ -219,10 +219,15 @@ Textures are created with `D3D11_RESOURCE_MISC_SHARED` for cross-process sharing
 
 ### OpenGL Interop
 
-Copy-based path for OpenGL integration. No direct GPU interop (WGL_NV_DX_interop2 is NVIDIA-only).
+OpenGL integration uses backend-native GPU interop where the platform exposes a
+safe path, and keeps copy paths as explicit fallbacks.
 
 - **macOS**: GL texture → IOSurface via `CGLTexImageIOSurface2D` + FBO blit
-- **Windows**: GL texture → `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion` (and reverse for receiver)
+- **Windows publish**: first tries `WGL_NV_DX_interop2` to register the D3D11
+  ring texture as a GL texture and FBO-blit directly on GPU; if the current WGL
+  context, driver, or registration path does not support it, it logs the reason
+  and falls back to `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion`.
+- **Windows receive/copy-to-GL**: remains D3D11 staging readback → `glTexSubImage2D`.
 
 ## Repository Layout
 
