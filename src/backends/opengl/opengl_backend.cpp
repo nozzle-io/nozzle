@@ -161,6 +161,10 @@ namespace {
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 #endif
 
+#ifndef GL_RENDERBUFFER
+#define GL_RENDERBUFFER 0x8D41
+#endif
+
 #ifndef GL_RED_INTEGER
 #define GL_RED_INTEGER 0x8D94
 #endif
@@ -324,11 +328,14 @@ using gl_gen_framebuffers_proc = void (APIENTRY *)(GLsizei, GLuint *);
 using gl_delete_framebuffers_proc = void (APIENTRY *)(GLsizei, const GLuint *);
 using gl_bind_framebuffer_proc = void (APIENTRY *)(GLenum, GLuint);
 using gl_framebuffer_texture_2d_proc = void (APIENTRY *)(GLenum, GLenum, GLenum, GLuint, GLint);
+using gl_framebuffer_renderbuffer_proc = void (APIENTRY *)(GLenum, GLenum, GLenum, GLuint);
 using gl_check_framebuffer_status_proc = GLenum (APIENTRY *)(GLenum);
 using gl_blit_framebuffer_proc = void (APIENTRY *)(
     GLint, GLint, GLint, GLint,
     GLint, GLint, GLint, GLint,
     GLbitfield, GLenum);
+using gl_gen_renderbuffers_proc = void (APIENTRY *)(GLsizei, GLuint *);
+using gl_delete_renderbuffers_proc = void (APIENTRY *)(GLsizei, const GLuint *);
 
 using wgl_get_extensions_string_arb_proc = const char *(WINAPI *)(HDC);
 using wgl_get_extensions_string_ext_proc = const char *(WINAPI *)(void);
@@ -345,8 +352,11 @@ struct windows_gl_fbo_functions {
     gl_delete_framebuffers_proc delete_framebuffers{nullptr};
     gl_bind_framebuffer_proc bind_framebuffer{nullptr};
     gl_framebuffer_texture_2d_proc framebuffer_texture_2d{nullptr};
+    gl_framebuffer_renderbuffer_proc framebuffer_renderbuffer{nullptr};
     gl_check_framebuffer_status_proc check_framebuffer_status{nullptr};
     gl_blit_framebuffer_proc blit_framebuffer{nullptr};
+    gl_gen_renderbuffers_proc gen_renderbuffers{nullptr};
+    gl_delete_renderbuffers_proc delete_renderbuffers{nullptr};
 };
 
 struct windows_wgl_dx_interop_functions {
@@ -377,17 +387,26 @@ bool load_windows_gl_fbo_functions(windows_gl_fbo_functions &functions) {
         load_gl_proc("glBindFramebuffer"));
     functions.framebuffer_texture_2d = reinterpret_cast<gl_framebuffer_texture_2d_proc>(
         load_gl_proc("glFramebufferTexture2D"));
+    functions.framebuffer_renderbuffer = reinterpret_cast<gl_framebuffer_renderbuffer_proc>(
+        load_gl_proc("glFramebufferRenderbuffer"));
     functions.check_framebuffer_status = reinterpret_cast<gl_check_framebuffer_status_proc>(
         load_gl_proc("glCheckFramebufferStatus"));
     functions.blit_framebuffer = reinterpret_cast<gl_blit_framebuffer_proc>(
         load_gl_proc("glBlitFramebuffer"));
+    functions.gen_renderbuffers = reinterpret_cast<gl_gen_renderbuffers_proc>(
+        load_gl_proc("glGenRenderbuffers"));
+    functions.delete_renderbuffers = reinterpret_cast<gl_delete_renderbuffers_proc>(
+        load_gl_proc("glDeleteRenderbuffers"));
 
     return functions.gen_framebuffers &&
         functions.delete_framebuffers &&
         functions.bind_framebuffer &&
         functions.framebuffer_texture_2d &&
+        functions.framebuffer_renderbuffer &&
         functions.check_framebuffer_status &&
-        functions.blit_framebuffer;
+        functions.blit_framebuffer &&
+        functions.gen_renderbuffers &&
+        functions.delete_renderbuffers;
 }
 
 bool load_windows_wgl_dx_interop_functions(windows_wgl_dx_interop_functions &functions) {
@@ -466,6 +485,23 @@ struct scoped_windows_gl_texture {
     ~scoped_windows_gl_texture() {
         if (name != 0) {
             glDeleteTextures(1, &name);
+        }
+    }
+};
+
+struct scoped_windows_gl_renderbuffer {
+    const windows_gl_fbo_functions *functions{nullptr};
+    GLuint name{0};
+
+    explicit scoped_windows_gl_renderbuffer(const windows_gl_fbo_functions &fbo_functions)
+        : functions{&fbo_functions}
+    {
+        functions->gen_renderbuffers(1, &name);
+    }
+
+    ~scoped_windows_gl_renderbuffer() {
+        if (functions && name != 0) {
+            functions->delete_renderbuffers(1, &name);
         }
     }
 };
@@ -687,23 +723,66 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
             "wglDXOpenDeviceNV failed"};
     }
 
+    scoped_windows_gl_renderbuffer interop_renderbuffer{fbo_functions};
     scoped_windows_gl_texture interop_texture;
-    if (interop_texture.name == 0) {
+    if (interop_renderbuffer.name == 0 && interop_texture.name == 0) {
         interop_functions.close_device(interop_device);
         return Error{ErrorCode::ResourceCreationFailed,
-            "failed to create GL texture name for WGL_NV_DX_interop2"};
+            "failed to create GL interop object name for WGL_NV_DX_interop2"};
     }
 
-    HANDLE interop_object = interop_functions.register_object(
-        interop_device,
-        d3d_tex,
-        interop_texture.name,
-        GL_TEXTURE_2D,
-        WGL_ACCESS_WRITE_DISCARD_NV);
+    bool interop_object_is_renderbuffer = false;
+    GLuint interop_gl_name = 0;
+    std::string register_failures;
+    auto try_register_object = [&](GLuint gl_name, GLenum gl_type, const char *label) -> HANDLE {
+        SetLastError(0);
+        HANDLE object = interop_functions.register_object(
+            interop_device,
+            d3d_tex,
+            gl_name,
+            gl_type,
+            WGL_ACCESS_WRITE_DISCARD_NV);
+        if (!object) {
+            if (!register_failures.empty()) {
+                register_failures += "; ";
+            }
+            register_failures += label;
+            register_failures += " GetLastError=";
+            register_failures += std::to_string(GetLastError());
+        }
+        return object;
+    };
+
+    HANDLE interop_object = nullptr;
+    if (interop_renderbuffer.name != 0) {
+        interop_object = try_register_object(
+            interop_renderbuffer.name,
+            GL_RENDERBUFFER,
+            "GL_RENDERBUFFER");
+        if (interop_object) {
+            interop_object_is_renderbuffer = true;
+            interop_gl_name = interop_renderbuffer.name;
+        }
+    }
+    if (!interop_object && interop_texture.name != 0) {
+        interop_object = try_register_object(
+            interop_texture.name,
+            GL_TEXTURE_2D,
+            "GL_TEXTURE_2D");
+        if (interop_object) {
+            interop_gl_name = interop_texture.name;
+        }
+    }
     if (!interop_object) {
         interop_functions.close_device(interop_device);
+        std::string message = "wglDXRegisterObjectNV failed";
+        if (!register_failures.empty()) {
+            message += " (";
+            message += register_failures;
+            message += ")";
+        }
         return Error{ErrorCode::UnsupportedBackend,
-            "wglDXRegisterObjectNV failed"};
+            message};
     }
 
     bool locked = false;
@@ -780,12 +859,20 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
     }
 
     fbo_functions.bind_framebuffer(GL_DRAW_FRAMEBUFFER, fbos.draw_fbo);
-    fbo_functions.framebuffer_texture_2d(
-        GL_DRAW_FRAMEBUFFER,
-        GL_COLOR_ATTACHMENT0,
-        GL_TEXTURE_2D,
-        interop_texture.name,
-        0);
+    if (interop_object_is_renderbuffer) {
+        fbo_functions.framebuffer_renderbuffer(
+            GL_DRAW_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            GL_RENDERBUFFER,
+            interop_gl_name);
+    } else {
+        fbo_functions.framebuffer_texture_2d(
+            GL_DRAW_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D,
+            interop_gl_name,
+            0);
+    }
     if (fbo_functions.check_framebuffer_status(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         fbo_functions.bind_framebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previous_read_fbo));
         fbo_functions.bind_framebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(previous_draw_fbo));
