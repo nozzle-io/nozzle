@@ -506,6 +506,21 @@ struct scoped_windows_gl_renderbuffer {
     }
 };
 
+template <typename T>
+struct scoped_com_ptr {
+    T *ptr{nullptr};
+
+    scoped_com_ptr() = default;
+    scoped_com_ptr(const scoped_com_ptr &) = delete;
+    scoped_com_ptr &operator=(const scoped_com_ptr &) = delete;
+
+    ~scoped_com_ptr() {
+        if (ptr) {
+            ptr->Release();
+        }
+    }
+};
+
 struct scoped_windows_fbos {
     const windows_gl_fbo_functions *functions{nullptr};
     GLuint read_fbo{0};
@@ -690,9 +705,9 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
             "WGL_NV_DX_interop2 entry points are unavailable"};
     }
 
-    ID3D11Device *d3d_device = nullptr;
-    d3d_tex->GetDevice(&d3d_device);
-    if (!d3d_device) {
+    scoped_com_ptr<ID3D11Device> d3d_device;
+    d3d_tex->GetDevice(&d3d_device.ptr);
+    if (!d3d_device.ptr) {
         return Error{ErrorCode::BackendError, "failed to get D3D11 device from texture"};
     }
 
@@ -704,7 +719,6 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
         tex_desc.MipLevels != 1 ||
         tex_desc.Width != gl_desc.width ||
         tex_desc.Height != gl_desc.height) {
-        d3d_device->Release();
         return Error{ErrorCode::UnsupportedBackend,
             "D3D11 texture is not compatible with WGL_NV_DX_interop2 publish"};
     }
@@ -712,15 +726,26 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
     scoped_d3d11_publish_mutex publish_mutex;
     auto mutex_result = publish_mutex.acquire(d3d_tex);
     if (!mutex_result.ok()) {
-        d3d_device->Release();
         return mutex_result.error();
     }
 
-    HANDLE interop_device = interop_functions.open_device(d3d_device);
-    d3d_device->Release();
+    HANDLE interop_device = interop_functions.open_device(d3d_device.ptr);
     if (!interop_device) {
         return Error{ErrorCode::UnsupportedBackend,
             "wglDXOpenDeviceNV failed"};
+    }
+
+    D3D11_TEXTURE2D_DESC interop_desc = tex_desc;
+    interop_desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    interop_desc.CPUAccessFlags = 0;
+    interop_desc.MiscFlags = 0;
+
+    scoped_com_ptr<ID3D11Texture2D> interop_target;
+    HRESULT hr = d3d_device.ptr->CreateTexture2D(&interop_desc, nullptr, &interop_target.ptr);
+    if (FAILED(hr) || !interop_target.ptr) {
+        interop_functions.close_device(interop_device);
+        return Error{ErrorCode::ResourceCreationFailed,
+            "failed to create WGL-compatible intermediate D3D11 texture"};
     }
 
     scoped_windows_gl_renderbuffer interop_renderbuffer{fbo_functions};
@@ -733,15 +758,21 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
 
     bool interop_object_is_renderbuffer = false;
     GLuint interop_gl_name = 0;
+    GLenum interop_access = WGL_ACCESS_WRITE_DISCARD_NV;
     std::string register_failures;
-    auto try_register_object = [&](GLuint gl_name, GLenum gl_type, const char *label) -> HANDLE {
+    auto try_register_object = [&](
+        GLuint gl_name,
+        GLenum gl_type,
+        GLenum access,
+        const char *label
+    ) -> HANDLE {
         SetLastError(0);
         HANDLE object = interop_functions.register_object(
             interop_device,
-            d3d_tex,
+            interop_target.ptr,
             gl_name,
             gl_type,
-            WGL_ACCESS_WRITE_DISCARD_NV);
+            access);
         if (!object) {
             if (!register_failures.empty()) {
                 register_failures += "; ";
@@ -749,6 +780,8 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
             register_failures += label;
             register_failures += " GetLastError=";
             register_failures += std::to_string(GetLastError());
+        } else {
+            interop_access = access;
         }
         return object;
     };
@@ -758,7 +791,15 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
         interop_object = try_register_object(
             interop_renderbuffer.name,
             GL_RENDERBUFFER,
-            "GL_RENDERBUFFER");
+            WGL_ACCESS_WRITE_DISCARD_NV,
+            "GL_RENDERBUFFER WRITE_DISCARD");
+        if (!interop_object) {
+            interop_object = try_register_object(
+                interop_renderbuffer.name,
+                GL_RENDERBUFFER,
+                WGL_ACCESS_READ_WRITE_NV,
+                "GL_RENDERBUFFER READ_WRITE");
+        }
         if (interop_object) {
             interop_object_is_renderbuffer = true;
             interop_gl_name = interop_renderbuffer.name;
@@ -768,14 +809,29 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
         interop_object = try_register_object(
             interop_texture.name,
             GL_TEXTURE_2D,
-            "GL_TEXTURE_2D");
+            WGL_ACCESS_WRITE_DISCARD_NV,
+            "GL_TEXTURE_2D WRITE_DISCARD");
+        if (!interop_object) {
+            interop_object = try_register_object(
+                interop_texture.name,
+                GL_TEXTURE_2D,
+                WGL_ACCESS_READ_WRITE_NV,
+                "GL_TEXTURE_2D READ_WRITE");
+        }
         if (interop_object) {
             interop_gl_name = interop_texture.name;
         }
     }
     if (!interop_object) {
         interop_functions.close_device(interop_device);
-        std::string message = "wglDXRegisterObjectNV failed";
+        std::string message = "wglDXRegisterObjectNV failed for WGL-compatible intermediate texture";
+        message += " (format=";
+        message += std::to_string(static_cast<unsigned>(interop_desc.Format));
+        message += " bind=";
+        message += std::to_string(interop_desc.BindFlags);
+        message += " misc=";
+        message += std::to_string(interop_desc.MiscFlags);
+        message += ")";
         if (!register_failures.empty()) {
             message += " (";
             message += register_failures;
@@ -814,7 +870,7 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
         return {};
     };
 
-    if (!interop_functions.object_access(interop_object, WGL_ACCESS_WRITE_DISCARD_NV)) {
+    if (!interop_functions.object_access(interop_object, interop_access)) {
         auto cleanup_result = cleanup_interop();
         if (!cleanup_result.ok()) {
             return cleanup_result.error();
@@ -916,6 +972,15 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
         return Error{ErrorCode::BackendError,
             "GL flush failed during WGL_NV_DX_interop2 publish"};
     }
+
+    scoped_com_ptr<ID3D11DeviceContext> d3d_context;
+    d3d_device.ptr->GetImmediateContext(&d3d_context.ptr);
+    if (!d3d_context.ptr) {
+        return Error{ErrorCode::BackendError,
+            "failed to get D3D11 immediate context for WGL_NV_DX_interop2 publish"};
+    }
+    d3d_context.ptr->CopyResource(d3d_tex, interop_target.ptr);
+    d3d_context.ptr->Flush();
 
     return publish_mutex.release_unpublished();
 }

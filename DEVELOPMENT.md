@@ -163,10 +163,11 @@ Key functions:
 OpenGL interop lives in `src/backends/opengl/`.
 
 - **macOS**: GL → IOSurface via `CGLTexImageIOSurface2D` + FBO blit
-- **Windows publish**: GL → D3D11 via `WGL_NV_DX_interop2` when the current
-  WGL context advertises the extension and required entry points. The existing
-  `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion` path remains
-  the explicit fallback and logs why the GPU path was unavailable.
+- **Windows publish**: GL → WGL-compatible intermediate D3D11 texture via
+  `WGL_NV_DX_interop2`, then GPU copy into the keyed shared ring texture when
+  the current WGL context advertises the extension and required entry points.
+  The existing `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion`
+  path remains the explicit fallback and logs why the GPU path was unavailable.
 - **Windows receive/copy-to-GL**: D3D11 staging texture → `glTexSubImage2D`.
 
 Key functions:

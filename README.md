@@ -223,10 +223,11 @@ OpenGL integration uses backend-native GPU interop where the platform exposes a
 safe path, and keeps copy paths as explicit fallbacks.
 
 - **macOS**: GL texture → IOSurface via `CGLTexImageIOSurface2D` + FBO blit
-- **Windows publish**: first tries `WGL_NV_DX_interop2` to register the D3D11
-  ring texture as a GL texture and FBO-blit directly on GPU; if the current WGL
-  context, driver, or registration path does not support it, it logs the reason
-  and falls back to `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion`.
+- **Windows publish**: first tries `WGL_NV_DX_interop2` with a WGL-compatible
+  intermediate D3D11 texture, FBO-blits from GL into that texture, then copies on
+  GPU into the keyed shared ring texture; if the current WGL context, driver, or
+  registration path does not support it, it logs the reason and falls back to
+  `glGetTexImage` → D3D11 staging texture → `CopySubresourceRegion`.
 - **Windows receive/copy-to-GL**: remains D3D11 staging readback → `glTexSubImage2D`.
 
 ## Repository Layout
