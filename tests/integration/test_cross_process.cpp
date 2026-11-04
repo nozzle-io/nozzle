@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -705,20 +706,52 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
     NozzleReceiver *c_recv = nullptr;
     REQUIRE(nozzle_receiver_create(&c_rdesc, &c_recv) == NOZZLE_OK);
 
-    constexpr int frame_count = 200;
+    constexpr int min_frame_count = 200;
+    constexpr int max_frame_count = 2000;
     constexpr int consumer_count = 3;
+    constexpr int participant_count = 1 + consumer_count * 2;
 
+    std::atomic<int> ready_count{0};
     std::atomic<bool> stop{false};
+    std::atomic<bool> stalled{false};
+    std::atomic<int> produced{0};
     std::atomic<int> producer_errors{0};
     std::atomic<int> cpp_acquired{0};
     std::atomic<int> c_acquired{0};
     std::atomic<int> c_info_mismatches{0};
 
+    auto arrive_and_wait = [&] {
+        ready_count.fetch_add(1);
+        while (ready_count.load() < participant_count) {
+            std::this_thread::yield();
+        }
+    };
+
     std::thread producer([&] {
-        for (int i = 0; i < frame_count; ++i) {
+        arrive_and_wait();
+        for (int i = 0; i < max_frame_count; ++i) {
+            const int acquired_before = cpp_acquired.load() + c_acquired.load();
             auto wf_result = snd.acquire_writable_frame(tdesc);
             if (!wf_result.ok() || !snd.commit_frame(wf_result.value()).ok()) {
                 producer_errors.fetch_add(1);
+            }
+            produced.fetch_add(1);
+            if (i + 1 >= min_frame_count && cpp_acquired.load() > 0 && c_acquired.load() > 0) {
+                break;
+            }
+            // Back-pressure, not an oracle: an unpaced producer overruns the ring faster than
+            // receivers can import a slot. The deadline only stops a stalled run from hanging CI;
+            // the stall then fails the produced/acquired assertions below.
+            const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (cpp_acquired.load() + c_acquired.load() == acquired_before) {
+                if (std::chrono::steady_clock::now() >= give_up) {
+                    stalled.store(true);
+                    break;
+                }
+                std::this_thread::yield();
+            }
+            if (stalled.load()) {
+                break;
             }
         }
         stop.store(true);
@@ -727,9 +760,10 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
     std::vector<std::thread> consumers{};
     for (int t = 0; t < consumer_count; ++t) {
         consumers.emplace_back([&] {
+            arrive_and_wait();
             nozzle::acquire_desc adesc{};
             adesc.timeout_ms = 5;
-            while (!stop.load()) {
+            do {
                 auto frame_result = recv.acquire_frame(adesc);
                 if (frame_result.ok()) {
                     cpp_acquired.fetch_add(1);
@@ -739,12 +773,13 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
                 auto md = recv.sender_metadata();
                 (void)md;
                 (void)recv.is_connected();
-            }
+            } while (!stop.load());
         });
         consumers.emplace_back([&] {
+            arrive_and_wait();
             NozzleAcquireDesc c_adesc{};
             c_adesc.timeout_ms = 5;
-            while (!stop.load()) {
+            do {
                 NozzleFrame *c_frame = nullptr;
                 if (nozzle_receiver_acquire_frame(c_recv, &c_adesc, &c_frame) == NOZZLE_OK) {
                     c_acquired.fetch_add(1);
@@ -758,7 +793,7 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
                 }
                 NozzleFormatFallbackInfo c_fallback{};
                 (void)nozzle_receiver_get_connected_format_fallback_info(c_recv, &c_fallback);
-            }
+            } while (!stop.load());
         });
     }
 
@@ -768,7 +803,11 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
     }
     nozzle_receiver_destroy(c_recv);
 
+    INFO("produced=" << produced.load() << " cpp_acquired=" << cpp_acquired.load()
+         << " c_acquired=" << c_acquired.load() << " stalled=" << stalled.load());
+    REQUIRE_FALSE(stalled.load());
     REQUIRE(producer_errors.load() == 0);
+    REQUIRE(produced.load() >= min_frame_count);
     REQUIRE(cpp_acquired.load() > 0);
     REQUIRE(c_acquired.load() > 0);
     REQUIRE(c_info_mismatches.load() == 0);
