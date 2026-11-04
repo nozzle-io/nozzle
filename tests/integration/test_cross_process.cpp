@@ -1,4 +1,5 @@
 #include <nozzle/nozzle.hpp>
+#include <nozzle/nozzle_c.h>
 
 #include "ipc.hpp"
 #include "registry.hpp"
@@ -7,9 +8,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -660,4 +663,114 @@ TEST_CASE("Integration: metadata round-trip via shared state", "[integration]") 
     REQUIRE(sender_md[0].value == "linear");
     REQUIRE(sender_md[1].key == "channel_semantics");
     REQUIRE(sender_md[1].value == "depth");
+}
+
+TEST_CASE("Integration: one receiver is safe to share across threads", "[integration][threading]") {
+    clear_all_registered_senders();
+
+    const std::string sender_name = "integ_receiver_threads_test";
+
+    nozzle::sender_desc desc{};
+    desc.name = sender_name;
+    desc.application_name = "integ_app";
+    desc.ring_buffer_size = 3;
+
+    auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_result.ok());
+    auto snd = std::move(sender_result.value());
+
+    nozzle::texture_desc tdesc{};
+    tdesc.width = 64;
+    tdesc.height = 64;
+    tdesc.format = nozzle::texture_format::rgba8_unorm;
+
+    {
+        auto wf_result = snd.acquire_writable_frame(tdesc);
+        REQUIRE(wf_result.ok());
+        REQUIRE(snd.commit_frame(wf_result.value()).ok());
+    }
+
+    nozzle::receiver_desc rdesc{};
+    rdesc.name = sender_name;
+    auto recv_result = nozzle::receiver::create(rdesc);
+    REQUIRE(recv_result.ok());
+    auto recv = std::move(recv_result.value());
+
+    NozzleReceiverDesc c_rdesc{};
+    c_rdesc.name = sender_name.c_str();
+    c_rdesc.application_name = "integ_c_app";
+    NozzleReceiver *c_recv = nullptr;
+    REQUIRE(nozzle_receiver_create(&c_rdesc, &c_recv) == NOZZLE_OK);
+
+    constexpr int frame_count = 200;
+    constexpr int consumer_count = 3;
+
+    std::atomic<bool> stop{false};
+    std::atomic<int> producer_errors{0};
+    std::atomic<int> cpp_acquired{0};
+    std::atomic<int> c_acquired{0};
+    std::atomic<int> c_info_mismatches{0};
+
+    std::thread producer([&] {
+        for (int i = 0; i < frame_count; ++i) {
+            auto wf_result = snd.acquire_writable_frame(tdesc);
+            if (!wf_result.ok() || !snd.commit_frame(wf_result.value()).ok()) {
+                producer_errors.fetch_add(1);
+            }
+        }
+        stop.store(true);
+    });
+
+    std::vector<std::thread> consumers{};
+    for (int t = 0; t < consumer_count; ++t) {
+        consumers.emplace_back([&] {
+            nozzle::acquire_desc adesc{};
+            adesc.timeout_ms = 5;
+            while (!stop.load()) {
+                auto frame_result = recv.acquire_frame(adesc);
+                if (frame_result.ok()) {
+                    cpp_acquired.fetch_add(1);
+                }
+                auto info = recv.connected_info();
+                (void)info;
+                auto md = recv.sender_metadata();
+                (void)md;
+                (void)recv.is_connected();
+            }
+        });
+        consumers.emplace_back([&] {
+            NozzleAcquireDesc c_adesc{};
+            c_adesc.timeout_ms = 5;
+            while (!stop.load()) {
+                NozzleFrame *c_frame = nullptr;
+                if (nozzle_receiver_acquire_frame(c_recv, &c_adesc, &c_frame) == NOZZLE_OK) {
+                    c_acquired.fetch_add(1);
+                    nozzle_frame_release(c_frame);
+                }
+                NozzleConnectedSenderInfo c_info{};
+                if (nozzle_receiver_get_connected_info(c_recv, &c_info) != NOZZLE_OK ||
+                    c_info.name == nullptr ||
+                    sender_name != c_info.name) {
+                    c_info_mismatches.fetch_add(1);
+                }
+                NozzleFormatFallbackInfo c_fallback{};
+                (void)nozzle_receiver_get_connected_format_fallback_info(c_recv, &c_fallback);
+            }
+        });
+    }
+
+    producer.join();
+    for (auto &consumer : consumers) {
+        consumer.join();
+    }
+    nozzle_receiver_destroy(c_recv);
+
+    REQUIRE(producer_errors.load() == 0);
+    REQUIRE(cpp_acquired.load() > 0);
+    REQUIRE(c_acquired.load() > 0);
+    REQUIRE(c_info_mismatches.load() == 0);
+    REQUIRE(recv.is_connected());
 }

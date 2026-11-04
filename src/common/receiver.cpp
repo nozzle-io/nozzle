@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstring>
 #include <exception>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -230,6 +231,7 @@ struct receiver::Impl {
     connected_sender_info connected_info_{};
     bool connected_{false};
     uint64_t sender_pid_{0};
+    mutable std::mutex mutex_;
 };
 
 receiver::receiver() = default;
@@ -298,24 +300,26 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         }
     }
 #endif
-    if (!impl_ || !impl_->connected_) {
-        if (impl_) {
-            auto setup = establish_connection(impl_->sender_name_);
-            if (!setup.ok()) {
-                return Error{ErrorCode::SenderNotFound,
-                             "reconnect failed: " + setup.error().message};
-            }
-            if (impl_->state_view_.state) {
-                detail::registry::close_sender_state(impl_->state_view_);
-            }
-            impl_->state_view_ = std::move(setup.value().state_view);
-            impl_->sender_pid_ = setup.value().sender_pid;
-            impl_->connected_ = true;
-            impl_->last_frame_ = 0;
-            impl_->connected_info_ = std::move(setup.value().info);
-        } else {
-            return Error{ErrorCode::SenderNotFound, "receiver not initialized"};
+    if (!impl_) {
+        return Error{ErrorCode::SenderNotFound, "receiver not initialized"};
+    }
+
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+    if (!impl_->connected_) {
+        auto setup = establish_connection(impl_->sender_name_);
+        if (!setup.ok()) {
+            return Error{ErrorCode::SenderNotFound,
+                         "reconnect failed: " + setup.error().message};
         }
+        if (impl_->state_view_.state) {
+            detail::registry::close_sender_state(impl_->state_view_);
+        }
+        impl_->state_view_ = std::move(setup.value().state_view);
+        impl_->sender_pid_ = setup.value().sender_pid;
+        impl_->connected_ = true;
+        impl_->last_frame_ = 0;
+        impl_->connected_info_ = std::move(setup.value().info);
     }
 
     if (impl_->sender_pid_ > 0 && !detail::ipc::is_pid_alive(impl_->sender_pid_)) {
@@ -455,11 +459,16 @@ connected_sender_info receiver::connected_info() const {
     if (!impl_) {
         return {};
     }
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
     return impl_->connected_info_;
 }
 
 metadata_list receiver::sender_metadata() const {
-    if (!impl_ || !impl_->state_view_.state) {
+    if (!impl_) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    if (!impl_->state_view_.state) {
         return {};
     }
     return detail::parse_metadata(
@@ -468,11 +477,15 @@ metadata_list receiver::sender_metadata() const {
 }
 
 bool receiver::is_connected() const {
-    return impl_ && impl_->connected_;
+    if (!impl_) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    return impl_->connected_;
 }
 
 bool receiver::valid() const {
-    return impl_ && impl_->connected_;
+    return is_connected();
 }
 
 } // namespace nozzle

@@ -35,6 +35,8 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <utility>
 
 #include <plog/Log.h>
@@ -443,6 +445,23 @@ NozzleErrorCode copy_mapped_pixels_to_buffer(
 
 #include "nozzle_c_types.hpp"
 
+namespace {
+
+void assign_if_changed(std::string &dst, const std::string &src) {
+    if (dst != src) {
+        dst = src;
+    }
+}
+
+template <typename info_type>
+void refresh_cached_strings(NozzleCachedSenderStrings &cached, const info_type &info) {
+    assign_if_changed(cached.name, info.name);
+    assign_if_changed(cached.application_name, info.application_name);
+    assign_if_changed(cached.id, info.id);
+}
+
+} // anonymous namespace
+
 // ========== Sender API ==========
 
 extern "C" {
@@ -686,11 +705,13 @@ NozzleErrorCode nozzle_sender_get_info(
 ) {
     if (!sender || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    sender->cached_info = sender->obj->info();
-    out_info->name = sender->cached_info.name.c_str();
-    out_info->application_name = sender->cached_info.application_name.c_str();
-    out_info->id = sender->cached_info.id.c_str();
-    out_info->backend = to_c_backend_type(sender->cached_info.backend);
+    const auto info = sender->obj->info();
+    std::lock_guard<std::mutex> lock(sender->cached_info_mutex);
+    refresh_cached_strings(sender->cached_strings, info);
+    out_info->name = sender->cached_strings.name.c_str();
+    out_info->application_name = sender->cached_strings.application_name.c_str();
+    out_info->id = sender->cached_strings.id.c_str();
+    out_info->backend = to_c_backend_type(info.backend);
     return NOZZLE_OK;
 }
 
@@ -797,11 +818,13 @@ NozzleErrorCode nozzle_receiver_get_connected_info(
 ) {
     if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    receiver->cached_connected_info = receiver->obj->connected_info();
-    const auto &ci = receiver->cached_connected_info;
-    out_info->name = ci.name.c_str();
-    out_info->application_name = ci.application_name.c_str();
-    out_info->id = ci.id.c_str();
+    const auto ci = receiver->obj->connected_info();
+    std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
+    receiver->cached_connected_info = ci;
+    refresh_cached_strings(receiver->cached_strings, ci);
+    out_info->name = receiver->cached_strings.name.c_str();
+    out_info->application_name = receiver->cached_strings.application_name.c_str();
+    out_info->id = receiver->cached_strings.id.c_str();
     out_info->backend = to_c_backend_type(ci.backend);
     out_info->width = ci.width;
     out_info->height = ci.height;
@@ -875,13 +898,16 @@ NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
 
 #if NOZZLE_ENABLE_TEST_HOOKS
     if (receiver->use_cached_connected_info_for_tests) {
+        std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
         return fill_fallback(out_info, receiver->cached_connected_info.fallback);
     }
 #endif
 
     if (!receiver->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    receiver->cached_connected_info = receiver->obj->connected_info();
+    const auto ci = receiver->obj->connected_info();
+    std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
+    receiver->cached_connected_info = ci;
     return fill_fallback(out_info, receiver->cached_connected_info.fallback);
 }
 

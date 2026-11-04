@@ -280,7 +280,7 @@ cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
 | Namespace | `nozzle` |
 | Naming | All snake_case in library, `Nozzle` prefix for C API |
 | Error handling | `Result<T>` — no exceptions across API boundaries |
-| Thread safety | Object-level (same sender/receiver callable from multiple threads) |
+| Thread safety | Object-level (same sender/receiver callable from multiple threads; calls on one object are serialized, so a blocking `acquire_frame` holds that receiver until it returns) |
 | Logging | plog (header-only, submodule) |
 | Crash cleanup | Lazy — receiver detects dead sender on access failure |
 

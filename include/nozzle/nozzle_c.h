@@ -357,6 +357,8 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_discard_frame(
     NozzleFrame *frame
 );
 
+// String fields point into storage owned by the sender wrapper and remain
+// valid until the sender is destroyed.
 NOZZLE_C_API NozzleErrorCode nozzle_sender_get_info(
     NozzleSender *sender,
     NozzleSenderInfo *out_info
@@ -389,6 +391,10 @@ NOZZLE_C_API NozzleErrorCode nozzle_receiver_acquire_frame(
 // release.
 NOZZLE_C_API void nozzle_frame_release(NozzleFrame *frame);
 
+// String fields point into storage owned by the receiver wrapper. They remain
+// valid until the receiver is destroyed or a later call on the same receiver,
+// from any thread, observes a changed sender name, application name, or id
+// (for example after reconnecting to a re-created sender).
 NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info(
     NozzleReceiver *receiver,
     NozzleConnectedSenderInfo *out_info
