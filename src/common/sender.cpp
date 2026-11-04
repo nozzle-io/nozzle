@@ -345,9 +345,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	}
 
 	int32_t free_slot = detail::kSlotNotFound;
-	for (uint32_t i = 0; i < ring_size; ++i) {
-		if (!impl_->slot_in_use_[i]) {
-			free_slot = static_cast<int32_t>(i);
+	for (uint32_t attempt = 0; attempt < ring_size; ++attempt) {
+		uint32_t candidate = (impl_->next_slot_ + attempt) % ring_size;
+		if (!impl_->slot_in_use_[candidate]) {
+			free_slot = static_cast<int32_t>(candidate);
 			break;
 		}
 	}
@@ -587,6 +588,7 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	}
 	frame_to_release = std::move(f);
 	impl_->slot_in_use_[slot] = false;
+	impl_->next_slot_ = (slot + 1) % ring_size;
 
 	return {};
 }

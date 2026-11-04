@@ -193,9 +193,10 @@ uint64_t monotonic_ns() noexcept {
     LARGE_INTEGER counter{};
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&counter);
-    auto ns = (static_cast<uint64_t>(counter.QuadPart) * 1000000000ULL) /
-              static_cast<uint64_t>(freq.QuadPart);
-    return ns;
+    const auto ticks = static_cast<uint64_t>(counter.QuadPart);
+    const auto ticks_per_sec = static_cast<uint64_t>(freq.QuadPart);
+    return (ticks / ticks_per_sec) * 1000000000ULL +
+           ((ticks % ticks_per_sec) * 1000000000ULL) / ticks_per_sec;
 }
 
 #else
