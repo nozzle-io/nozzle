@@ -65,8 +65,8 @@ TEST_CASE("C API: connected sender info exposes native format kind and value", "
 		NozzleErrorCode frame_err = nozzle_receiver_acquire_frame(receiver, &adesc, &frame);
 		REQUIRE(frame_err == NOZZLE_OK);
 
-		NozzleConnectedSenderInfo ci{};
-		NozzleErrorCode ci_err = nozzle_receiver_get_connected_info(receiver, &ci);
+		NozzleConnectedSenderSnapshot ci{};
+		NozzleErrorCode ci_err = nozzle_receiver_get_connected_info_snapshot(receiver, &ci);
 		REQUIRE(ci_err == NOZZLE_OK);
 		CHECK(ci.native_format_kind == NOZZLE_NATIVE_KIND_MTL_PIXEL_FORMAT);
 		CHECK(ci.native_format_value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));

@@ -42,6 +42,9 @@ jobs:
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact
 
+      - name: C API snapshot identity transition
+        run: ./build/tests/nozzle_integration_tests "[info_snapshot][cross_process]" --reporter console --success
+
       # Explicit evidence for #56 RGB semantic -> storage fallback receiver metadata.
       - name: RGB semantic receiver metadata tests
         run: ./build/tests/nozzle_integration_tests "[integration][fallback][rgb_semantic]" --reporter console --success --allow-running-no-tests
@@ -91,9 +94,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./build-tsan/tests/nozzle_integration_tests "[threading]" --reporter console | tee threading.log
-          if grep -q "skipped" threading.log; then
-            echo "::warning::[threading] tests were skipped on this runner; TSan did not exercise receiver sharing"
+          ./build-tsan/tests/nozzle_integration_tests "[threading]" --reporter console --success | tee threading.log
+          if grep -qi "skipped" threading.log; then
+            echo "::error::[threading] tests were skipped on this runner; TSan did not exercise receiver sharing"
+            exit 1
           fi
 
   build-windows:
@@ -118,6 +122,12 @@ jobs:
       # Integration tests must SKIP unsupported runner capabilities, not hide failures.
       - name: Integration tests
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact
+
+      - name: Receiver threading regression
+        run: ./build/tests/Debug/nozzle_integration_tests.exe "[integration][threading]" --reporter console --success
+
+      - name: C API snapshot identity transition
+        run: ./build/tests/Debug/nozzle_integration_tests.exe "[info_snapshot][cross_process]" --reporter console --success
 
       # Explicit evidence for #56 RGB semantic -> storage fallback receiver metadata.
       - name: RGB semantic receiver metadata tests

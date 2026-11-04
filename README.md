@@ -25,7 +25,9 @@ If you encounter problems, please do not become angry; instead, contributions in
 - C ABI (`nozzle_c.h`) for plugin/host integration
 - Zero runtime dependencies (C++17 STL + OS frameworks only)
 - Header-only logging via [plog](https://github.com/SergiusTheBest/plog) (submodule)
-- Thread-safe sender and receiver objects
+- Thread-safe sender and receiver objects, except the deprecated C borrowed-pointer
+  info getters, which require external synchronization; use the value snapshot
+  getters for concurrent access
 
 ## Status
 

@@ -30,6 +30,7 @@
 #include <drm_fourcc.h>
 #endif
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstddef>
 #include <cstring>
@@ -262,6 +263,13 @@ static_assert(offsetof(NozzleFormatFallbackInfo, category) == 12, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, swizzle) == 16, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, quality_loss) == 20, "");
 
+static_assert(sizeof(NozzleSenderInfoSnapshot::name) == NOZZLE_SENDER_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleSenderInfoSnapshot::application_name) == NOZZLE_APPLICATION_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleSenderInfoSnapshot::id) == NOZZLE_SENDER_ID_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot::name) == NOZZLE_SENDER_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot::application_name) == NOZZLE_APPLICATION_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot::id) == NOZZLE_SENDER_ID_CAPACITY, "");
+
 static_assert(NOZZLE_BACKEND_CAPABILITIES_VERSION == nozzle::backend_capabilities_version, "");
 static_assert(NOZZLE_SHARING_IOSURFACE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::iosurface), "");
 static_assert(NOZZLE_SHARING_D3D11_NT_HANDLE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::d3d11_nt_handle), "");
@@ -458,6 +466,46 @@ void refresh_cached_strings(NozzleCachedSenderStrings &cached, const info_type &
     assign_if_changed(cached.name, info.name);
     assign_if_changed(cached.application_name, info.application_name);
     assign_if_changed(cached.id, info.id);
+}
+
+template <std::size_t capacity>
+void copy_snapshot_string(char (&destination)[capacity], const std::string &source) {
+    const std::size_t length = std::min(source.size(), capacity - 1);
+    std::memcpy(destination, source.data(), length);
+    destination[length] = '\0';
+}
+
+void fill_sender_info_snapshot(
+    const nozzle::sender_info &info,
+    NozzleSenderInfoSnapshot *out_info
+) {
+    *out_info = {};
+    copy_snapshot_string(out_info->name, info.name);
+    copy_snapshot_string(out_info->application_name, info.application_name);
+    copy_snapshot_string(out_info->id, info.id);
+    out_info->backend = to_c_backend_type(info.backend);
+}
+
+void fill_connected_sender_snapshot(
+    const nozzle::connected_sender_info &info,
+    NozzleConnectedSenderSnapshot *out_info
+) {
+    *out_info = {};
+    copy_snapshot_string(out_info->name, info.name);
+    copy_snapshot_string(out_info->application_name, info.application_name);
+    copy_snapshot_string(out_info->id, info.id);
+    out_info->backend = to_c_backend_type(info.backend);
+    out_info->width = info.width;
+    out_info->height = info.height;
+    out_info->format = to_c_format(info.format);
+    out_info->semantic_format = to_c_format(info.semantic_format);
+    out_info->estimated_fps = info.estimated_fps;
+    out_info->frame_counter = info.frame_counter;
+    out_info->last_update_time_ns = info.last_update_time_ns;
+    out_info->native_format_kind = to_c_native_kind(
+        static_cast<nozzle::native_format_kind>(info.native_format_kind));
+    out_info->native_format_value = info.native_format_value;
+    out_info->native_format_modifier = info.native_format_modifier;
 }
 
 } // anonymous namespace
@@ -715,6 +763,17 @@ NozzleErrorCode nozzle_sender_get_info(
     return NOZZLE_OK;
 }
 
+NozzleErrorCode nozzle_sender_get_info_snapshot(
+    NozzleSender *sender,
+    NozzleSenderInfoSnapshot *out_info
+) {
+    if (!sender || !sender->obj || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const auto info = sender->obj->info();
+    fill_sender_info_snapshot(info, out_info);
+    return NOZZLE_OK;
+}
+
 NozzleErrorCode nozzle_sender_get_native_device(
     NozzleSender *sender,
     NozzleNativeDevice *out_device
@@ -836,6 +895,17 @@ NozzleErrorCode nozzle_receiver_get_connected_info(
     out_info->native_format_kind = to_c_native_kind(static_cast<nozzle::native_format_kind>(ci.native_format_kind));
     out_info->native_format_value = ci.native_format_value;
     out_info->native_format_modifier = ci.native_format_modifier;
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_receiver_get_connected_info_snapshot(
+    NozzleReceiver *receiver,
+    NozzleConnectedSenderSnapshot *out_info
+) {
+    if (!receiver || !receiver->obj || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const auto info = receiver->obj->connected_info();
+    fill_connected_sender_snapshot(info, out_info);
     return NOZZLE_OK;
 }
 

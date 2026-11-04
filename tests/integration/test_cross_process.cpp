@@ -785,9 +785,8 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
                     c_acquired.fetch_add(1);
                     nozzle_frame_release(c_frame);
                 }
-                NozzleConnectedSenderInfo c_info{};
-                if (nozzle_receiver_get_connected_info(c_recv, &c_info) != NOZZLE_OK ||
-                    c_info.name == nullptr ||
+                NozzleConnectedSenderSnapshot c_info{};
+                if (nozzle_receiver_get_connected_info_snapshot(c_recv, &c_info) != NOZZLE_OK ||
                     sender_name != c_info.name) {
                     c_info_mismatches.fetch_add(1);
                 }

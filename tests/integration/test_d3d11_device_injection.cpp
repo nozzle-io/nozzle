@@ -15,9 +15,15 @@
 #include <d3d11.h>
 #include <dxgi.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 static bool create_device(D3D_DRIVER_TYPE type, ID3D11Device **device, ID3D11DeviceContext **context) {
 	D3D_FEATURE_LEVEL feature_level{};
@@ -361,6 +367,172 @@ TEST_CASE("D3D11: public receiver acquires frame from another process", "[d3d11]
 	REQUIRE(row[0] == 0xFF3366CCu);
 	nozzle::unlock_frame_pixels(frame);
 
+	DeleteFileA(ready_file.c_str());
+}
+
+TEST_CASE("C API snapshot survives concurrent cross-process sender identity transition", "[d3d11][c_api][info_snapshot][cross_process][threading]") {
+	std::string ready_file = make_temp_ready_path("nozzle_snapshot_identity");
+	REQUIRE_FALSE(ready_file.empty());
+	DeleteFileA(ready_file.c_str());
+
+	char sender_name_buffer[64]{};
+	std::snprintf(sender_name_buffer, sizeof(sender_name_buffer), "snapshot_identity_%lu",
+		static_cast<unsigned long>(GetCurrentProcessId()));
+	std::string sender_name(sender_name_buffer);
+
+	NozzleReceiver *receiver = nullptr;
+	NozzleConnectedSenderSnapshot first{};
+	constexpr int reader_count = 4;
+	std::atomic<bool> stop{false};
+	std::atomic<bool> second_identity_ready{false};
+	std::atomic<int> readers_saw_first{0};
+	std::atomic<int> readers_saw_second{0};
+	std::atomic<int> reader_errors{0};
+	std::string first_id{};
+	std::string second_id{};
+	std::vector<std::vector<std::string>> observed_ids(reader_count);
+	std::vector<std::thread> readers{};
+	bool first_observed_by_all = false;
+	{
+		child_process first_child;
+		REQUIRE(start_helper(std::string("public ") + quote_arg(sender_name) + " " + quote_arg(ready_file), first_child));
+		REQUIRE(wait_for_file(ready_file, 10000));
+
+		NozzleReceiverDesc receiver_desc{};
+		receiver_desc.name = sender_name.c_str();
+		receiver_desc.application_name = "snapshot_receiver";
+		REQUIRE(nozzle_receiver_create(&receiver_desc, &receiver) == NOZZLE_OK);
+
+		NozzleAcquireDesc acquire_desc{};
+		acquire_desc.timeout_ms = 1000;
+		NozzleFrame *frame = nullptr;
+		REQUIRE(nozzle_receiver_acquire_frame(receiver, &acquire_desc, &frame) == NOZZLE_OK);
+		nozzle_frame_release(frame);
+
+		REQUIRE(nozzle_receiver_get_connected_info_snapshot(receiver, &first) == NOZZLE_OK);
+		REQUIRE(std::strcmp(first.name, sender_name.c_str()) == 0);
+		REQUIRE(first.id[0] != '\0');
+		first_id = first.id;
+
+		for (int index = 0; index < reader_count; ++index) {
+			readers.emplace_back([&, index] {
+				bool saw_first = false;
+				bool saw_second = false;
+				do {
+					NozzleConnectedSenderSnapshot snapshot{};
+					if (nozzle_receiver_get_connected_info_snapshot(receiver, &snapshot) != NOZZLE_OK ||
+						std::strcmp(snapshot.name, sender_name.c_str()) != 0 ||
+						std::strcmp(snapshot.application_name, first.application_name) != 0 ||
+						snapshot.id[0] == '\0') {
+						reader_errors.fetch_add(1);
+						continue;
+					}
+
+					std::string id(snapshot.id);
+					if (observed_ids[index].empty() || observed_ids[index].back() != id) {
+						observed_ids[index].push_back(id);
+					}
+					if (!saw_first && id == first_id) {
+						saw_first = true;
+						readers_saw_first.fetch_add(1);
+					}
+					if (!saw_second && second_identity_ready.load(std::memory_order_acquire)
+						&& id == second_id) {
+						saw_second = true;
+						readers_saw_second.fetch_add(1);
+					}
+				} while (!stop.load());
+			});
+		}
+
+		const auto first_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (readers_saw_first.load() < reader_count &&
+			std::chrono::steady_clock::now() < first_deadline) {
+			std::this_thread::yield();
+		}
+		first_observed_by_all = readers_saw_first.load() == reader_count;
+	}
+
+	NozzleAcquireDesc closed_desc{};
+	closed_desc.timeout_ms = 50;
+	NozzleFrame *closed_frame = nullptr;
+	const NozzleErrorCode closed_error =
+		nozzle_receiver_acquire_frame(receiver, &closed_desc, &closed_frame);
+	if (closed_frame != nullptr) {
+		nozzle_frame_release(closed_frame);
+	}
+
+	DeleteFileA(ready_file.c_str());
+	NozzleConnectedSenderSnapshot second{};
+	bool second_started = false;
+	bool second_ready = false;
+	NozzleErrorCode reconnect_error = NOZZLE_ERROR_UNKNOWN;
+	NozzleErrorCode second_snapshot_error = NOZZLE_ERROR_UNKNOWN;
+	bool second_observed_by_all = false;
+	{
+		child_process second_child;
+		second_started = start_helper(
+			std::string("public ") + quote_arg(sender_name) + " " + quote_arg(ready_file),
+			second_child);
+		if (second_started) {
+			second_ready = wait_for_file(ready_file, 10000);
+		}
+		if (second_ready) {
+			NozzleAcquireDesc acquire_desc{};
+			acquire_desc.timeout_ms = 1000;
+			NozzleFrame *frame = nullptr;
+			reconnect_error = nozzle_receiver_acquire_frame(receiver, &acquire_desc, &frame);
+			if (frame != nullptr) {
+				nozzle_frame_release(frame);
+			}
+		}
+		if (reconnect_error == NOZZLE_OK) {
+			second_snapshot_error = nozzle_receiver_get_connected_info_snapshot(receiver, &second);
+			if (second_snapshot_error == NOZZLE_OK) {
+				second_id = second.id;
+				second_identity_ready.store(true, std::memory_order_release);
+				const auto second_deadline =
+					std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				while (readers_saw_second.load() < reader_count &&
+					std::chrono::steady_clock::now() < second_deadline) {
+					std::this_thread::yield();
+				}
+				second_observed_by_all = readers_saw_second.load() == reader_count;
+			}
+		}
+	}
+
+	stop.store(true);
+	for (auto &reader : readers) {
+		reader.join();
+	}
+
+	INFO("first_id=" << first_id << " second_id=" << second_id
+		<< " readers_saw_first=" << readers_saw_first.load()
+		<< " readers_saw_second=" << readers_saw_second.load()
+		<< " reader_errors=" << reader_errors.load());
+	REQUIRE(first_observed_by_all);
+	REQUIRE(closed_error == NOZZLE_ERROR_SENDER_CLOSED);
+	REQUIRE(second_started);
+	REQUIRE(second_ready);
+	REQUIRE(reconnect_error == NOZZLE_OK);
+	REQUIRE(second_snapshot_error == NOZZLE_OK);
+	REQUIRE(std::strcmp(first.name, sender_name.c_str()) == 0);
+	REQUIRE(first_id == first.id);
+	REQUIRE(std::strcmp(second.name, sender_name.c_str()) == 0);
+	REQUIRE(second.id[0] != '\0');
+	REQUIRE(first_id != second_id);
+	REQUIRE(second_observed_by_all);
+	REQUIRE(reader_errors.load() == 0);
+	for (const auto &ids : observed_ids) {
+		REQUIRE(std::find(ids.begin(), ids.end(), first_id) != ids.end());
+		REQUIRE(std::find(ids.begin(), ids.end(), second_id) != ids.end());
+		for (const auto &id : ids) {
+			REQUIRE((id == first_id || id == second_id));
+		}
+	}
+
+	nozzle_receiver_destroy(receiver);
 	DeleteFileA(ready_file.c_str());
 }
 
