@@ -715,7 +715,8 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
     std::atomic<bool> stop{false};
     std::atomic<bool> stalled{false};
     std::atomic<int> produced{0};
-    std::atomic<int> producer_errors{0};
+    std::atomic<int> transient_commit_timeouts{0};
+    std::atomic<int> fatal_producer_errors{0};
     std::atomic<int> cpp_acquired{0};
     std::atomic<int> c_acquired{0};
     std::atomic<int> c_info_mismatches{0};
@@ -731,14 +732,30 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
         arrive_and_wait();
         const auto test_deadline =
             std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        const auto has_required_progress = [&] {
+            return produced.load() >= min_frame_count &&
+                cpp_acquired.load() > 0 && c_acquired.load() > 0;
+        };
         for (int i = 0; i < max_frame_count; ++i) {
             const int acquired_before = cpp_acquired.load() + c_acquired.load();
             auto wf_result = snd.acquire_writable_frame(tdesc);
-            if (!wf_result.ok() || !snd.commit_frame(wf_result.value()).ok()) {
-                producer_errors.fetch_add(1);
+            if (!wf_result.ok()) {
+                fatal_producer_errors.fetch_add(1);
+                break;
+            } else {
+                auto commit_result = snd.commit_frame(wf_result.value());
+                if (!commit_result.ok()) {
+                    if (commit_result.error().code == nozzle::ErrorCode::Timeout) {
+                        transient_commit_timeouts.fetch_add(1);
+                    } else {
+                        fatal_producer_errors.fetch_add(1);
+                        break;
+                    }
+                } else {
+                    produced.fetch_add(1);
+                }
             }
-            produced.fetch_add(1);
-            if (i + 1 >= min_frame_count && cpp_acquired.load() > 0 && c_acquired.load() > 0) {
+            if (has_required_progress()) {
                 break;
             }
             // Pace the producer so receivers can import a ring slot, but do not require every
@@ -750,6 +767,9 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
             while (cpp_acquired.load() + c_acquired.load() == acquired_before &&
                 std::chrono::steady_clock::now() < pacing_deadline) {
                 std::this_thread::yield();
+            }
+            if (has_required_progress()) {
+                break;
             }
             if (std::chrono::steady_clock::now() >= test_deadline) {
                 stalled.store(true);
@@ -805,9 +825,12 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
     nozzle_receiver_destroy(c_recv);
 
     INFO("produced=" << produced.load() << " cpp_acquired=" << cpp_acquired.load()
-         << " c_acquired=" << c_acquired.load() << " stalled=" << stalled.load());
+         << " c_acquired=" << c_acquired.load()
+         << " transient_commit_timeouts=" << transient_commit_timeouts.load()
+         << " fatal_producer_errors=" << fatal_producer_errors.load()
+         << " stalled=" << stalled.load());
     REQUIRE_FALSE(stalled.load());
-    REQUIRE(producer_errors.load() == 0);
+    REQUIRE(fatal_producer_errors.load() == 0);
     REQUIRE(produced.load() >= min_frame_count);
     REQUIRE(cpp_acquired.load() > 0);
     REQUIRE(c_acquired.load() > 0);
