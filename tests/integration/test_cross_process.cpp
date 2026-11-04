@@ -512,6 +512,55 @@ TEST_CASE("Integration: receiver rejects torn committed frame/slot pair", "[inte
     }
 }
 
+TEST_CASE("Integration: writable frames rotate through ring slots", "[integration]") {
+    clear_all_registered_senders();
+
+    constexpr uint32_t ring_size = 3;
+
+    nozzle::sender_desc desc{};
+    desc.name = "integ_ring_rotation_test";
+    desc.application_name = "integ_app";
+    desc.ring_buffer_size = ring_size;
+
+    auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_result.ok());
+    auto snd = std::move(sender_result.value());
+
+    nozzle::receiver_desc rdesc{};
+    rdesc.name = desc.name;
+
+    auto recv_result = nozzle::receiver::create(rdesc);
+    REQUIRE(recv_result.ok());
+    auto recv = std::move(recv_result.value());
+
+    nozzle::texture_desc tdesc{};
+    tdesc.width = 64;
+    tdesc.height = 64;
+    tdesc.format = nozzle::texture_format::rgba8_unorm;
+
+    nozzle::acquire_desc adesc{};
+    adesc.timeout_ms = 500;
+
+    std::vector<uint32_t> slots{};
+    for (uint32_t i = 0; i < ring_size * 2; ++i) {
+        auto wf_result = snd.acquire_writable_frame(tdesc);
+        REQUIRE(wf_result.ok());
+        slots.push_back(nozzle::detail::get_writable_frame_slot(wf_result.value()));
+
+        auto commit_result = snd.commit_frame(wf_result.value());
+        REQUIRE(commit_result.ok());
+
+        auto frame_result = recv.acquire_frame(adesc);
+        REQUIRE(frame_result.ok());
+        REQUIRE(frame_result.value().info().frame_index == i + 1);
+    }
+
+    REQUIRE(slots == std::vector<uint32_t>{0, 1, 2, 0, 1, 2});
+}
+
 TEST_CASE("Integration: sender destruction removes from enumeration", "[integration]") {
     clear_all_registered_senders();
 
