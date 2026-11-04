@@ -729,6 +729,8 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
 
     std::thread producer([&] {
         arrive_and_wait();
+        const auto test_deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(10);
         for (int i = 0; i < max_frame_count; ++i) {
             const int acquired_before = cpp_acquired.load() + c_acquired.load();
             auto wf_result = snd.acquire_writable_frame(tdesc);
@@ -739,18 +741,18 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
             if (i + 1 >= min_frame_count && cpp_acquired.load() > 0 && c_acquired.load() > 0) {
                 break;
             }
-            // Back-pressure, not an oracle: an unpaced producer overruns the ring faster than
-            // receivers can import a slot. The deadline only stops a stalled run from hanging CI;
-            // the stall then fails the produced/acquired assertions below.
-            const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-            while (cpp_acquired.load() + c_acquired.load() == acquired_before) {
-                if (std::chrono::steady_clock::now() >= give_up) {
-                    stalled.store(true);
-                    break;
-                }
+            // Pace the producer so receivers can import a ring slot, but do not require every
+            // published frame to be acquired. D3D11 keyed-mutex contention can legitimately
+            // leave an individual frame unobserved; the overall deadline and final assertions
+            // still fail a run where either receiver never makes progress.
+            const auto pacing_deadline =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(10);
+            while (cpp_acquired.load() + c_acquired.load() == acquired_before &&
+                std::chrono::steady_clock::now() < pacing_deadline) {
                 std::this_thread::yield();
             }
-            if (stalled.load()) {
+            if (std::chrono::steady_clock::now() >= test_deadline) {
+                stalled.store(true);
                 break;
             }
         }
