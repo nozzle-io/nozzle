@@ -188,13 +188,11 @@ TEST_CASE("getter: receiver rejects receiver without backing object", "[c_api][f
 
 namespace {
 
-NozzleReceiver make_test_receiver_with_fallback(const nozzle::format_fallback_info &fb) {
-    NozzleReceiver r{};
+void set_test_receiver_fallback(NozzleReceiver &r, const nozzle::format_fallback_info &fb) {
     r.use_cached_connected_info_for_tests = true;
     nozzle::connected_sender_info ci{};
     ci.fallback = fb;
     r.cached_connected_info = ci;
-    return r;
 }
 
 } // anonymous namespace
@@ -208,7 +206,8 @@ TEST_CASE("getter: receiver cached fallback hook returns quality_loss", "[c_api]
     fb.swizzle = nozzle::channel_swizzle::identity;
     fb.quality_loss = true;
 
-    auto r = make_test_receiver_with_fallback(fb);
+    NozzleReceiver r{};
+    set_test_receiver_fallback(r, fb);
 
     NozzleFormatFallbackInfo out{};
     REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out) == NOZZLE_OK);
@@ -230,7 +229,8 @@ TEST_CASE("getter: receiver cached fallback hook returns external edge case", "[
     fb.swizzle = nozzle::channel_swizzle::swap_rb;
     fb.quality_loss = false;
 
-    auto r = make_test_receiver_with_fallback(fb);
+    NozzleReceiver r{};
+    set_test_receiver_fallback(r, fb);
 
     NozzleFormatFallbackInfo out{};
     REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out) == NOZZLE_OK);
@@ -252,7 +252,8 @@ TEST_CASE("getter: receiver cached fallback hook returns storage_compatible", "[
     fb.swizzle = nozzle::channel_swizzle::swap_rb;
     fb.quality_loss = false;
 
-    auto r = make_test_receiver_with_fallback(fb);
+    NozzleReceiver r{};
+    set_test_receiver_fallback(r, fb);
 
     NozzleFormatFallbackInfo out{};
     REQUIRE(nozzle_receiver_get_connected_format_fallback_info(&r, &out) == NOZZLE_OK);
