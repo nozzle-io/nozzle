@@ -195,3 +195,35 @@ if(NOZZLE_ENABLE_TEST_HOOKS)
 endif()
 
 catch_discover_tests(nozzle_c_api_tests)
+
+if(NOZZLE_BUILD_F16C_TEST)
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
+        message(FATAL_ERROR "NOZZLE_BUILD_F16C_TEST requires an x86 target")
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|GNU)$")
+        message(FATAL_ERROR "NOZZLE_BUILD_F16C_TEST currently supports Clang and GNU compilers")
+    endif()
+
+    set(NOZZLE_F16C_TEST_SOURCE
+        "${CMAKE_SOURCE_DIR}/src/common/format_convert_f16c.cpp"
+        CACHE FILEPATH
+        "F16C implementation compiled by the focused regression target"
+    )
+
+    add_executable(nozzle_f16c_tests
+        f16c/test_format_convert_f16c.cpp
+        ${NOZZLE_F16C_TEST_SOURCE}
+    )
+    target_compile_options(nozzle_f16c_tests PRIVATE
+        -mf16c
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+    )
+    target_link_options(nozzle_f16c_tests PRIVATE
+        -fsanitize=address,undefined
+    )
+    target_include_directories(nozzle_f16c_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+    )
+    add_test(NAME nozzle_f16c_tests COMMAND nozzle_f16c_tests)
+endif()

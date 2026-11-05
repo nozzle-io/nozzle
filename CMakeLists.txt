@@ -257,6 +257,7 @@ endif()
 
 # --- Tests ---
 option(NOZZLE_BUILD_TESTS "Build nozzle tests" ON)
+option(NOZZLE_BUILD_F16C_TEST "Build the focused x86 F16C conversion regression" OFF)
 option(NOZZLE_ENABLE_TEST_HOOKS "Enable internal test-only C API hooks in nozzle library" OFF)
 if(NOZZLE_ENABLE_TEST_HOOKS)
     target_compile_definitions(nozzle PRIVATE NOZZLE_ENABLE_TEST_HOOKS=1)
