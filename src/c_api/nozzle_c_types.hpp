@@ -7,14 +7,27 @@
 #include <nozzle/device.hpp>
 #include <nozzle/pixel_access.hpp>
 
+#include <mutex>
+
+#include <string>
+
+struct NozzleCachedSenderStrings {
+    std::string name{};
+    std::string application_name{};
+    std::string id{};
+};
+
 struct NozzleSender {
     std::unique_ptr<nozzle::sender> obj;
-    nozzle::sender_info cached_info{};
+    NozzleCachedSenderStrings cached_strings{};
+    std::mutex cached_info_mutex;
 };
 
 struct NozzleReceiver {
     std::unique_ptr<nozzle::receiver> obj;
     nozzle::connected_sender_info cached_connected_info{};
+    NozzleCachedSenderStrings cached_strings{};
+    std::mutex cached_connected_info_mutex;
 #if NOZZLE_ENABLE_TEST_HOOKS
     bool use_cached_connected_info_for_tests{false};
 #endif

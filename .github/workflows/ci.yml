@@ -42,6 +42,9 @@ jobs:
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact
 
+      - name: C API snapshot identity transition
+        run: ./build/tests/nozzle_integration_tests "[info_snapshot][cross_process]" --reporter console --success
+
       # Explicit evidence for #56 RGB semantic -> storage fallback receiver metadata.
       - name: RGB semantic receiver metadata tests
         run: ./build/tests/nozzle_integration_tests "[integration][fallback][rgb_semantic]" --reporter console --success --allow-running-no-tests
@@ -51,6 +54,51 @@ jobs:
       # without turning an unsupported macOS runner into a false test failure.
       - name: Metal IOSurface alias runtime tests
         run: ./build/tests/nozzle_integration_tests "[metal][direct_publish][native_format]" --reporter compact --success --allow-running-no-tests
+
+  # ThreadSanitizer over all suites. Guards object-level thread safety (nozzle-dev#188).
+  tsan-macos:
+    runs-on: macos-14
+    env:
+      TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: >-
+          cmake -B build-tsan
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+          -DNOZZLE_ENABLE_TEST_HOOKS=ON
+          -DNOZZLE_BUILD_EXAMPLES=OFF
+          "-DCMAKE_C_FLAGS=-fsanitize=thread -fno-omit-frame-pointer"
+          "-DCMAKE_CXX_FLAGS=-fsanitize=thread -fno-omit-frame-pointer"
+          "-DCMAKE_OBJCXX_FLAGS=-fsanitize=thread -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread
+
+      - name: Build
+        run: cmake --build build-tsan -j 3
+
+      - name: Unit tests (TSan)
+        run: ./build-tsan/tests/nozzle_tests --reporter compact
+
+      - name: C API tests (TSan)
+        run: ./build-tsan/tests/nozzle_c_api_tests --reporter compact
+
+      - name: Integration tests (TSan)
+        run: ./build-tsan/tests/nozzle_integration_tests --reporter compact
+
+      # The threading regression only has value when it actually runs, so surface a runner SKIP.
+      - name: Receiver threading regression (TSan)
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build-tsan/tests/nozzle_integration_tests "[threading]" --reporter console --success | tee threading.log
+          if grep -qi "skipped" threading.log; then
+            echo "::error::[threading] tests were skipped on this runner; TSan did not exercise receiver sharing"
+            exit 1
+          fi
 
   build-windows:
     runs-on: windows-2022
@@ -74,6 +122,12 @@ jobs:
       # Integration tests must SKIP unsupported runner capabilities, not hide failures.
       - name: Integration tests
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact
+
+      - name: Receiver threading regression
+        run: ./build/tests/Debug/nozzle_integration_tests.exe "[integration][threading]" --reporter console --success
+
+      - name: C API snapshot identity transition
+        run: ./build/tests/Debug/nozzle_integration_tests.exe "[info_snapshot][cross_process]" --reporter console --success
 
       # Explicit evidence for #56 RGB semantic -> storage fallback receiver metadata.
       - name: RGB semantic receiver metadata tests

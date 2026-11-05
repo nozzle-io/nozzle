@@ -2,6 +2,8 @@
 
 #include <nozzle/nozzle_c.h>
 
+#include <cstring>
+
 #if NOZZLE_HAS_METAL
 static constexpr NozzleBackendType actual_backend = NOZZLE_BACKEND_METAL;
 static constexpr NozzleBackendType mismatch_backend = NOZZLE_BACKEND_D3D11;
@@ -132,6 +134,32 @@ TEST_CASE("C API: nozzle_sender_get_native_device returns default device", "[c_a
     REQUIRE(ec == NOZZLE_OK);
     REQUIRE(nd.device != nullptr);
     REQUIRE(nd.backend == actual_backend);
+
+    nozzle_sender_destroy(sender);
+}
+
+TEST_CASE("C API: sender info snapshot is caller-owned", "[c_api][info_snapshot]") {
+    NozzleSenderDesc desc{};
+    desc.name = "test_c_sender_snapshot";
+    desc.application_name = "test_c_snapshot_app";
+
+    NozzleSender *sender = nullptr;
+    const NozzleErrorCode create_error = nozzle_sender_create(&desc, &sender);
+    if (create_error != NOZZLE_OK) {
+        SKIP("backend device is not available on this runner");
+    }
+
+    NozzleSenderInfoSnapshot first{};
+    REQUIRE(nozzle_sender_get_info_snapshot(sender, &first) == NOZZLE_OK);
+    REQUIRE(std::strcmp(first.name, desc.name) == 0);
+    REQUIRE(std::strcmp(first.application_name, desc.application_name) == 0);
+    REQUIRE(first.id[0] != '\0');
+
+    NozzleSenderInfoSnapshot second{};
+    REQUIRE(nozzle_sender_get_info_snapshot(sender, &second) == NOZZLE_OK);
+    REQUIRE(std::strcmp(first.name, desc.name) == 0);
+    REQUIRE(std::strcmp(first.application_name, desc.application_name) == 0);
+    REQUIRE(std::strcmp(first.id, second.id) == 0);
 
     nozzle_sender_destroy(sender);
 }

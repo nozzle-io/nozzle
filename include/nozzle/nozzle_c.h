@@ -237,12 +237,26 @@ typedef struct NozzleAcquireDesc {
 
 // ========== Sender Info ==========
 
+// These capacities include the trailing NUL byte and match the shared-memory
+// protocol. Strings longer than the available payload are truncated by byte,
+// so truncation is not guaranteed to preserve a UTF-8 code-point boundary.
+#define NOZZLE_SENDER_NAME_CAPACITY 64
+#define NOZZLE_APPLICATION_NAME_CAPACITY 64
+#define NOZZLE_SENDER_ID_CAPACITY 37
+
 typedef struct NozzleSenderInfo {
     const char *name;
     const char *application_name;
     const char *id;
     NozzleBackendType backend;
 } NozzleSenderInfo;
+
+typedef struct NozzleSenderInfoSnapshot {
+    char name[NOZZLE_SENDER_NAME_CAPACITY];
+    char application_name[NOZZLE_APPLICATION_NAME_CAPACITY];
+    char id[NOZZLE_SENDER_ID_CAPACITY];
+    NozzleBackendType backend;
+} NozzleSenderInfoSnapshot;
 
 typedef struct NozzleConnectedSenderInfo {
     const char *name;
@@ -260,6 +274,24 @@ typedef struct NozzleConnectedSenderInfo {
     uint32_t native_format_value;
     uint64_t native_format_modifier;
 } NozzleConnectedSenderInfo;
+
+typedef struct NozzleConnectedSenderSnapshot {
+    char name[NOZZLE_SENDER_NAME_CAPACITY];
+    char application_name[NOZZLE_APPLICATION_NAME_CAPACITY];
+    char id[NOZZLE_SENDER_ID_CAPACITY];
+    uint32_t connected;
+    NozzleBackendType backend;
+    uint32_t width;
+    uint32_t height;
+    NozzleTextureFormat format;
+    NozzleTextureFormat semantic_format;
+    double estimated_fps;
+    uint64_t frame_counter;
+    uint64_t last_update_time_ns;
+    NozzleNativeFormatKind native_format_kind;
+    uint32_t native_format_value;
+    uint64_t native_format_modifier;
+} NozzleConnectedSenderSnapshot;
 
 // ========== Frame Info ==========
 
@@ -357,9 +389,19 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_discard_frame(
     NozzleFrame *frame
 );
 
+// Deprecated borrowed-pointer getter. Calls to this function and all reads from
+// its returned strings must be externally synchronized with other calls on the
+// same sender wrapper. Use nozzle_sender_get_info_snapshot for caller-owned data.
 NOZZLE_C_API NozzleErrorCode nozzle_sender_get_info(
     NozzleSender *sender,
     NozzleSenderInfo *out_info
+);
+
+// Copies sender information into caller-owned storage. The returned value has
+// no borrowed pointers and remains valid independently of later API calls.
+NOZZLE_C_API NozzleErrorCode nozzle_sender_get_info_snapshot(
+    NozzleSender *sender,
+    NozzleSenderInfoSnapshot *out_info
 );
 
 NOZZLE_C_API NozzleErrorCode nozzle_sender_get_native_device(
@@ -389,9 +431,26 @@ NOZZLE_C_API NozzleErrorCode nozzle_receiver_acquire_frame(
 // release.
 NOZZLE_C_API void nozzle_frame_release(NozzleFrame *frame);
 
+// Deprecated borrowed-pointer getter. Calls to this function and all reads from
+// its returned strings must be externally synchronized with other calls on the
+// same receiver wrapper. A later call can invalidate the strings when sender
+// identity changes. Use nozzle_receiver_get_connected_info_snapshot instead.
 NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info(
     NozzleReceiver *receiver,
     NozzleConnectedSenderInfo *out_info
+);
+
+// Copies the receiver's last-observed connection state and connected-sender
+// information into caller-owned storage under the same receiver lock. The
+// returned value has no borrowed pointers and remains valid independently of
+// later calls or sender identity transitions. connected is 1 when the receiver
+// last observed a connection and 0 after it observed a disconnect. Identity is
+// retained as the last-known sender identity while disconnected. This is a
+// coherent receiver snapshot, not a fresh liveness check; the sender may exit
+// immediately after the call returns.
+NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info_snapshot(
+    NozzleReceiver *receiver,
+    NozzleConnectedSenderSnapshot *out_info
 );
 
 NOZZLE_C_API NozzleErrorCode nozzle_frame_get_info(

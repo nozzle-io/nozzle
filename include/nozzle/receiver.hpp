@@ -8,6 +8,11 @@
 
 namespace nozzle {
 
+struct receiver_connection_snapshot {
+    connected_sender_info info{};
+    bool connected{false};
+};
+
 class receiver {
 public:
     static Result<receiver> create(const receiver_desc &desc);
@@ -26,6 +31,8 @@ public:
 
     // Connected sender info
     connected_sender_info connected_info() const;
+    // Coherent last-observed state and identity; does not probe current liveness.
+    receiver_connection_snapshot connection_snapshot() const;
     metadata_list sender_metadata() const;
     bool is_connected() const;
 

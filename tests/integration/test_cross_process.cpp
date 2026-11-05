@@ -1,4 +1,5 @@
 #include <nozzle/nozzle.hpp>
+#include <nozzle/nozzle_c.h>
 
 #include "ipc.hpp"
 #include "registry.hpp"
@@ -7,9 +8,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -709,4 +713,176 @@ TEST_CASE("Integration: metadata round-trip via shared state", "[integration]") 
     REQUIRE(sender_md[0].value == "linear");
     REQUIRE(sender_md[1].key == "channel_semantics");
     REQUIRE(sender_md[1].value == "depth");
+}
+
+TEST_CASE("Integration: one receiver is safe to share across threads", "[integration][threading]") {
+    clear_all_registered_senders();
+
+    const std::string sender_name = "integ_receiver_threads_test";
+
+    nozzle::sender_desc desc{};
+    desc.name = sender_name;
+    desc.application_name = "integ_app";
+    desc.ring_buffer_size = 3;
+
+    auto sender_result = nozzle::sender::create(desc);
+    if (!sender_result.ok() && is_backend_unavailable(sender_result.error())) {
+        SKIP("backend device is not available on this runner");
+    }
+    REQUIRE(sender_result.ok());
+    auto snd = std::move(sender_result.value());
+
+    nozzle::texture_desc tdesc{};
+    tdesc.width = 64;
+    tdesc.height = 64;
+    tdesc.format = nozzle::texture_format::rgba8_unorm;
+
+    {
+        auto wf_result = snd.acquire_writable_frame(tdesc);
+        REQUIRE(wf_result.ok());
+        REQUIRE(snd.commit_frame(wf_result.value()).ok());
+    }
+
+    nozzle::receiver_desc rdesc{};
+    rdesc.name = sender_name;
+    auto recv_result = nozzle::receiver::create(rdesc);
+    REQUIRE(recv_result.ok());
+    auto recv = std::move(recv_result.value());
+
+    NozzleReceiverDesc c_rdesc{};
+    c_rdesc.name = sender_name.c_str();
+    c_rdesc.application_name = "integ_c_app";
+    NozzleReceiver *c_recv = nullptr;
+    REQUIRE(nozzle_receiver_create(&c_rdesc, &c_recv) == NOZZLE_OK);
+
+    constexpr int min_frame_count = 200;
+    constexpr int max_frame_count = 2000;
+    constexpr int consumer_count = 3;
+    constexpr int participant_count = 1 + consumer_count * 2;
+
+    std::atomic<int> ready_count{0};
+    std::atomic<bool> stop{false};
+    std::atomic<bool> stalled{false};
+    std::atomic<int> produced{0};
+    std::atomic<int> transient_commit_timeouts{0};
+    std::atomic<int> fatal_producer_errors{0};
+    std::atomic<int> cpp_acquired{0};
+    std::atomic<int> c_acquired{0};
+    std::atomic<int> c_info_mismatches{0};
+
+    auto arrive_and_wait = [&] {
+        ready_count.fetch_add(1);
+        while (ready_count.load() < participant_count) {
+            std::this_thread::yield();
+        }
+    };
+
+    std::thread producer([&] {
+        arrive_and_wait();
+        const auto test_deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        const auto has_required_progress = [&] {
+            return produced.load() >= min_frame_count &&
+                cpp_acquired.load() > 0 && c_acquired.load() > 0;
+        };
+        for (int i = 0; i < max_frame_count; ++i) {
+            const int acquired_before = cpp_acquired.load() + c_acquired.load();
+            auto wf_result = snd.acquire_writable_frame(tdesc);
+            if (!wf_result.ok()) {
+                fatal_producer_errors.fetch_add(1);
+                break;
+            } else {
+                auto commit_result = snd.commit_frame(wf_result.value());
+                if (!commit_result.ok()) {
+                    if (commit_result.error().code == nozzle::ErrorCode::Timeout) {
+                        transient_commit_timeouts.fetch_add(1);
+                    } else {
+                        fatal_producer_errors.fetch_add(1);
+                        break;
+                    }
+                } else {
+                    produced.fetch_add(1);
+                }
+            }
+            if (has_required_progress()) {
+                break;
+            }
+            // Pace the producer so receivers can import a ring slot, but do not require every
+            // published frame to be acquired. D3D11 keyed-mutex contention can legitimately
+            // leave an individual frame unobserved; the overall deadline and final assertions
+            // still fail a run where either receiver never makes progress.
+            const auto pacing_deadline =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(10);
+            while (cpp_acquired.load() + c_acquired.load() == acquired_before &&
+                std::chrono::steady_clock::now() < pacing_deadline) {
+                std::this_thread::yield();
+            }
+            if (has_required_progress()) {
+                break;
+            }
+            if (std::chrono::steady_clock::now() >= test_deadline) {
+                stalled.store(true);
+                break;
+            }
+        }
+        stop.store(true);
+    });
+
+    std::vector<std::thread> consumers{};
+    for (int t = 0; t < consumer_count; ++t) {
+        consumers.emplace_back([&] {
+            arrive_and_wait();
+            nozzle::acquire_desc adesc{};
+            adesc.timeout_ms = 5;
+            do {
+                auto frame_result = recv.acquire_frame(adesc);
+                if (frame_result.ok()) {
+                    cpp_acquired.fetch_add(1);
+                }
+                auto info = recv.connected_info();
+                (void)info;
+                auto md = recv.sender_metadata();
+                (void)md;
+                (void)recv.is_connected();
+            } while (!stop.load());
+        });
+        consumers.emplace_back([&] {
+            arrive_and_wait();
+            NozzleAcquireDesc c_adesc{};
+            c_adesc.timeout_ms = 5;
+            do {
+                NozzleFrame *c_frame = nullptr;
+                if (nozzle_receiver_acquire_frame(c_recv, &c_adesc, &c_frame) == NOZZLE_OK) {
+                    c_acquired.fetch_add(1);
+                    nozzle_frame_release(c_frame);
+                }
+                NozzleConnectedSenderSnapshot c_info{};
+                if (nozzle_receiver_get_connected_info_snapshot(c_recv, &c_info) != NOZZLE_OK ||
+                    sender_name != c_info.name) {
+                    c_info_mismatches.fetch_add(1);
+                }
+                NozzleFormatFallbackInfo c_fallback{};
+                (void)nozzle_receiver_get_connected_format_fallback_info(c_recv, &c_fallback);
+            } while (!stop.load());
+        });
+    }
+
+    producer.join();
+    for (auto &consumer : consumers) {
+        consumer.join();
+    }
+    nozzle_receiver_destroy(c_recv);
+
+    INFO("produced=" << produced.load() << " cpp_acquired=" << cpp_acquired.load()
+         << " c_acquired=" << c_acquired.load()
+         << " transient_commit_timeouts=" << transient_commit_timeouts.load()
+         << " fatal_producer_errors=" << fatal_producer_errors.load()
+         << " stalled=" << stalled.load());
+    REQUIRE_FALSE(stalled.load());
+    REQUIRE(fatal_producer_errors.load() == 0);
+    REQUIRE(produced.load() >= min_frame_count);
+    REQUIRE(cpp_acquired.load() > 0);
+    REQUIRE(c_acquired.load() > 0);
+    REQUIRE(c_info_mismatches.load() == 0);
+    REQUIRE(recv.is_connected());
 }

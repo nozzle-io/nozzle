@@ -30,11 +30,14 @@
 #include <drm_fourcc.h>
 #endif
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstddef>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <utility>
 
 #include <plog/Log.h>
@@ -260,6 +263,36 @@ static_assert(offsetof(NozzleFormatFallbackInfo, category) == 12, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, swizzle) == 16, "");
 static_assert(offsetof(NozzleFormatFallbackInfo, quality_loss) == 20, "");
 
+static_assert(sizeof(NozzleSenderInfoSnapshot::name) == NOZZLE_SENDER_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleSenderInfoSnapshot::application_name) == NOZZLE_APPLICATION_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleSenderInfoSnapshot::id) == NOZZLE_SENDER_ID_CAPACITY, "");
+static_assert(sizeof(NozzleSenderInfoSnapshot) == 172, "");
+static_assert(alignof(NozzleSenderInfoSnapshot) == 4, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, name) == 0, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, application_name) == 64, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, id) == 128, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, backend) == 168, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot::name) == NOZZLE_SENDER_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot::application_name) == NOZZLE_APPLICATION_NAME_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot::id) == NOZZLE_SENDER_ID_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot) == 232, "");
+static_assert(alignof(NozzleConnectedSenderSnapshot) == 8, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, name) == 0, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, application_name) == 64, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, id) == 128, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, connected) == 168, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, backend) == 172, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, width) == 176, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, height) == 180, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, format) == 184, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, semantic_format) == 188, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, estimated_fps) == 192, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, frame_counter) == 200, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, last_update_time_ns) == 208, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, native_format_kind) == 216, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, native_format_value) == 220, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, native_format_modifier) == 224, "");
+
 static_assert(NOZZLE_BACKEND_CAPABILITIES_VERSION == nozzle::backend_capabilities_version, "");
 static_assert(NOZZLE_SHARING_IOSURFACE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::iosurface), "");
 static_assert(NOZZLE_SHARING_D3D11_NT_HANDLE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::d3d11_nt_handle), "");
@@ -442,6 +475,65 @@ NozzleErrorCode copy_mapped_pixels_to_buffer(
 } // anonymous namespace
 
 #include "nozzle_c_types.hpp"
+
+namespace {
+
+void assign_if_changed(std::string &dst, const std::string &src) {
+    if (dst != src) {
+        dst = src;
+    }
+}
+
+template <typename info_type>
+void refresh_cached_strings(NozzleCachedSenderStrings &cached, const info_type &info) {
+    assign_if_changed(cached.name, info.name);
+    assign_if_changed(cached.application_name, info.application_name);
+    assign_if_changed(cached.id, info.id);
+}
+
+template <std::size_t capacity>
+void copy_snapshot_string(char (&destination)[capacity], const std::string &source) {
+    const std::size_t length = std::min(source.size(), capacity - 1);
+    std::memcpy(destination, source.data(), length);
+    destination[length] = '\0';
+}
+
+void fill_sender_info_snapshot(
+    const nozzle::sender_info &info,
+    NozzleSenderInfoSnapshot *out_info
+) {
+    *out_info = {};
+    copy_snapshot_string(out_info->name, info.name);
+    copy_snapshot_string(out_info->application_name, info.application_name);
+    copy_snapshot_string(out_info->id, info.id);
+    out_info->backend = to_c_backend_type(info.backend);
+}
+
+void fill_connected_sender_snapshot(
+    const nozzle::receiver_connection_snapshot &snapshot,
+    NozzleConnectedSenderSnapshot *out_info
+) {
+    *out_info = {};
+    const auto &info = snapshot.info;
+    copy_snapshot_string(out_info->name, info.name);
+    copy_snapshot_string(out_info->application_name, info.application_name);
+    copy_snapshot_string(out_info->id, info.id);
+    out_info->connected = snapshot.connected ? 1u : 0u;
+    out_info->backend = to_c_backend_type(info.backend);
+    out_info->width = info.width;
+    out_info->height = info.height;
+    out_info->format = to_c_format(info.format);
+    out_info->semantic_format = to_c_format(info.semantic_format);
+    out_info->estimated_fps = info.estimated_fps;
+    out_info->frame_counter = info.frame_counter;
+    out_info->last_update_time_ns = info.last_update_time_ns;
+    out_info->native_format_kind = to_c_native_kind(
+        static_cast<nozzle::native_format_kind>(info.native_format_kind));
+    out_info->native_format_value = info.native_format_value;
+    out_info->native_format_modifier = info.native_format_modifier;
+}
+
+} // anonymous namespace
 
 // ========== Sender API ==========
 
@@ -686,11 +778,24 @@ NozzleErrorCode nozzle_sender_get_info(
 ) {
     if (!sender || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    sender->cached_info = sender->obj->info();
-    out_info->name = sender->cached_info.name.c_str();
-    out_info->application_name = sender->cached_info.application_name.c_str();
-    out_info->id = sender->cached_info.id.c_str();
-    out_info->backend = to_c_backend_type(sender->cached_info.backend);
+    const auto info = sender->obj->info();
+    std::lock_guard<std::mutex> lock(sender->cached_info_mutex);
+    refresh_cached_strings(sender->cached_strings, info);
+    out_info->name = sender->cached_strings.name.c_str();
+    out_info->application_name = sender->cached_strings.application_name.c_str();
+    out_info->id = sender->cached_strings.id.c_str();
+    out_info->backend = to_c_backend_type(info.backend);
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_sender_get_info_snapshot(
+    NozzleSender *sender,
+    NozzleSenderInfoSnapshot *out_info
+) {
+    if (!sender || !sender->obj || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const auto info = sender->obj->info();
+    fill_sender_info_snapshot(info, out_info);
     return NOZZLE_OK;
 }
 
@@ -797,11 +902,13 @@ NozzleErrorCode nozzle_receiver_get_connected_info(
 ) {
     if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    receiver->cached_connected_info = receiver->obj->connected_info();
-    const auto &ci = receiver->cached_connected_info;
-    out_info->name = ci.name.c_str();
-    out_info->application_name = ci.application_name.c_str();
-    out_info->id = ci.id.c_str();
+    const auto ci = receiver->obj->connected_info();
+    std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
+    receiver->cached_connected_info = ci;
+    refresh_cached_strings(receiver->cached_strings, ci);
+    out_info->name = receiver->cached_strings.name.c_str();
+    out_info->application_name = receiver->cached_strings.application_name.c_str();
+    out_info->id = receiver->cached_strings.id.c_str();
     out_info->backend = to_c_backend_type(ci.backend);
     out_info->width = ci.width;
     out_info->height = ci.height;
@@ -813,6 +920,17 @@ NozzleErrorCode nozzle_receiver_get_connected_info(
     out_info->native_format_kind = to_c_native_kind(static_cast<nozzle::native_format_kind>(ci.native_format_kind));
     out_info->native_format_value = ci.native_format_value;
     out_info->native_format_modifier = ci.native_format_modifier;
+    return NOZZLE_OK;
+}
+
+NozzleErrorCode nozzle_receiver_get_connected_info_snapshot(
+    NozzleReceiver *receiver,
+    NozzleConnectedSenderSnapshot *out_info
+) {
+    if (!receiver || !receiver->obj || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
+
+    const auto snapshot = receiver->obj->connection_snapshot();
+    fill_connected_sender_snapshot(snapshot, out_info);
     return NOZZLE_OK;
 }
 
@@ -875,13 +993,16 @@ NozzleErrorCode nozzle_receiver_get_connected_format_fallback_info(
 
 #if NOZZLE_ENABLE_TEST_HOOKS
     if (receiver->use_cached_connected_info_for_tests) {
+        std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
         return fill_fallback(out_info, receiver->cached_connected_info.fallback);
     }
 #endif
 
     if (!receiver->obj) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    receiver->cached_connected_info = receiver->obj->connected_info();
+    const auto ci = receiver->obj->connected_info();
+    std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
+    receiver->cached_connected_info = ci;
     return fill_fallback(out_info, receiver->cached_connected_info.fallback);
 }
 
