@@ -25,6 +25,7 @@ void widen_half_to_float_f16c(
 		for (; i + 8 <= row_elements; i += 8) {
 			__m128i h = _mm_loadu_si128(reinterpret_cast<const __m128i *>(src_row + i));
 			_mm_storeu_ps(dst_row + i, _mm_cvtph_ps(h));
+			_mm_storeu_ps(dst_row + i + 4, _mm_cvtph_ps(_mm_srli_si128(h, 8)));
 		}
 		for (; i < row_elements; ++i) {
 			uint32_t h = src_row[i];
