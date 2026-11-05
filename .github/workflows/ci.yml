@@ -19,6 +19,13 @@ jobs:
       - name: Check exception policy
         run: bash scripts/check_no_exceptions.sh .
 
+  check-source-manifest:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source lists
+        run: bash scripts/check_source_manifest.sh
+
   build-macos:
     runs-on: macos-14
     steps:
@@ -832,6 +839,7 @@ jobs:
   publish-sdk-release:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs:
+      - check-source-manifest
       - package-sdk-macos
       - package-sdk-linux
       - package-sdk-windows

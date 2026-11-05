@@ -1,0 +1,6 @@
+src/backends/metal/metal_backend.mm
+src/backends/metal/metal_texture.mm
+src/backends/metal/metal_channel_swap.mm
+src/backends/metal/metal_sync.mm
+src/common/channel_swizzle_vimage.cpp
+src/common/format_convert_vimage.cpp

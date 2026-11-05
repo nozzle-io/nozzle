@@ -138,42 +138,25 @@ target_include_directories(nozzle PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/libs/plog/include
 )
 
-# --- Common sources ---
-target_sources(nozzle PRIVATE
-    src/common/ipc.cpp
-    src/common/registry.cpp
-    src/common/sender.cpp
-    src/common/receiver.cpp
-    src/common/frame.cpp
-    src/common/texture.cpp
-    src/common/device.cpp
-    src/common/discovery.cpp
-    src/common/metadata.cpp
-    src/common/pixel_access.cpp
-    src/common/channel_swizzle.cpp
-    src/common/format_convert.cpp
-    src/common/format_resolve.cpp
-    src/common/backend_capabilities.cpp
-    src/c_api/nozzle_c.cpp
-)
+# --- Source lists ---
+# sources/*.txt is the single list. Non-CMake wrappers read the same files, so add
+# new sources there. scripts/check_source_manifest.sh keeps the lists and src/ in step.
+function(nozzle_add_source_group group)
+    set(list_file "${CMAKE_CURRENT_SOURCE_DIR}/sources/${group}.txt")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${list_file}")
+    file(STRINGS "${list_file}" group_sources)
+    if(NOT group_sources)
+        message(FATAL_ERROR "${list_file} is empty")
+    endif()
+    target_sources(nozzle PRIVATE ${group_sources})
+endfunction()
 
-# --- Architecture-specific SIMD sources ( guards inside each file) ---
-target_sources(nozzle PRIVATE
-    src/common/format_convert_sse2.cpp
-    src/common/format_convert_f16c.cpp
-    src/common/format_convert_neon.cpp
-)
+# Common sources, including SIMD files that are guarded internally by architecture.
+nozzle_add_source_group(common)
 
 # --- Platform-specific sources ---
 if(APPLE)
-    target_sources(nozzle PRIVATE
-        src/backends/metal/metal_backend.mm
-        src/backends/metal/metal_texture.mm
-        src/backends/metal/metal_channel_swap.mm
-        src/backends/metal/metal_sync.mm
-        src/common/channel_swizzle_vimage.cpp
-        src/common/format_convert_vimage.cpp
-    )
+    nozzle_add_source_group(macos)
     find_library(METAL_FRAMEWORK Metal REQUIRED)
     find_library(IOSURFACE_FRAMEWORK IOSurface REQUIRED)
     find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
@@ -195,18 +178,12 @@ if(APPLE)
 endif()
 
 if(WIN32)
-    target_sources(nozzle PRIVATE
-        src/backends/d3d11/d3d11_backend.cpp
-        src/backends/d3d11/d3d11_texture.cpp
-        src/backends/d3d11/d3d11_sync.cpp
-    )
+    nozzle_add_source_group(windows)
     target_link_libraries(nozzle PRIVATE d3d11 dxgi bcrypt)
 endif()
 
 if(NOZZLE_HAS_DMA_BUF)
-    target_sources(nozzle PRIVATE
-        src/backends/linux/linux_texture.cpp
-    )
+    nozzle_add_source_group(linux)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
     pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
@@ -227,9 +204,7 @@ endif()
 option(NOZZLE_BUILD_OPENGL "Build OpenGL interop helpers" ON)
 
 if(NOZZLE_BUILD_OPENGL)
-    target_sources(nozzle PRIVATE
-        src/backends/opengl/opengl_backend.cpp
-    )
+    nozzle_add_source_group(opengl)
     target_compile_definitions(nozzle PUBLIC NOZZLE_HAS_OPENGL=1)
     if(APPLE)
         find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
