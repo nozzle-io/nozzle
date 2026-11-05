@@ -251,13 +251,10 @@ inline auto get_default_device() -> void * {
     return linux_backend::get_default_gbm_device();
 }
 
-inline void register_ring_texture(const texture &tex, uint32_t ring_slot) {
+inline void register_ring_texture_fd(int fd, uint32_t ring_slot) {
     auto *state = g_sender_state.load(std::memory_order_acquire);
     if (state) {
         std::lock_guard<std::mutex> lock(state->mutex_);
-        void *surface = detail::get_surface_native(tex);
-        int fd = static_cast<int>(reinterpret_cast<intptr_t>(surface));
-
         if (ring_slot < 8) {
             if (state->slot_fds_[ring_slot] != fd) {
                 close_owned_slot_fd_locked(state, ring_slot);
@@ -277,7 +274,8 @@ inline auto create_ring_texture(
     if (!tex_result.ok()) {
         return tex_result.error();
     }
-    register_ring_texture(tex_result.value(), ring_slot);
+    const auto surface = detail::get_surface_native(tex_result.value());
+    register_ring_texture_fd(static_cast<int>(reinterpret_cast<intptr_t>(surface)), ring_slot);
     return tex_result;
 }
 

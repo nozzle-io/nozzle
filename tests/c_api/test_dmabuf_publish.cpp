@@ -281,14 +281,15 @@ TEST_CASE("DMA-BUF backend: reused fd numbers advance allocation generation", "[
     auto original_fd = open_harmless_fd();
     REQUIRE(0 < original_fd.get());
     const int fd = original_fd.get();
-    uint64_t old_id;
+    uint32_t old_generation;
     {
         auto original = nozzle::detail::make_texture_from_backend(
             nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(original_fd.release())),
             16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
-        nozzle::detail::backend::register_ring_texture(original, 1);
-        old_id = nozzle::detail::backend::get_shared_resource_id(original);
-        REQUIRE(old_id != nozzle::detail::kInvalidSharedResourceId);
+        // Exercise the same registration operation as create_ring_texture, without EGL.
+        nozzle::detail::backend::register_ring_texture_fd(fd, 1);
+        old_generation = nozzle::detail::backend::test_get_sender_slot_generation(1);
+        REQUIRE(old_generation == 1);
     }
     REQUIRE(!fd_is_open(fd));
 
@@ -303,10 +304,8 @@ TEST_CASE("DMA-BUF backend: reused fd numbers advance allocation generation", "[
         auto replacement = nozzle::detail::make_texture_from_backend(
             nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(fd)),
             16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
-        nozzle::detail::backend::register_ring_texture(replacement, 1);
-        const auto new_id = nozzle::detail::backend::get_shared_resource_id(replacement);
-        CHECK(static_cast<uint32_t>(new_id) == 1);
-        CHECK((new_id >> 32) == (old_id >> 32) + 1);
+        nozzle::detail::backend::register_ring_texture_fd(fd, 1);
+        CHECK(nozzle::detail::backend::test_get_sender_slot_generation(1) == old_generation + 1);
         CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == fd);
     }
     CHECK(!fd_is_open(fd));
