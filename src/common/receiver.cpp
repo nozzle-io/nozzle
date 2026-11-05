@@ -11,7 +11,9 @@
 #include "shared_metadata.hpp"
 #include "shared_state.hpp"
 
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <mutex>
@@ -290,21 +292,26 @@ Result<frame> receiver::acquire_frame() {
 }
 
 Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
-#if NOZZLE_DEBUG
-    {
-        static int call_count = 0;
-        std::FILE *dbg = std::fopen("/tmp/nozzle_receiver_debug.log", "a");
-        if (dbg) {
-            std::fprintf(dbg, "[%d] acquire_frame connected=%d\n", ++call_count, impl_ ? (int)impl_->connected_ : -1);
-            std::fclose(dbg);
-        }
-    }
-#endif
     if (!impl_) {
         return Error{ErrorCode::SenderNotFound, "receiver not initialized"};
     }
 
     std::lock_guard<std::mutex> lock(impl_->mutex_);
+
+#if NOZZLE_DEBUG
+    {
+        static std::atomic<std::uint64_t> call_count{0};
+        const std::uint64_t call_number =
+            call_count.fetch_add(1, std::memory_order_relaxed) + 1;
+        std::FILE *dbg = std::fopen("/tmp/nozzle_receiver_debug.log", "a");
+        if (dbg) {
+            std::fprintf(dbg, "[%llu] acquire_frame connected=%d\n",
+                static_cast<unsigned long long>(call_number),
+                static_cast<int>(impl_->connected_));
+            std::fclose(dbg);
+        }
+    }
+#endif
 
     if (!impl_->connected_) {
         auto setup = establish_connection(impl_->sender_name_);
@@ -461,6 +468,14 @@ connected_sender_info receiver::connected_info() const {
     }
     std::lock_guard<std::mutex> lock(impl_->mutex_);
     return impl_->connected_info_;
+}
+
+receiver_connection_snapshot receiver::connection_snapshot() const {
+    if (!impl_) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lock(impl_->mutex_);
+    return {impl_->connected_info_, impl_->connected_};
 }
 
 metadata_list receiver::sender_metadata() const {

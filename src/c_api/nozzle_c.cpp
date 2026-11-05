@@ -266,9 +266,32 @@ static_assert(offsetof(NozzleFormatFallbackInfo, quality_loss) == 20, "");
 static_assert(sizeof(NozzleSenderInfoSnapshot::name) == NOZZLE_SENDER_NAME_CAPACITY, "");
 static_assert(sizeof(NozzleSenderInfoSnapshot::application_name) == NOZZLE_APPLICATION_NAME_CAPACITY, "");
 static_assert(sizeof(NozzleSenderInfoSnapshot::id) == NOZZLE_SENDER_ID_CAPACITY, "");
+static_assert(sizeof(NozzleSenderInfoSnapshot) == 172, "");
+static_assert(alignof(NozzleSenderInfoSnapshot) == 4, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, name) == 0, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, application_name) == 64, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, id) == 128, "");
+static_assert(offsetof(NozzleSenderInfoSnapshot, backend) == 168, "");
 static_assert(sizeof(NozzleConnectedSenderSnapshot::name) == NOZZLE_SENDER_NAME_CAPACITY, "");
 static_assert(sizeof(NozzleConnectedSenderSnapshot::application_name) == NOZZLE_APPLICATION_NAME_CAPACITY, "");
 static_assert(sizeof(NozzleConnectedSenderSnapshot::id) == NOZZLE_SENDER_ID_CAPACITY, "");
+static_assert(sizeof(NozzleConnectedSenderSnapshot) == 232, "");
+static_assert(alignof(NozzleConnectedSenderSnapshot) == 8, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, name) == 0, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, application_name) == 64, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, id) == 128, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, connected) == 168, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, backend) == 172, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, width) == 176, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, height) == 180, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, format) == 184, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, semantic_format) == 188, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, estimated_fps) == 192, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, frame_counter) == 200, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, last_update_time_ns) == 208, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, native_format_kind) == 216, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, native_format_value) == 220, "");
+static_assert(offsetof(NozzleConnectedSenderSnapshot, native_format_modifier) == 224, "");
 
 static_assert(NOZZLE_BACKEND_CAPABILITIES_VERSION == nozzle::backend_capabilities_version, "");
 static_assert(NOZZLE_SHARING_IOSURFACE == static_cast<uint32_t>(nozzle::backend_sharing_mechanism::iosurface), "");
@@ -487,13 +510,15 @@ void fill_sender_info_snapshot(
 }
 
 void fill_connected_sender_snapshot(
-    const nozzle::connected_sender_info &info,
+    const nozzle::receiver_connection_snapshot &snapshot,
     NozzleConnectedSenderSnapshot *out_info
 ) {
     *out_info = {};
+    const auto &info = snapshot.info;
     copy_snapshot_string(out_info->name, info.name);
     copy_snapshot_string(out_info->application_name, info.application_name);
     copy_snapshot_string(out_info->id, info.id);
+    out_info->connected = snapshot.connected ? 1u : 0u;
     out_info->backend = to_c_backend_type(info.backend);
     out_info->width = info.width;
     out_info->height = info.height;
@@ -904,8 +929,8 @@ NozzleErrorCode nozzle_receiver_get_connected_info_snapshot(
 ) {
     if (!receiver || !receiver->obj || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
 
-    const auto info = receiver->obj->connected_info();
-    fill_connected_sender_snapshot(info, out_info);
+    const auto snapshot = receiver->obj->connection_snapshot();
+    fill_connected_sender_snapshot(snapshot, out_info);
     return NOZZLE_OK;
 }
 

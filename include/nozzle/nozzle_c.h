@@ -279,6 +279,7 @@ typedef struct NozzleConnectedSenderSnapshot {
     char name[NOZZLE_SENDER_NAME_CAPACITY];
     char application_name[NOZZLE_APPLICATION_NAME_CAPACITY];
     char id[NOZZLE_SENDER_ID_CAPACITY];
+    uint32_t connected;
     NozzleBackendType backend;
     uint32_t width;
     uint32_t height;
@@ -439,9 +440,14 @@ NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info(
     NozzleConnectedSenderInfo *out_info
 );
 
-// Copies connected-sender information into caller-owned storage. The returned
-// value has no borrowed pointers and remains valid independently of later calls
-// or sender identity transitions.
+// Copies the receiver's last-observed connection state and connected-sender
+// information into caller-owned storage under the same receiver lock. The
+// returned value has no borrowed pointers and remains valid independently of
+// later calls or sender identity transitions. connected is 1 when the receiver
+// last observed a connection and 0 after it observed a disconnect. Identity is
+// retained as the last-known sender identity while disconnected. This is a
+// coherent receiver snapshot, not a fresh liveness check; the sender may exit
+// immediately after the call returns.
 NOZZLE_C_API NozzleErrorCode nozzle_receiver_get_connected_info_snapshot(
     NozzleReceiver *receiver,
     NozzleConnectedSenderSnapshot *out_info

@@ -386,6 +386,7 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 	std::atomic<bool> stop{false};
 	std::atomic<bool> second_identity_ready{false};
 	std::atomic<int> readers_saw_first{0};
+	std::atomic<int> readers_saw_disconnected{0};
 	std::atomic<int> readers_saw_second{0};
 	std::atomic<int> reader_errors{0};
 	std::string first_id{};
@@ -393,6 +394,7 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 	std::vector<std::vector<std::string>> observed_ids(reader_count);
 	std::vector<std::thread> readers{};
 	bool first_observed_by_all = false;
+	bool disconnected_observed_by_all = false;
 	{
 		child_process first_child;
 		REQUIRE(start_helper(std::string("public ") + quote_arg(sender_name) + " " + quote_arg(ready_file), first_child));
@@ -410,6 +412,7 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 		nozzle_frame_release(frame);
 
 		REQUIRE(nozzle_receiver_get_connected_info_snapshot(receiver, &first) == NOZZLE_OK);
+		REQUIRE(first.connected == 1);
 		REQUIRE(std::strcmp(first.name, sender_name.c_str()) == 0);
 		REQUIRE(first.id[0] != '\0');
 		first_id = first.id;
@@ -417,18 +420,29 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 		for (int index = 0; index < reader_count; ++index) {
 			readers.emplace_back([&, index] {
 				bool saw_first = false;
+				bool saw_disconnected = false;
 				bool saw_second = false;
 				do {
 					NozzleConnectedSenderSnapshot snapshot{};
 					if (nozzle_receiver_get_connected_info_snapshot(receiver, &snapshot) != NOZZLE_OK ||
 						std::strcmp(snapshot.name, sender_name.c_str()) != 0 ||
 						std::strcmp(snapshot.application_name, first.application_name) != 0 ||
-						snapshot.id[0] == '\0') {
+						snapshot.id[0] == '\0' || snapshot.connected > 1) {
 						reader_errors.fetch_add(1);
 						continue;
 					}
 
 					std::string id(snapshot.id);
+					if (snapshot.connected == 0) {
+						if (id != first_id) {
+							reader_errors.fetch_add(1);
+							continue;
+						}
+						if (!saw_disconnected) {
+							saw_disconnected = true;
+							readers_saw_disconnected.fetch_add(1);
+						}
+					}
 					if (observed_ids[index].empty() || observed_ids[index].back() != id) {
 						observed_ids[index].push_back(id);
 					}
@@ -460,6 +474,24 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 		nozzle_receiver_acquire_frame(receiver, &closed_desc, &closed_frame);
 	if (closed_frame != nullptr) {
 		nozzle_frame_release(closed_frame);
+	}
+	NozzleConnectedSenderSnapshot disconnected{};
+	const NozzleErrorCode disconnected_snapshot_error =
+		nozzle_receiver_get_connected_info_snapshot(receiver, &disconnected);
+	const bool disconnected_snapshot_valid =
+		disconnected_snapshot_error == NOZZLE_OK && disconnected.connected == 0 &&
+		std::strcmp(disconnected.name, first.name) == 0 &&
+		std::strcmp(disconnected.application_name, first.application_name) == 0 &&
+		std::strcmp(disconnected.id, first.id) == 0;
+	if (disconnected_snapshot_valid) {
+		const auto disconnected_deadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(5);
+		while (readers_saw_disconnected.load() < reader_count &&
+			std::chrono::steady_clock::now() < disconnected_deadline) {
+			std::this_thread::yield();
+		}
+		disconnected_observed_by_all =
+			readers_saw_disconnected.load() == reader_count;
 	}
 
 	DeleteFileA(ready_file.c_str());
@@ -509,10 +541,14 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 
 	INFO("first_id=" << first_id << " second_id=" << second_id
 		<< " readers_saw_first=" << readers_saw_first.load()
+		<< " readers_saw_disconnected=" << readers_saw_disconnected.load()
 		<< " readers_saw_second=" << readers_saw_second.load()
 		<< " reader_errors=" << reader_errors.load());
 	REQUIRE(first_observed_by_all);
 	REQUIRE(closed_error == NOZZLE_ERROR_SENDER_CLOSED);
+	REQUIRE(disconnected_snapshot_error == NOZZLE_OK);
+	REQUIRE(disconnected_snapshot_valid);
+	REQUIRE(disconnected_observed_by_all);
 	REQUIRE(second_started);
 	REQUIRE(second_ready);
 	REQUIRE(reconnect_error == NOZZLE_OK);
@@ -520,6 +556,7 @@ TEST_CASE("C API snapshot survives concurrent cross-process sender identity tran
 	REQUIRE(std::strcmp(first.name, sender_name.c_str()) == 0);
 	REQUIRE(first_id == first.id);
 	REQUIRE(std::strcmp(second.name, sender_name.c_str()) == 0);
+	REQUIRE(second.connected == 1);
 	REQUIRE(second.id[0] != '\0');
 	REQUIRE(first_id != second_id);
 	REQUIRE(second_observed_by_all);
