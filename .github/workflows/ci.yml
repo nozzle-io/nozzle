@@ -100,6 +100,66 @@ jobs:
             exit 1
           fi
 
+  # SIMD parity lanes. The default runners never compile the x86 F16C path
+  # (ubuntu-22.04 targets baseline x86-64) or the Linux NEON FP16 path (macOS
+  # uses vImage first), so each lane forces one path. The
+  # NOZZLE_TEST_EXPECT_* definitions turn a silent scalar fallback into a
+  # compile error. With GCC, -mf16c also enables AVX for every translation
+  # unit; the cpuinfo gate covers that, since every F16C CPU has AVX.
+  # Each lane runs the whole unit suite, so the existing format_convert
+  # cases also run on the forced path.
+  simd-parity-x86-f16c:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Require F16C-capable runner CPU
+        run: |
+          grep -m1 '^model name' /proc/cpuinfo
+          if ! grep -qw f16c /proc/cpuinfo; then
+            echo "::error::Runner CPU does not report F16C; refusing to run an F16C binary"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Configure
+        run: cmake -B build -DNOZZLE_BUILD_EXAMPLES=OFF "-DCMAKE_CXX_FLAGS=-mf16c -DNOZZLE_TEST_EXPECT_F16C=1"
+
+      - name: Build unit tests
+        run: cmake --build build --target nozzle_tests
+
+      - name: Unit tests on the forced SIMD path
+        run: ./build/tests/nozzle_tests --reporter compact
+
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
+
+  simd-parity-arm64-neon:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Configure
+        run: cmake -B build -DNOZZLE_BUILD_EXAMPLES=OFF "-DCMAKE_CXX_FLAGS=-DNOZZLE_TEST_EXPECT_NEON_FP16=1"
+
+      - name: Build unit tests
+        run: cmake --build build --target nozzle_tests
+
+      - name: Unit tests on the forced SIMD path
+        run: ./build/tests/nozzle_tests --reporter compact
+
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
+
   build-windows:
     runs-on: windows-2022
     steps:
@@ -115,6 +175,9 @@ jobs:
 
       - name: Unit tests
         run: ./build/tests/Debug/nozzle_tests.exe --reporter compact
+
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/Debug/nozzle_tests.exe "[simd_parity]" --reporter console
 
       - name: C API tests
         run: ./build/tests/Debug/nozzle_c_api_tests.exe --reporter compact
@@ -193,6 +256,9 @@ jobs:
 
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
+
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
 
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact
