@@ -108,7 +108,7 @@ inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_
 }
 
 // A named hidden argument also hides std::thread's template-generated run/vtable symbols.
-struct linux_sender_accept_loop {
+struct __attribute__((visibility("hidden"))) linux_sender_accept_loop {
     linux_sender_state *state;
 
     void operator()() const {
