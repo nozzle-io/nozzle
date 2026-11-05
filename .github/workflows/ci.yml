@@ -27,7 +27,7 @@ jobs:
         run: bash scripts/check_source_manifest.sh
 
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +64,7 @@ jobs:
 
   # ThreadSanitizer over all suites. Guards object-level thread safety (nozzle-dev#188).
   tsan-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
     steps:
@@ -587,7 +587,7 @@ jobs:
         run: ./build/tests/nozzle_tests --reporter compact
 
   package-sdk-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
