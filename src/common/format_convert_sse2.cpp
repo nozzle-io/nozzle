@@ -47,11 +47,6 @@ void convert_uint32_to_float32_sse2(
 	uint32_t channels)
 {
 	const uint32_t row_elements = width * channels;
-	// SSE2 only has a signed int32 -> float conversion. Convert the high and low
-	// 16-bit halves separately: both convert exactly, hi * 65536 is exact, and the
-	// single final add rounds once, so the result equals static_cast<float>(uint32_t).
-	const __m128i low_mask = _mm_set1_epi32(0xFFFF);
-	const __m128 two_pow_16 = _mm_set1_ps(65536.0f);
 	for (uint32_t y = 0; y < height; ++y) {
 		const auto *src_row = reinterpret_cast<const uint32_t *>(
 			src + static_cast<uint64_t>(y) * src_row_bytes);
@@ -60,9 +55,7 @@ void convert_uint32_to_float32_sse2(
 		uint32_t i = 0;
 		for (; i + 4 <= row_elements; i += 4) {
 			__m128i vi = _mm_loadu_si128(reinterpret_cast<const __m128i *>(src_row + i));
-			__m128 high = _mm_cvtepi32_ps(_mm_srli_epi32(vi, 16));
-			__m128 low = _mm_cvtepi32_ps(_mm_and_si128(vi, low_mask));
-			_mm_storeu_ps(dst_row + i, _mm_add_ps(_mm_mul_ps(high, two_pow_16), low));
+			_mm_storeu_ps(dst_row + i, _mm_cvtepi32_ps(vi));
 		}
 		for (; i < row_elements; ++i) {
 			dst_row[i] = static_cast<float>(src_row[i]);
