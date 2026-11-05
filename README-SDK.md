@@ -46,6 +46,10 @@ The installed CMake package is the supported way to consume the SDK. It propagat
 - Linux: libdrm, gbm, EGL, and GL when OpenGL support is enabled. Development packages must be available to downstream builds.
 - Windows: d3d11, dxgi, bcrypt, and opengl32 when OpenGL support is enabled.
 
+## Linux x64 ISA baseline
+
+The Linux x64 SDK archive is built with `-march=x86-64-v2`. Its CI checks it for AVX, AVX2, FMA and F16C instructions with `scripts/check_x86_64_isa.sh` from the nozzle source repository; that script is not included in this archive. The ISA of your own code is set by your build flags.
+
 ## Windows runtime
 
 The first static SDK uses nozzle's current top-level MSVC static runtime model (`/MT` for Release, `/MTd` for Debug). Consumers that require `/MD` runtime artifacts need a separate SDK policy/artifact variant; that is not implied by this package.

@@ -435,6 +435,85 @@ jobs:
           cmake --build build-f16c-fixed --target nozzle_f16c_tests --verbose
           ./build-f16c-fixed/tests/nozzle_f16c_tests
 
+  # nozzle-dev#196. Runs on ubuntu-26.04 on purpose: a binary built there with
+  # no ISA flags contained AVX2/FMA code. The job records the compiler's
+  # default target, checks that NOZZLE_X86_64_BASELINE=v2 yields a checked
+  # x86-64-v2 build, and reports (as a warning, not a gate) when the
+  # image-default build no longer exceeds v2, since the override is then
+  # no longer demonstrated.
+  isa-baseline-x86-64-v2:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Record compiler default target
+        run: |
+          c++ --version
+          c++ -Q --help=target -O2 | grep -E '^\s+-march=|^\s+-mtune='
+          if ! c++ -O2 -dM -E -x c++ /dev/null | grep -E '__F16C__|__AVX__|__AVX2__|__FMA__'; then
+            echo "no AVX-class macros predefined"
+          fi
+
+      - name: Checker self-test
+        shell: bash
+        run: |
+          cat > isa_probe.c <<'PROBE_C'
+          void scale_add(float *a, const float *b, int n) {
+              for (int i = 0; i < n; ++i) a[i] = a[i] * 3.0f + b[i];
+          }
+          PROBE_C
+          cc -O3 -march=x86-64-v3 -c isa_probe.c -o isa_probe_v3.o
+          cc -O3 -march=x86-64-v2 -c isa_probe.c -o isa_probe_v2.o
+          set +e
+          bash scripts/check_x86_64_isa.sh isa_probe_v3.o
+          v3_status=$?
+          bash scripts/check_x86_64_isa.sh isa_probe_v2.o
+          v2_status=$?
+          set -e
+          if [ "$v3_status" -ne 1 ]; then
+            echo "::error::checker returned ${v3_status} for an x86-64-v3 object, expected 1"
+            exit 1
+          fi
+          if [ "$v2_status" -ne 0 ]; then
+            echo "::error::checker returned ${v2_status} for an x86-64-v2 object, expected 0"
+            exit 1
+          fi
+
+      - name: Image-default library build (informational negative control)
+        shell: bash
+        run: |
+          cmake -B build-default -DNOZZLE_BUILD_TESTS=OFF -DNOZZLE_BUILD_EXAMPLES=OFF
+          cmake --build build-default --target nozzle
+          set +e
+          bash scripts/check_x86_64_isa.sh build-default/libnozzle.a
+          status=$?
+          set -e
+          if [ "$status" -eq 1 ]; then
+            echo "::notice::image-default build exceeds x86-64-v2, as expected on this image"
+          elif [ "$status" -eq 0 ]; then
+            echo "::warning::image-default build no longer exceeds x86-64-v2; this job no longer demonstrates the override"
+          else
+            echo "::error::checker failed with status ${status}"
+            exit 1
+          fi
+
+      - name: Configure with explicit x86-64-v2 baseline
+        run: cmake -B build -DNOZZLE_X86_64_BASELINE=v2 -DNOZZLE_BUILD_EXAMPLES=OFF
+
+      - name: Build library and unit tests
+        run: cmake --build build --target nozzle nozzle_tests
+
+      - name: Verify x86-64-v2 ISA baseline
+        run: bash scripts/check_x86_64_isa.sh build/libnozzle.a build/tests/nozzle_tests
+
+      - name: Unit tests at the x86-64-v2 baseline
+        run: ./build/tests/nozzle_tests --reporter compact
+
   package-sdk-macos:
     runs-on: macos-14
     steps:
@@ -583,6 +662,7 @@ jobs:
           -DNOZZLE_BUILD_TESTS=OFF
           -DNOZZLE_BUILD_EXAMPLES=OFF
           -DNOZZLE_BUILD_OPENGL=ON
+          -DNOZZLE_X86_64_BASELINE=v2
           -DCMAKE_INSTALL_PREFIX="$PWD/dist/${{ steps.meta.outputs.package_root }}"
 
       - name: Build SDK
@@ -636,6 +716,12 @@ jobs:
           cmake -S smoke-src -B smoke-build -DCMAKE_PREFIX_PATH="$PWD/smoke-extract/${{ steps.meta.outputs.package_root }}"
           cmake --build smoke-build
           ./smoke-build/nozzle_sdk_smoke
+
+      # nozzle-dev#196: the shipped archive must contain no AVX/EVEX-class or v3 integer instructions.
+      - name: Verify x86-64-v2 ISA baseline
+        run: >-
+          bash scripts/check_x86_64_isa.sh
+          "dist/${{ steps.meta.outputs.package_root }}/lib/libnozzle.a"
 
       - name: Upload SDK artifact
         uses: actions/upload-artifact@v4
