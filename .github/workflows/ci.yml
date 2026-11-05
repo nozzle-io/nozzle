@@ -135,6 +135,9 @@ jobs:
       - name: Unit tests on the forced SIMD path
         run: ./build/tests/nozzle_tests --reporter compact
 
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
+
   simd-parity-arm64-neon:
     runs-on: ubuntu-22.04-arm
     steps:
@@ -154,6 +157,9 @@ jobs:
       - name: Unit tests on the forced SIMD path
         run: ./build/tests/nozzle_tests --reporter compact
 
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
+
   build-windows:
     runs-on: windows-2022
     steps:
@@ -169,6 +175,9 @@ jobs:
 
       - name: Unit tests
         run: ./build/tests/Debug/nozzle_tests.exe --reporter compact
+
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/Debug/nozzle_tests.exe "[simd_parity]" --reporter console
 
       - name: C API tests
         run: ./build/tests/Debug/nozzle_c_api_tests.exe --reporter compact
@@ -247,6 +256,9 @@ jobs:
 
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
+
+      - name: SIMD parity tests (compiled-path report)
+        run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
 
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact

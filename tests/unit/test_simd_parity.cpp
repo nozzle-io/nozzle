@@ -277,6 +277,52 @@ uint16_t generate_half(uint32_t k) {
 
 } // namespace
 
+// ---------- Compiled path report ----------
+
+namespace {
+
+// Mirrors the compile-time dispatch in src/common/format_convert.cpp and
+// src/common/channel_swizzle.cpp. It exists only so CI logs state which paths
+// the parity cases below exercised; keep it in sync when that dispatch changes.
+const char *compiled_integer_path() {
+#if defined(__ARM_NEON)
+	return "neon";
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+	return "sse2";
+#else
+	return "scalar";
+#endif
+}
+
+const char *compiled_half_path() {
+#if NOZZLE_PLATFORM_MACOS
+	return "vimage";  // falls back to the next path only if vImage reports an error
+#elif defined(__F16C__)
+	return "f16c";
+#elif defined(__ARM_NEON) && defined(__ARM_FP16_FORMAT_IEEE)
+	return "neon_fp16";
+#else
+	return "scalar";
+#endif
+}
+
+const char *compiled_swizzle_path() {
+#if NOZZLE_PLATFORM_MACOS
+	return "vimage_except_rgba32_uint";
+#else
+	return "scalar";
+#endif
+}
+
+} // namespace
+
+TEST_CASE("SIMD parity: report compiled conversion paths", "[format_convert][simd_parity][simd_path]") {
+	WARN("compiled paths: uint16_to_uint32/uint32_to_float32=" << compiled_integer_path()
+		<< ", half_to_float=" << compiled_half_path()
+		<< ", swizzle=" << compiled_swizzle_path());
+	SUCCEED();
+}
+
 // ---------- widen_uint16_to_uint32 ----------
 
 TEST_CASE("SIMD parity: widen_uint16_to_uint32 matches reference for every row length", "[format_convert][simd_parity]") {
