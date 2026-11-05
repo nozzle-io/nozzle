@@ -20,6 +20,7 @@ set(UNIT_TEST_SOURCES
     unit/test_backend_capabilities.cpp
     unit/test_resolved_format.cpp
     unit/test_format_convert.cpp
+    unit/test_simd_parity.cpp
     unit/test_shared_metadata.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
@@ -28,6 +29,7 @@ set(UNIT_TEST_SOURCES
     ${CMAKE_SOURCE_DIR}/src/common/format_resolve.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_convert.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_convert_sse2.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/format_convert_f16c.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_convert_neon.cpp
     ${CMAKE_SOURCE_DIR}/src/common/backend_capabilities.cpp
 )
