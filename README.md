@@ -275,6 +275,24 @@ cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON
 
 `NOZZLE_STRICT_NO_EXCEPTIONS` is a compile-compatibility profile. In this mode, standard-library failures that would normally be caught and converted to `Error` (e.g. `std::thread` creation, allocation) cannot be intercepted and will terminate the process. Normal host builds should leave exceptions enabled.
 
+## x86_64 ISA baseline (Linux)
+
+Distributed x86_64 Linux binaries target **x86-64-v2**: SSE4.2 and POPCNT, but no AVX, AVX2, FMA or F16C. Set this explicitly in release builds. Do not rely on the toolchain default, which moves with the build image. For example, a Linux binary built on GitHub's `ubuntu-26.04` image with no ISA flags contained AVX2/FMA code (nozzle-dev#196).
+
+```bash
+cmake -B build -DNOZZLE_X86_64_BASELINE=v2
+```
+
+`NOZZLE_X86_64_BASELINE` accepts `v1`, `v2`, `v3` or `v4`. It is empty by default, which keeps the toolchain default. It applies `-march=x86-64[-vN] -mtune=generic` to everything nozzle's own CMake directory builds, and is rejected on non-Linux or non-x86_64 targets. A parent project that adds nozzle with `add_subdirectory()` must also set the flag for its own code.
+
+To verify a built object, archive or executable:
+
+```bash
+scripts/check_x86_64_isa.sh build/libnozzle.a path/to/app
+```
+
+The script disassembles the given files with `objdump`. It exits non-zero if it finds AVX/EVEX-class instructions or registers, or the x86-64-v3 integer extensions (BMI1/BMI2/LZCNT/MOVBE). It does not detect every non-v2 extension: AES-NI, PCLMUL, SHA, ADX, RDRAND, XSAVE, SSE4a, AMX and APX are not checked. It does not scan shared libraries loaded at runtime. Note that the half-float F16C path in `format_convert` is selected at compile time, so a v2 build uses the scalar path.
+
 ## Design Decisions
 
 | Decision | Resolution |

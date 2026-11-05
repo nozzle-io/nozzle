@@ -19,6 +19,48 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# --- x86_64 ISA baseline for distributed Linux binaries ---
+# Empty (the default) keeps the toolchain's own default target. Release and SDK
+# builds should set this explicitly, because toolchain defaults move with build
+# images. For example, the published nozzle-viewer Linux binary, built on
+# GitHub's ubuntu-26.04 image with no ISA flags, contains AVX2/FMA code
+# (nozzle-dev#196). The value is applied with add_compile_options() before any
+# target is created, so it covers the library and everything this directory
+# builds (tests, examples). A parent project that adds nozzle with
+# add_subdirectory() must set its own flags for its own code.
+# A parent project may set this as a normal variable before add_subdirectory().
+# Only create the cache entry when no variable exists, because under CMP0126
+# OLD (the policy setting for cmake_minimum_required 3.20) set(CACHE) would
+# otherwise discard that normal variable on the first configure.
+if(NOT DEFINED NOZZLE_X86_64_BASELINE)
+    set(NOZZLE_X86_64_BASELINE "" CACHE STRING
+        "x86_64 Linux ISA baseline: empty (toolchain default), v1, v2, v3 or v4")
+    set_property(CACHE NOZZLE_X86_64_BASELINE PROPERTY STRINGS "" v1 v2 v3 v4)
+endif()
+if(NOT NOZZLE_X86_64_BASELINE STREQUAL "")
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
+       OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+        message(FATAL_ERROR
+            "NOZZLE_X86_64_BASELINE is only supported for Linux x86_64 targets "
+            "(CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}, "
+            "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR})")
+    endif()
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
+        message(FATAL_ERROR
+            "NOZZLE_X86_64_BASELINE requires GCC or Clang (got ${CMAKE_CXX_COMPILER_ID})")
+    endif()
+    if(NOZZLE_X86_64_BASELINE STREQUAL "v1")
+        set(NOZZLE_X86_64_MARCH "x86-64")
+    elseif(NOZZLE_X86_64_BASELINE MATCHES "^v[234]$")
+        set(NOZZLE_X86_64_MARCH "x86-64-${NOZZLE_X86_64_BASELINE}")
+    else()
+        message(FATAL_ERROR
+            "NOZZLE_X86_64_BASELINE must be empty, v1, v2, v3 or v4 (got '${NOZZLE_X86_64_BASELINE}')")
+    endif()
+    add_compile_options(-march=${NOZZLE_X86_64_MARCH} -mtune=generic)
+    message(STATUS "nozzle: x86_64 ISA baseline -march=${NOZZLE_X86_64_MARCH}")
+endif()
+
 # --- Logging (plog - header-only, via submodule) ---
 
 add_library(nozzle)
