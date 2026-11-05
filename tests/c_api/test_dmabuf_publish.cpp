@@ -10,6 +10,7 @@
 #if NOZZLE_HAS_DMA_BUF
 #include "backends/backend_dispatch.hpp"
 #include "backends/linux/linux_helpers.hpp"
+#include "dmabuf_dispatch_peer.hpp"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -234,6 +235,83 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
 }
 
 #if NOZZLE_HAS_DMA_BUF && NOZZLE_ENABLE_TEST_HOOKS
+
+#if !defined(NOZZLE_SHARED)
+// These inspect private state in the linked binary, not a separate shared core.
+TEST_CASE("DMA-BUF backend: state identity crosses translation units", "[dmabuf][cross_tu]") {
+    CHECK(dmabuf_dispatch_peer::sender_state_address() ==
+        &nozzle::detail::backend::g_sender_state);
+    CHECK(dmabuf_dispatch_peer::receiver_cache_address() ==
+        &nozzle::detail::backend::get_receiver_cache());
+}
+
+TEST_CASE("DMA-BUF backend: texture destruction clears the shared slot", "[dmabuf][cross_tu]") {
+    REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());
+    nozzle::detail::backend::test_reset_sender_state();
+    struct reset_on_exit {
+        ~reset_on_exit() { nozzle::detail::backend::test_reset_sender_state(); }
+    } reset;
+
+    auto ring_fd = open_harmless_fd();
+    REQUIRE(0 < ring_fd.get());
+    const int fd = ring_fd.get();
+    nozzle::detail::backend::test_set_sender_slot_fd(1, fd, false, 9);
+    CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == fd);
+
+    {
+        // The real destructor is compiled in texture.cpp, not this test TU.
+        auto owned_texture = nozzle::detail::make_texture_from_backend(
+            nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(ring_fd.release())),
+            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+    }
+
+    CHECK(!fd_is_open(fd));
+    CHECK(nozzle::detail::backend::test_get_sender_slot_fd(1) == -1);
+    CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == -1);
+    CHECK(nozzle::detail::backend::test_get_sender_slot_generation(1) == 9);
+}
+
+TEST_CASE("DMA-BUF backend: reused fd numbers advance allocation generation", "[dmabuf][cross_tu]") {
+    REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());
+    nozzle::detail::backend::test_reset_sender_state();
+    struct reset_on_exit {
+        ~reset_on_exit() { nozzle::detail::backend::test_reset_sender_state(); }
+    } reset;
+
+    auto original_fd = open_harmless_fd();
+    REQUIRE(0 < original_fd.get());
+    const int fd = original_fd.get();
+    uint32_t old_generation;
+    {
+        auto original = nozzle::detail::make_texture_from_backend(
+            nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(original_fd.release())),
+            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+        // Exercise the same registration operation as create_ring_texture, without EGL.
+        nozzle::detail::backend::register_ring_texture_fd(fd, 1);
+        old_generation = nozzle::detail::backend::test_get_sender_slot_generation(1);
+        REQUIRE(old_generation == 1);
+    }
+    REQUIRE(!fd_is_open(fd));
+
+    auto replacement_fd = open_harmless_fd();
+    REQUIRE(0 <= replacement_fd.get());
+    if (replacement_fd.get() != fd) {
+        REQUIRE(dup2(replacement_fd.get(), fd) == fd);
+    } else {
+        replacement_fd.release();
+    }
+    {
+        auto replacement = nozzle::detail::make_texture_from_backend(
+            nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(fd)),
+            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+        nozzle::detail::backend::register_ring_texture_fd(fd, 1);
+        CHECK(nozzle::detail::backend::test_get_sender_slot_generation(1) == old_generation + 1);
+        CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == fd);
+    }
+    CHECK(!fd_is_open(fd));
+    CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == -1);
+}
+#endif
 
 TEST_CASE("DMA-BUF backend: external registration owns only duplicated fds", "[dmabuf][ownership]") {
     REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());

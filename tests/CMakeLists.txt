@@ -176,6 +176,7 @@ add_executable(nozzle_c_api_tests
     c_api/test_error_codes.cpp
     c_api/test_info_snapshot.cpp
     c_api/test_dmabuf_publish.cpp
+    c_api/dmabuf_dispatch_peer.cpp
     c_api/test_backend_capabilities.cpp
 )
 

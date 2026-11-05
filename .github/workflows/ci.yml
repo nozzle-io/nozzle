@@ -274,6 +274,71 @@ jobs:
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact
 
+  linux-dispatch-cross-tu:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Build fixed dispatch without linkage warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -B build-cross-tu -DNOZZLE_ENABLE_TEST_HOOKS=ON -DNOZZLE_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          cmake --build build-cross-tu --target nozzle_c_api_tests -j 3 2>&1 | tee fixed-build.log
+          if grep -F -- '-Wsubobject-linkage' fixed-build.log; then
+            echo '::error::Dispatch still has anonymous-type linkage warnings'
+            exit 1
+          fi
+
+      - name: Cross-TU regression without GPU requirements
+        run: ./build-cross-tu/tests/nozzle_c_api_tests '[cross_tu]' --reporter console --success
+
+      - name: Check out pinned JNI consumer
+        if: matrix.build_type == 'Release'
+        uses: actions/checkout@v4
+        with:
+          repository: nozzle-io/nozzle.java
+          ref: 3142b611e796a11fe389a1e942d62ca2e1b4a377
+          path: jni-consumer
+
+      - name: Set up JNI headers
+        if: matrix.build_type == 'Release'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verify static core state is private in a real JNI shared object
+        if: matrix.build_type == 'Release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C jni-consumer -j 3 NOZZLE_DIR="$GITHUB_WORKSPACE"
+          library=jni-consumer/.build/libnozzle_jni.so
+          nm -DC --defined-only "$library" > jni-dynamic-symbols.txt
+          nm -C --defined-only "$library" > jni-all-symbols.txt
+          grep -F 'Java_nozzle_' jni-dynamic-symbols.txt
+          if grep -F 'nozzle::detail::backend::' jni-dynamic-symbols.txt; then
+            echo '::error::Private Linux dispatch symbols escaped the consumer DSO'
+            exit 1
+          fi
+          grep -F 'nozzle::detail::backend::g_sender_state' jni-all-symbols.txt
+          grep -F 'nozzle::detail::backend::get_receiver_cache()::instance' jni-all-symbols.txt
+          if grep -E ' u .*nozzle::detail::backend::' jni-all-symbols.txt; then
+            echo '::error::Linux dispatch still has GNU unique symbols'
+            exit 1
+          fi
+          echo 'NOZZLE_DISPATCH_DSO_PRIVATE JNI exports present; dispatch state local; no dispatch GNU unique symbols'
+
   build-linux-production-default:
     runs-on: ubuntu-22.04
     steps:

@@ -10,7 +10,11 @@
 
 namespace nozzle {
 namespace detail {
+#if NOZZLE_HAS_DMA_BUF
+namespace backend __attribute__((visibility("hidden"))) {
+#else
 namespace backend {
+#endif
 
 auto get_default_device() -> void *;
 auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t slot_index = 0) -> Result<texture>;

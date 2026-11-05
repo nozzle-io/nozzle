@@ -23,9 +23,8 @@
 
 namespace nozzle {
 namespace detail {
-namespace backend {
-
-namespace {
+// Share state within one linked binary, never across independently loaded plugins.
+namespace backend __attribute__((visibility("hidden"))) {
 
 struct linux_sender_state {
     std::array<int, 8> slot_fds_{};
@@ -45,14 +44,14 @@ struct linux_sender_state {
     }
 };
 
-std::atomic<linux_sender_state *> g_sender_state{nullptr};
+inline std::atomic<linux_sender_state *> g_sender_state{nullptr};
 
 struct linux_receiver_cache {
     linux_backend::dmabuf_texture_cache cache_{};
     std::mutex mutex_;
 };
 
-linux_receiver_cache &get_receiver_cache() {
+inline linux_receiver_cache &get_receiver_cache() {
     static linux_receiver_cache instance;
     return instance;
 }
@@ -108,12 +107,32 @@ inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_
     state->slot_fd_owned_by_state_[slot_index] = false;
 }
 
-} // anonymous namespace
+// Keep private state types/layouts out of exported std::thread template instantiations.
+inline void run_sender_accept_loop(void *context) {
+    auto *state = static_cast<linux_sender_state *>(context);
+    while (!state->stop_flag_.load(std::memory_order_relaxed)) {
+        int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+        if (client_fd < 0) {
+            if (state->stop_flag_.load(std::memory_order_relaxed)) break;
+            continue;
+        }
+        struct timeval tv{};
+        tv.tv_sec = 2;
+        tv.tv_usec = 0;
+        if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
+            setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+            close(client_fd);
+            continue;
+        }
+        handle_fd_request(client_fd, state);
+        close(client_fd);
+    }
+}
 
 inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     if (!uuid) return {};
 
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
 
     if (!state) {
         linux_sender_state *new_state = nullptr;
@@ -129,7 +148,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 #endif
         linux_sender_state *expected = nullptr;
         if (!g_sender_state.compare_exchange_strong(expected, new_state,
-                std::memory_order_release, std::memory_order_relaxed)) {
+                std::memory_order_acq_rel, std::memory_order_acquire)) {
             delete new_state;
             state = expected;
         } else {
@@ -181,25 +200,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 #if NOZZLE_HAS_EXCEPTIONS
     try {
 #endif
-        state->accept_thread_ = std::thread([state]() {
-            while (!state->stop_flag_.load(std::memory_order_relaxed)) {
-                int client_fd = accept(state->listen_fd_, nullptr, nullptr);
-                if (client_fd < 0) {
-                    if (state->stop_flag_.load(std::memory_order_relaxed)) break;
-                    continue;
-                }
-                struct timeval tv{};
-                tv.tv_sec = 2;
-                tv.tv_usec = 0;
-                if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
-                    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
-                    close(client_fd);
-                    continue;
-                }
-                handle_fd_request(client_fd, state);
-                close(client_fd);
-            }
-        });
+        state->accept_thread_ = std::thread(&run_sender_accept_loop, static_cast<void *>(state));
 #if NOZZLE_HAS_EXCEPTIONS
     } catch (const std::system_error &) {
         std::lock_guard<std::mutex> lock(state->mutex_);
@@ -216,7 +217,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 }
 
 inline void cleanup_sender_socket() {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state) return;
 
     state->stop_flag_.store(true, std::memory_order_relaxed);
@@ -254,20 +255,10 @@ inline auto get_default_device() -> void * {
     return linux_backend::get_default_gbm_device();
 }
 
-inline auto create_ring_texture(
-    void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t ring_slot
-) -> Result<texture> {
-    auto tex_result = linux_backend::create_dmabuf_texture(device, width, height, format);
-    if (!tex_result.ok()) {
-        return tex_result.error();
-    }
-
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+inline void register_ring_texture_fd(int fd, uint32_t ring_slot) {
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (state) {
         std::lock_guard<std::mutex> lock(state->mutex_);
-        void *surface = detail::get_surface_native(tex_result.value());
-        int fd = static_cast<int>(reinterpret_cast<intptr_t>(surface));
-
         if (ring_slot < 8) {
             if (state->slot_fds_[ring_slot] != fd) {
                 close_owned_slot_fd_locked(state, ring_slot);
@@ -278,7 +269,17 @@ inline auto create_ring_texture(
             state->ring_size_ = std::max(state->ring_size_, ring_slot + 1u);
         }
     }
+}
 
+inline auto create_ring_texture(
+    void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t ring_slot
+) -> Result<texture> {
+    auto tex_result = linux_backend::create_dmabuf_texture(device, width, height, format);
+    if (!tex_result.ok()) {
+        return tex_result.error();
+    }
+    const auto surface = detail::get_surface_native(tex_result.value());
+    register_ring_texture_fd(static_cast<int>(reinterpret_cast<intptr_t>(surface)), ring_slot);
     return tex_result;
 }
 
@@ -294,7 +295,7 @@ inline auto get_shared_resource_id(const texture &tex) -> uint64_t {
     }
     int fd = static_cast<int>(reinterpret_cast<intptr_t>(surface));
 
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (state) {
         std::lock_guard<std::mutex> lock(state->mutex_);
         for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
@@ -324,7 +325,7 @@ inline auto register_external_dmabuf_for_slot(
         return Error{ErrorCode::BackendError, "failed to duplicate DMA-BUF fd"};
     }
 
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state) {
         close(owned_fd);
         return Error{ErrorCode::BackendError, "DMA-BUF sender state not initialized"};
@@ -343,7 +344,7 @@ inline auto register_external_dmabuf_for_slot(
 
 #if NOZZLE_ENABLE_TEST_HOOKS
 inline auto test_ensure_sender_state() -> Result<void> {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (state) {
         return {};
     }
@@ -351,14 +352,14 @@ inline auto test_ensure_sender_state() -> Result<void> {
     auto *new_state = new linux_sender_state{};
     linux_sender_state *expected = nullptr;
     if (!g_sender_state.compare_exchange_strong(expected, new_state,
-            std::memory_order_release, std::memory_order_relaxed)) {
+            std::memory_order_acq_rel, std::memory_order_acquire)) {
         delete new_state;
     }
     return {};
 }
 
 inline void test_reset_sender_state() {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state) {
         return;
     }
@@ -385,7 +386,7 @@ inline void test_set_sender_slot_fd(
     bool owned_by_state,
     uint32_t generation
 ) {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state || detail::kMaxRingSlots <= slot) {
         return;
     }
@@ -398,7 +399,7 @@ inline void test_set_sender_slot_fd(
 }
 
 inline auto test_get_sender_slot_fd(uint32_t slot) -> int {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state || detail::kMaxRingSlots <= slot) {
         return -1;
     }
@@ -408,7 +409,7 @@ inline auto test_get_sender_slot_fd(uint32_t slot) -> int {
 }
 
 inline auto test_sender_slot_owned_by_state(uint32_t slot) -> bool {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state || detail::kMaxRingSlots <= slot) {
         return false;
     }
@@ -418,7 +419,7 @@ inline auto test_sender_slot_owned_by_state(uint32_t slot) -> bool {
 }
 
 inline auto test_get_sender_slot_generation(uint32_t slot) -> uint32_t {
-    auto *state = g_sender_state.load(std::memory_order_relaxed);
+    auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state || detail::kMaxRingSlots <= slot) {
         return 0;
     }
@@ -485,7 +486,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
     if (native_surface) {
         int fd = static_cast<int>(reinterpret_cast<intptr_t>(native_surface));
         if (fd >= 0) {
-            auto *state = g_sender_state.load(std::memory_order_relaxed);
+            auto *state = g_sender_state.load(std::memory_order_acquire);
             if (state) {
                 std::lock_guard<std::mutex> lock(state->mutex_);
                 for (uint32_t i = 0; i < 8; ++i) {
