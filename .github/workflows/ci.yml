@@ -274,6 +274,76 @@ jobs:
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact
 
+  linux-dispatch-cross-tu:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Fetch known-broken header for PR negative control
+        if: github.event_name == 'pull_request' && github.head_ref == 'codex/204-linux-dispatch-state'
+        uses: actions/checkout@v4
+        with:
+          ref: 5b5da08f2594cfdea98e904038a0bb4e3c0a82fd
+          path: broken-dispatch-source
+          sparse-checkout: src/backends/linux/linux_backend_dispatch.hpp
+          sparse-checkout-cone-mode: false
+
+      - name: Require cross-TU failures with the old header
+        if: github.event_name == 'pull_request' && github.head_ref == 'codex/204-linux-dispatch-state'
+        shell: bash
+        run: |
+          set -euo pipefail
+          header=src/backends/linux/linux_backend_dispatch.hpp
+          cp "$header" "$RUNNER_TEMP/fixed-dispatch.hpp"
+          trap 'cp "$RUNNER_TEMP/fixed-dispatch.hpp" "$header"' EXIT
+          cp "broken-dispatch-source/$header" "$header"
+          cmake -B build-cross-tu -DNOZZLE_ENABLE_TEST_HOOKS=ON -DNOZZLE_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          cmake --build build-cross-tu --target nozzle_c_api_tests -j 3
+          if ./build-cross-tu/tests/nozzle_c_api_tests '[cross_tu]' --reporter JUnit --out negative.xml; then
+            echo '::error::Known-broken dispatch unexpectedly passed'
+            exit 1
+          fi
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('negative.xml').findall('.//testcase')
+          expected = {
+              'DMA-BUF backend: state identity crosses translation units': ['sender_state_address', 'receiver_cache_address'],
+              'DMA-BUF backend: texture destruction clears the shared slot': ['test_get_sender_slot_fd'],
+          }
+          if {case.get('name') for case in cases} != set(expected) or len(cases) != 2:
+              raise SystemExit('negative control did not execute exactly the expected cases')
+          for case in cases:
+              if case.find('failure') is None or case.find('error') is not None or case.find('skipped') is not None:
+                  raise SystemExit('negative control must fail assertions, not crash or skip')
+              failures = ' '.join(ET.tostring(item, encoding='unicode') for item in case.findall('failure'))
+              if any(marker not in failures for marker in expected[case.get('name')]):
+                  raise SystemExit('negative control failed for an unexpected reason')
+          print('NOZZLE_DISPATCH_NEGATIVE_CONTROL expected_cross_tu_failures=2')
+          PY
+
+      - name: Build fixed dispatch without linkage warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -B build-cross-tu -DNOZZLE_ENABLE_TEST_HOOKS=ON -DNOZZLE_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          cmake --build build-cross-tu --target nozzle_c_api_tests -j 3 2>&1 | tee fixed-build.log
+          if grep -F -- '-Wsubobject-linkage' fixed-build.log; then
+            echo '::error::Dispatch still has anonymous-type linkage warnings'
+            exit 1
+          fi
+
+      - name: Cross-TU regression without GPU requirements
+        run: ./build-cross-tu/tests/nozzle_c_api_tests '[cross_tu]' --reporter console --success
+
   build-linux-production-default:
     runs-on: ubuntu-22.04
     steps:

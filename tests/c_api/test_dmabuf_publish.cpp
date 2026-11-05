@@ -10,6 +10,7 @@
 #if NOZZLE_HAS_DMA_BUF
 #include "backends/backend_dispatch.hpp"
 #include "backends/linux/linux_helpers.hpp"
+#include "dmabuf_dispatch_peer.hpp"
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -234,6 +235,39 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
 }
 
 #if NOZZLE_HAS_DMA_BUF && NOZZLE_ENABLE_TEST_HOOKS
+
+TEST_CASE("DMA-BUF backend: state identity crosses translation units", "[dmabuf][cross_tu]") {
+    CHECK(dmabuf_dispatch_peer::sender_state_address() ==
+        &nozzle::detail::backend::g_sender_state);
+    CHECK(dmabuf_dispatch_peer::receiver_cache_address() ==
+        &nozzle::detail::backend::get_receiver_cache());
+}
+
+TEST_CASE("DMA-BUF backend: texture destruction clears the shared slot", "[dmabuf][cross_tu]") {
+    REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());
+    nozzle::detail::backend::test_reset_sender_state();
+    struct reset_on_exit {
+        ~reset_on_exit() { nozzle::detail::backend::test_reset_sender_state(); }
+    } reset;
+
+    auto ring_fd = open_harmless_fd();
+    REQUIRE(0 < ring_fd.get());
+    const int fd = ring_fd.get();
+    nozzle::detail::backend::test_set_sender_slot_fd(1, fd, false, 9);
+    CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == fd);
+
+    {
+        // The real destructor is compiled in texture.cpp, not this test TU.
+        auto owned_texture = nozzle::detail::make_texture_from_backend(
+            nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(ring_fd.release())),
+            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+    }
+
+    CHECK(!fd_is_open(fd));
+    CHECK(nozzle::detail::backend::test_get_sender_slot_fd(1) == -1);
+    CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == -1);
+    CHECK(nozzle::detail::backend::test_get_sender_slot_generation(1) == 9);
+}
 
 TEST_CASE("DMA-BUF backend: external registration owns only duplicated fds", "[dmabuf][ownership]") {
     REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());

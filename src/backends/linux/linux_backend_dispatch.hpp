@@ -25,8 +25,6 @@ namespace nozzle {
 namespace detail {
 namespace backend {
 
-namespace {
-
 struct linux_sender_state {
     std::array<int, 8> slot_fds_{};
     std::array<bool, 8> slot_fd_owned_by_state_{};
@@ -45,14 +43,14 @@ struct linux_sender_state {
     }
 };
 
-std::atomic<linux_sender_state *> g_sender_state{nullptr};
+inline std::atomic<linux_sender_state *> g_sender_state{nullptr};
 
 struct linux_receiver_cache {
     linux_backend::dmabuf_texture_cache cache_{};
     std::mutex mutex_;
 };
 
-linux_receiver_cache &get_receiver_cache() {
+inline linux_receiver_cache &get_receiver_cache() {
     static linux_receiver_cache instance;
     return instance;
 }
@@ -107,8 +105,6 @@ inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_
     state->slot_fds_[slot_index] = -1;
     state->slot_fd_owned_by_state_[slot_index] = false;
 }
-
-} // anonymous namespace
 
 inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     if (!uuid) return {};
