@@ -3,7 +3,7 @@
 #include "dmabuf_dispatch_peer.hpp"
 #include <nozzle/config.hpp>
 
-#if NOZZLE_HAS_DMA_BUF && NOZZLE_ENABLE_TEST_HOOKS
+#if NOZZLE_HAS_DMA_BUF && NOZZLE_ENABLE_TEST_HOOKS && !defined(NOZZLE_SHARED)
 #include "backends/backend_dispatch.hpp"
 
 namespace dmabuf_dispatch_peer {
@@ -18,7 +18,7 @@ const void *receiver_cache_address() {
 
 int sender_slot_fd(uint32_t slot) {
     // Read this TU's state directly: a coalesced inline test getter could hide ODR bugs.
-    auto *state = nozzle::detail::backend::g_sender_state.load(std::memory_order_relaxed);
+    auto *state = nozzle::detail::backend::g_sender_state.load(std::memory_order_acquire);
     if (!state || nozzle::detail::kMaxRingSlots <= slot) {
         return -1;
     }
