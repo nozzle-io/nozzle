@@ -223,6 +223,152 @@ jobs:
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact
 
+  f16c-regression:
+    runs-on: ubuntu-latest
+    env:
+      BROKEN_F16C_SHA: 2d3b7de5dd15983a5cb571bc43d337ff5fad238b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout known-broken implementation for PR negative control
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/f16c-full-output'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BROKEN_F16C_SHA }}
+          path: broken-f16c-source
+          sparse-checkout: src/common/format_convert_f16c.cpp
+          sparse-checkout-cone-mode: false
+
+      - name: Require hosted x86 F16C capability
+        run: |
+          uname -a
+          lscpu
+          grep -m1 '^flags' /proc/cpuinfo
+          if ! grep -qw f16c /proc/cpuinfo; then
+            echo "::error::Hosted x86 runner does not expose F16C"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Report current nozzle.go production-flags F16C macro state
+        shell: bash
+        run: |
+          c++ --version
+          production_flags=(
+            -std=c++17
+            -fno-exceptions
+            -fno-rtti
+            -O2
+            -DNOZZLE_PLATFORM_LINUX=1
+            -DNOZZLE_HAS_DMA_BUF=1
+            -DNOZZLE_HAS_OPENGL=1
+          )
+          printf 'macro probe command: c++'
+          printf ' %q' "${production_flags[@]}"
+          printf ' -dM -E -x c++ /dev/null\n'
+          if macro="$(c++ "${production_flags[@]}" -dM -E -x c++ /dev/null | grep '^#define __F16C__')"; then
+            printf '%s\n' "$macro"
+          else
+            echo "__F16C__ is not predefined"
+          fi
+
+      - name: Configure known-broken regression
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/f16c-full-output'
+        run: >-
+          cmake -B build-f16c-broken
+          -DNOZZLE_BUILD_F16C_TEST=ON
+          -DNOZZLE_BUILD_EXAMPLES=OFF
+          -DNOZZLE_F16C_TEST_SOURCE="${GITHUB_WORKSPACE}/broken-f16c-source/src/common/format_convert_f16c.cpp"
+
+      - name: Build known-broken regression
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/f16c-full-output'
+        run: cmake --build build-f16c-broken --target nozzle_f16c_tests --verbose
+
+      - name: Prove known-broken implementation fails numerically
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/f16c-full-output'
+        shell: bash
+        run: |
+          set +e
+          output="$(./build-f16c-broken/tests/nozzle_f16c_tests 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 1 ]; then
+            echo "::error::Known-broken ${BROKEN_F16C_SHA} returned status ${status}, expected numerical-test status 1"
+            exit 1
+          fi
+          if [[ "$output" != *"8-element row: output[4]="* ]] || [[ "$output" != *"expected 5"* ]]; then
+            echo "::error::Known-broken output did not contain the expected element-4 numerical failure"
+            exit 1
+          fi
+          echo "Known-broken ${BROKEN_F16C_SHA} failed as expected (status=${status})"
+
+      - name: Configure fixed regression and production flag capture
+        run: >-
+          cmake -B build-f16c-fixed
+          -DNOZZLE_BUILD_F16C_TEST=ON
+          -DNOZZLE_BUILD_EXAMPLES=OFF
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build production target with verbose compiler command
+        run: cmake --build build-f16c-fixed --target nozzle --verbose
+
+      - name: Report production F16C compiler state
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import shlex
+          import subprocess
+
+          commands = json.loads(pathlib.Path("build-f16c-fixed/compile_commands.json").read_text())
+          candidates = [
+              item for item in commands
+              if item["file"].endswith("format_convert_f16c.cpp")
+              and "CMakeFiles/nozzle.dir/" in (item.get("output") or item.get("command", ""))
+          ]
+          if len(candidates) != 1:
+              raise RuntimeError(f"expected one production F16C compile entry, found {len(candidates)}")
+          entry = candidates[0]
+          args = entry.get("arguments") or shlex.split(entry["command"])
+          print("production compile command:", shlex.join(args))
+
+          filtered = [args[0]]
+          skip_next = False
+          value_options = {"-o", "-MF", "-MT", "-MQ"}
+          drop_options = {"-c", "-MD", "-MMD"}
+          for arg in args[1:]:
+              if skip_next:
+                  skip_next = False
+                  continue
+              if arg in value_options:
+                  skip_next = True
+                  continue
+              if arg in drop_options or arg == entry["file"]:
+                  continue
+              filtered.append(arg)
+          probe = filtered + ["-dM", "-E", "-x", "c++", "/dev/null"]
+          print("production macro probe:", shlex.join(probe))
+          result = subprocess.run(
+              probe,
+              cwd=entry["directory"],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          macros = [line for line in result.stdout.splitlines() if line.startswith("#define __F16C__")]
+          print(macros[0] if macros else "__F16C__ is not predefined")
+          PY
+
+      - name: Build and run fixed numerical regression
+        run: |
+          cmake --build build-f16c-fixed --target nozzle_f16c_tests --verbose
+          ./build-f16c-fixed/tests/nozzle_f16c_tests
+
   package-sdk-macos:
     runs-on: macos-14
     steps:
