@@ -243,6 +243,7 @@ src/backends/metal/          macOS Metal backend (.mm)
 src/backends/d3d11/          Windows D3D11 backend (.cpp)
 src/backends/opengl/         OpenGL interop (.cpp)
 src/backends/linux/          Linux DMA-BUF backend (.cpp)
+sources/                     Source lists read by CMake and non-CMake wrappers
 libs/plog/                   plog submodule (header-only logging)
 tests/                       Unit + integration tests (Catch2)
 examples/                    Minimal sender/receiver examples
@@ -292,6 +293,39 @@ scripts/check_x86_64_isa.sh build/libnozzle.a path/to/app
 ```
 
 The script disassembles the given files with `objdump`. It exits non-zero if it finds AVX/EVEX-class instructions or registers, or the x86-64-v3 integer extensions (BMI1/BMI2/LZCNT/MOVBE). It does not detect every non-v2 extension: AES-NI, PCLMUL, SHA, ADX, RDRAND, XSAVE, SSE4a, AMX and APX are not checked. It does not scan shared libraries loaded at runtime. Note that the half-float F16C path in `format_convert` is selected at compile time, so a v2 build uses the scalar path.
+
+## Source lists
+
+`sources/*.txt` is the single list of files to compile. CMake reads it, and wrappers that do not use core's CMake must read it too instead of copying paths.
+
+| List | Contents |
+|---|---|
+| `common.txt` | Required on every platform, including SIMD files guarded internally by architecture |
+| `macos.txt` | Metal backend and vImage paths |
+| `windows.txt` | D3D11 backend |
+| `linux.txt` | DMA-BUF backend |
+| `opengl.txt` | Optional OpenGL interop; needs `NOZZLE_HAS_OPENGL=1` |
+
+Each file has one path per line, relative to the core root, with no comments or blank lines.
+
+Makefiles can include the helper, which stops the build if a list cannot be read:
+
+```make
+NOZZLE_DIR := deps/nozzle
+include $(NOZZLE_DIR)/sources/sources.mk
+
+ALL_SRCS := $(NOZZLE_COMMON_SRCS) $(NOZZLE_OPENGL_SRCS) $(NOZZLE_LINUX_SRCS)
+```
+
+Other build systems should read the text files and fail if a list is missing or empty. An empty list can still link when using `-shared`, which would leave a library with no core code.
+
+These lists cover sources only. Wrappers still set compile definitions and link flags themselves.
+
+To add a source, add it to one list. `scripts/check_source_manifest.sh` fails if a file under `src/` is in no list or in more than one.
+
+Avoid adding a new list. Wrappers choose which lists to compile, so a new list needs a change in every wrapper, and the check cannot tell whether a wrapper uses it.
+
+Packaging allowlists must include `sources/`, for example `include` in `Cargo.toml` and in `[tool.scikit-build.sdist]`.
 
 ## Design Decisions
 
