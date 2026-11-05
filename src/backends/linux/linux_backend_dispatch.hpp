@@ -107,30 +107,27 @@ inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_
     state->slot_fd_owned_by_state_[slot_index] = false;
 }
 
-// A named hidden argument also hides std::thread's template-generated run/vtable symbols.
-struct __attribute__((visibility("hidden"))) linux_sender_accept_loop {
-    linux_sender_state *state;
-
-    void operator()() const {
-        while (!state->stop_flag_.load(std::memory_order_relaxed)) {
-            int client_fd = accept(state->listen_fd_, nullptr, nullptr);
-            if (client_fd < 0) {
-                if (state->stop_flag_.load(std::memory_order_relaxed)) break;
-                continue;
-            }
-            struct timeval tv{};
-            tv.tv_sec = 2;
-            tv.tv_usec = 0;
-            if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
-                setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
-                close(client_fd);
-                continue;
-            }
-            handle_fd_request(client_fd, state);
-            close(client_fd);
+// Keep private state types/layouts out of exported std::thread template instantiations.
+inline void run_sender_accept_loop(void *context) {
+    auto *state = static_cast<linux_sender_state *>(context);
+    while (!state->stop_flag_.load(std::memory_order_relaxed)) {
+        int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+        if (client_fd < 0) {
+            if (state->stop_flag_.load(std::memory_order_relaxed)) break;
+            continue;
         }
+        struct timeval tv{};
+        tv.tv_sec = 2;
+        tv.tv_usec = 0;
+        if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
+            setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+            close(client_fd);
+            continue;
+        }
+        handle_fd_request(client_fd, state);
+        close(client_fd);
     }
-};
+}
 
 inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     if (!uuid) return {};
@@ -203,7 +200,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
 #if NOZZLE_HAS_EXCEPTIONS
     try {
 #endif
-        state->accept_thread_ = std::thread(linux_sender_accept_loop{state});
+        state->accept_thread_ = std::thread(&run_sender_accept_loop, static_cast<void *>(state));
 #if NOZZLE_HAS_EXCEPTIONS
     } catch (const std::system_error &) {
         std::lock_guard<std::mutex> lock(state->mutex_);
