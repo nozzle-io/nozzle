@@ -121,9 +121,14 @@ TEST_CASE("C API: sender and receiver info getters reject null boundaries", "[c_
 namespace {
 
 bool is_backend_unavailable_for_commit_lifecycle(NozzleErrorCode error) {
-    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND
-        || error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED
-        || error == NOZZLE_ERROR_BACKEND_ERROR;
+    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+}
+
+NozzleSenderDesc make_safe_fallback_sender_desc() {
+    NozzleSenderDesc desc{};
+    desc.fallback_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS;
+    desc.fallback_flags_valid = 1;
+    return desc;
 }
 
 struct SenderHandle {
@@ -284,7 +289,7 @@ TEST_CASE("C API: sender object wrapper allocation failure cleans registration",
 
 TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_wrapper_alloc_failure_discard";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -327,7 +332,7 @@ TEST_CASE("C API: writable acquire wrapper allocation failure discards sender sl
 
 TEST_CASE("C API: commit rejects failed writable unlock state", "[c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "checked_writable_unlock_failed_commit";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;

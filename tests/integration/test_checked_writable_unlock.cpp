@@ -11,15 +11,18 @@
 namespace {
 
 bool is_backend_unavailable(NozzleErrorCode error) {
-    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND
-        || error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED
-        || error == NOZZLE_ERROR_BACKEND_ERROR;
+    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND;
 }
 
 bool is_backend_unavailable(nozzle::ErrorCode error) {
-    return error == nozzle::ErrorCode::UnsupportedBackend
-        || error == nozzle::ErrorCode::ResourceCreationFailed
-        || error == nozzle::ErrorCode::BackendError;
+    return error == nozzle::ErrorCode::UnsupportedBackend;
+}
+
+NozzleSenderDesc make_safe_fallback_sender_desc() {
+    NozzleSenderDesc desc{};
+    desc.fallback_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS;
+    desc.fallback_flags_valid = 1;
+    return desc;
 }
 
 struct SenderHandle {
@@ -105,7 +108,7 @@ TEST_CASE("C++ API: moved writable frame retains legacy mapping ownership", "[in
 
 TEST_CASE("C API: checked writable unlock reports lifecycle errors", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "checked_writable_unlock_lifecycle";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -140,7 +143,7 @@ TEST_CASE("C API: checked writable unlock reports lifecycle errors", "[integrati
 
 TEST_CASE("C API: commit rejects still-mapped writable frame", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "checked_writable_unlock_still_mapped_commit";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -180,7 +183,7 @@ TEST_CASE("C API: pixel mapping handle null and double-unlock semantics", "[inte
 
 TEST_CASE("C API: writable pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_mapping_handle_lifecycle";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -215,7 +218,7 @@ TEST_CASE("C API: writable pixel mapping handle owns unlock lifecycle", "[integr
 
 TEST_CASE("C API: read pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "read_mapping_handle_lifecycle";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -269,7 +272,7 @@ TEST_CASE("C API: read pixel mapping handle owns unlock lifecycle", "[integratio
 
 TEST_CASE("C API: legacy read mapping compatibility slot is frame-owned", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "legacy_read_mapping_frame_slot";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -332,7 +335,7 @@ TEST_CASE("C API: legacy read mapping compatibility slot is frame-owned", "[inte
 
 TEST_CASE("C API: legacy read mapping unlock can run on another thread", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "legacy_read_mapping_cross_thread";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -390,7 +393,7 @@ TEST_CASE("C API: legacy read mapping unlock can run on another thread", "[integ
 
 TEST_CASE("C API: legacy read unlock does not consume independent mapping handle", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "legacy_read_does_not_consume_handle";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -444,7 +447,7 @@ TEST_CASE("C API: legacy read unlock does not consume independent mapping handle
 
 TEST_CASE("C API: writable pixel mapping handle can unlock on another thread", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_mapping_handle_cross_thread";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -483,7 +486,7 @@ TEST_CASE("C API: writable pixel mapping handle can unlock on another thread", "
 
 TEST_CASE("C API: legacy writable mapping can unlock on another thread", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "legacy_writable_mapping_cross_thread";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -519,7 +522,7 @@ TEST_CASE("C API: legacy writable mapping can unlock on another thread", "[integ
 
 TEST_CASE("C API: legacy writable mapping and mapping handle reject mixed ownership", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "legacy_writable_mapping_conflicts";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -564,7 +567,7 @@ TEST_CASE("C API: legacy writable mapping and mapping handle reject mixed owners
 
 TEST_CASE("C API: wrong-frame legacy writable unlock does not consume owner mapping", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "legacy_writable_wrong_frame";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -602,7 +605,7 @@ TEST_CASE("C API: wrong-frame legacy writable unlock does not consume owner mapp
 
 TEST_CASE("C API: writable pixel mapping handle cleanup survives frame release", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_mapping_handle_frame_release";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -636,7 +639,7 @@ TEST_CASE("C API: writable pixel mapping handle cleanup survives frame release",
 
 TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "checked_writable_unlock_receiver";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -677,7 +680,7 @@ TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", 
 
 TEST_CASE("C API: discard writable frame releases sender slot without publishing", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "checked_writable_discard_slot";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -709,7 +712,7 @@ TEST_CASE("C API: discard writable frame releases sender slot without publishing
 
 TEST_CASE("C API: releasing writable frame wrapper does not return sender slot", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_release_does_not_return_slot";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
