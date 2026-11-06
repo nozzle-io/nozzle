@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -215,6 +216,7 @@ inline void run_sender_accept_loop(void *context) {
     auto *state = static_cast<linux_sender_state *>(context);
     state->accept_thread_running_.store(true, std::memory_order_release);
     uint32_t consecutive_failures = 0;
+    bool resource_exhaustion_reported = false;
     while (!state->stop_flag_.load(std::memory_order_relaxed)) {
         int client_fd = accept_sender_client(state);
         if (client_fd < 0) {
@@ -226,6 +228,13 @@ inline void run_sender_accept_loop(void *context) {
             state->accept_error_kind_.store(error_kind, std::memory_order_release);
             state->consecutive_accept_failures_.store(
                 consecutive_failures, std::memory_order_relaxed);
+            if (error_kind == sender_accept_error_kind::resource_exhaustion &&
+                !resource_exhaustion_reported) {
+                std::fprintf(stderr,
+                    "nozzle: DMA-BUF fd broker resource exhaustion (errno %d); "
+                    "retrying accepts, publication remains enabled\n", accept_error);
+                resource_exhaustion_reported = true;
+            }
             if (error_kind == sender_accept_error_kind::fatal) {
                 break;
             }
@@ -238,6 +247,7 @@ inline void run_sender_accept_loop(void *context) {
         }
         accepted_client_fd client{client_fd};
         consecutive_failures = 0;
+        resource_exhaustion_reported = false;
         state->accept_errno_.store(0, std::memory_order_relaxed);
         state->accept_error_kind_.store(
             sender_accept_error_kind::none, std::memory_order_release);
@@ -259,17 +269,13 @@ inline auto sender_broker_status(const linux_sender_state *state) -> Result<void
         return {};
     }
     const auto kind = state->accept_error_kind_.load(std::memory_order_acquire);
-    if (kind != sender_accept_error_kind::resource_exhaustion &&
-        kind != sender_accept_error_kind::fatal) {
+    if (kind != sender_accept_error_kind::fatal) {
         return {};
     }
     const int accept_error = state->accept_errno_.load(std::memory_order_relaxed);
-    const char *kind_name = kind == sender_accept_error_kind::fatal
-        ? "fatal"
-        : "resource exhaustion";
     return Error{ErrorCode::BackendError,
-        std::string{"DMA-BUF fd broker "} + kind_name +
-            " accept failure (errno " + std::to_string(accept_error) + ")"};
+        std::string{"DMA-BUF fd broker fatal accept failure (errno "} +
+            std::to_string(accept_error) + ")"};
 }
 
 inline auto sender_broker_status() -> Result<void> {
@@ -372,7 +378,11 @@ inline void cleanup_sender_socket() {
     auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state) return;
 
-    state->stop_flag_.store(true, std::memory_order_relaxed);
+    {
+        // Pair the predicate update with wait_for's mutex to avoid a lost wakeup.
+        std::lock_guard<std::mutex> lock(state->retry_mutex_);
+        state->stop_flag_.store(true, std::memory_order_relaxed);
+    }
     state->retry_cv_.notify_all();
 
     {
