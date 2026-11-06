@@ -11,6 +11,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <condition_variable>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -36,7 +37,15 @@ struct linux_sender_state {
     std::string uuid_{};
     std::thread accept_thread_{};
     std::atomic<bool> stop_flag_{false};
+    std::condition_variable retry_cv_{};
+    std::mutex retry_mutex_{};
     std::mutex mutex_;
+
+#if NOZZLE_ENABLE_TEST_HOOKS
+    using test_accept_function = int (*)(int, void *);
+    test_accept_function test_accept_{nullptr};
+    void *test_accept_context_{nullptr};
+#endif
 
     linux_sender_state() {
         slot_fds_.fill(-1);
@@ -108,10 +117,19 @@ inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_
 }
 
 // Keep private state types/layouts out of exported std::thread template instantiations.
+inline auto accept_sender_client(linux_sender_state *state) -> int {
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (state->test_accept_) {
+        return state->test_accept_(state->listen_fd_, state->test_accept_context_);
+    }
+#endif
+    return accept(state->listen_fd_, nullptr, nullptr);
+}
+
 inline void run_sender_accept_loop(void *context) {
     auto *state = static_cast<linux_sender_state *>(context);
     while (!state->stop_flag_.load(std::memory_order_relaxed)) {
-        int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+        int client_fd = accept_sender_client(state);
         if (client_fd < 0) {
             if (state->stop_flag_.load(std::memory_order_relaxed)) break;
             continue;

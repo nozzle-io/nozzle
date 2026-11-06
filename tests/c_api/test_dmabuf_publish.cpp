@@ -12,7 +12,11 @@
 #include "backends/linux/linux_helpers.hpp"
 #include "dmabuf_dispatch_peer.hpp"
 
+#include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <fcntl.h>
+#include <thread>
 #include <unistd.h>
 
 #include <dirent.h>
@@ -109,6 +113,20 @@ auto open_fd_count() -> std::size_t {
     closedir(dir);
     return count;
 }
+
+#if NOZZLE_ENABLE_TEST_HOOKS
+struct persistent_accept_failure {
+    std::atomic<uint32_t> calls{0};
+};
+
+auto fail_accept_with_emfile(int, void *context) -> int {
+    auto *failure = static_cast<persistent_accept_failure *>(context);
+    failure->calls.fetch_add(1, std::memory_order_relaxed);
+    errno = EMFILE;
+    return -1;
+}
+#endif
+
 TEST_CASE("DMA-BUF backend: float nozzle formats have no DRM FourCC mapping", "[dmabuf][format]") {
     const nozzle::texture_format float_formats[] = {
         nozzle::texture_format::r16_float,
@@ -235,6 +253,31 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
 }
 
 #if NOZZLE_HAS_DMA_BUF && NOZZLE_ENABLE_TEST_HOOKS
+
+TEST_CASE("DMA-BUF fd broker bounds persistent resource retries and stops promptly", "[dmabuf][fd_broker]") {
+    using namespace std::chrono_literals;
+
+    nozzle::detail::backend::linux_sender_state state;
+    persistent_accept_failure failure;
+    state.test_accept_ = &fail_accept_with_emfile;
+    state.test_accept_context_ = &failure;
+
+    std::thread worker{[&state] {
+        nozzle::detail::backend::run_sender_accept_loop(&state);
+    }};
+
+    std::this_thread::sleep_for(40ms);
+    const auto calls_before_stop = failure.calls.load(std::memory_order_relaxed);
+    const auto stop_started = std::chrono::steady_clock::now();
+    state.stop_flag_.store(true, std::memory_order_relaxed);
+    state.retry_cv_.notify_all();
+    worker.join();
+    const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+
+    CHECK(calls_before_stop > 0);
+    CHECK(calls_before_stop <= 8);
+    CHECK(stop_elapsed < 100ms);
+}
 
 #if !defined(NOZZLE_SHARED)
 // These inspect private state in the linked binary, not a separate shared core.
