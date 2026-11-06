@@ -282,7 +282,7 @@ TEST_CASE("C API: sender object wrapper allocation failure cleans registration",
     REQUIRE(nozzle_sender_create(&fail_desc, &retry.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access]") {
+TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "writable_wrapper_alloc_failure_discard";
@@ -325,7 +325,7 @@ TEST_CASE("C API: writable acquire wrapper allocation failure discards sender sl
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: commit rejects failed writable unlock state", "[c_api][pixel_access]") {
+TEST_CASE("C API: commit rejects failed writable unlock state", "[c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "checked_writable_unlock_failed_commit";

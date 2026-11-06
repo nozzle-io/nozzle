@@ -25,7 +25,7 @@ struct FrameHandle {
 };
 } // anonymous namespace
 
-TEST_CASE("Integration: receiver_get_connected_format_fallback_info returns connected fallback", "[integration][fallback]") {
+TEST_CASE("Integration: receiver_get_connected_format_fallback_info returns connected fallback", "[integration][fallback][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "int_fb_recv_test";

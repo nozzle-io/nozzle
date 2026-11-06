@@ -103,7 +103,7 @@ TEST_CASE("C++ API: moved writable frame retains legacy mapping ownership", "[in
     CHECK(sender.discard_frame(moved).ok());
 }
 
-TEST_CASE("C API: checked writable unlock reports lifecycle errors", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: checked writable unlock reports lifecycle errors", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "checked_writable_unlock_lifecycle";
@@ -138,7 +138,7 @@ TEST_CASE("C API: checked writable unlock reports lifecycle errors", "[integrati
     CHECK(nozzle_frame_unlock_writable_pixels_checked(writable.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
-TEST_CASE("C API: commit rejects still-mapped writable frame", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: commit rejects still-mapped writable frame", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "checked_writable_unlock_still_mapped_commit";
@@ -178,7 +178,7 @@ TEST_CASE("C API: pixel mapping handle null and double-unlock semantics", "[inte
     nozzle_pixel_mapping_unlock(&mapping);
 }
 
-TEST_CASE("C API: writable pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: writable pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "writable_mapping_handle_lifecycle";
@@ -213,7 +213,7 @@ TEST_CASE("C API: writable pixel mapping handle owns unlock lifecycle", "[integr
     CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: read pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: read pixel mapping handle owns unlock lifecycle", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "read_mapping_handle_lifecycle";
@@ -267,7 +267,7 @@ TEST_CASE("C API: read pixel mapping handle owns unlock lifecycle", "[integratio
     CHECK(nozzle_pixel_mapping_unlock_checked(&mapping.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
-TEST_CASE("C API: legacy read mapping compatibility slot is frame-owned", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: legacy read mapping compatibility slot is frame-owned", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "legacy_read_mapping_frame_slot";
@@ -330,7 +330,7 @@ TEST_CASE("C API: legacy read mapping compatibility slot is frame-owned", "[inte
     nozzle_frame_unlock_pixels(receiver_frame.p);
 }
 
-TEST_CASE("C API: legacy read mapping unlock can run on another thread", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: legacy read mapping unlock can run on another thread", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "legacy_read_mapping_cross_thread";
@@ -388,7 +388,7 @@ TEST_CASE("C API: legacy read mapping unlock can run on another thread", "[integ
     nozzle_frame_unlock_pixels(receiver_frame.p);
 }
 
-TEST_CASE("C API: legacy read unlock does not consume independent mapping handle", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: legacy read unlock does not consume independent mapping handle", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "legacy_read_does_not_consume_handle";
@@ -442,7 +442,7 @@ TEST_CASE("C API: legacy read unlock does not consume independent mapping handle
     CHECK(mapping.p == nullptr);
 }
 
-TEST_CASE("C API: writable pixel mapping handle can unlock on another thread", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: writable pixel mapping handle can unlock on another thread", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "writable_mapping_handle_cross_thread";
@@ -481,7 +481,7 @@ TEST_CASE("C API: writable pixel mapping handle can unlock on another thread", "
     CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: legacy writable mapping can unlock on another thread", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: legacy writable mapping can unlock on another thread", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "legacy_writable_mapping_cross_thread";
@@ -517,7 +517,7 @@ TEST_CASE("C API: legacy writable mapping can unlock on another thread", "[integ
     CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: legacy writable mapping and mapping handle reject mixed ownership", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: legacy writable mapping and mapping handle reject mixed ownership", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "legacy_writable_mapping_conflicts";
@@ -562,7 +562,7 @@ TEST_CASE("C API: legacy writable mapping and mapping handle reject mixed owners
     CHECK(nozzle_sender_commit_frame(sender.p, writable.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: wrong-frame legacy writable unlock does not consume owner mapping", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: wrong-frame legacy writable unlock does not consume owner mapping", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "legacy_writable_wrong_frame";
@@ -600,7 +600,7 @@ TEST_CASE("C API: wrong-frame legacy writable unlock does not consume owner mapp
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: writable pixel mapping handle cleanup survives frame release", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: writable pixel mapping handle cleanup survives frame release", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "writable_mapping_handle_frame_release";
@@ -634,7 +634,7 @@ TEST_CASE("C API: writable pixel mapping handle cleanup survives frame release",
     CHECK(mapping.p == nullptr);
 }
 
-TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "checked_writable_unlock_receiver";
@@ -675,7 +675,7 @@ TEST_CASE("C API: checked writable unlock rejects non-writable receiver frame", 
     CHECK(nozzle_frame_unlock_writable_pixels_checked(receiver_frame.p) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
-TEST_CASE("C API: discard writable frame releases sender slot without publishing", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: discard writable frame releases sender slot without publishing", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "checked_writable_discard_slot";
@@ -707,7 +707,7 @@ TEST_CASE("C API: discard writable frame releases sender slot without publishing
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: releasing writable frame wrapper does not return sender slot", "[integration][c_api][pixel_access]") {
+TEST_CASE("C API: releasing writable frame wrapper does not return sender slot", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc{};
     sdesc.name = "writable_release_does_not_return_slot";
