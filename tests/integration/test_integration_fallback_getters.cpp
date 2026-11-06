@@ -4,9 +4,33 @@
 
 #include <nozzle/nozzle_c.h>
 
+#if NOZZLE_HAS_DMA_BUF
+#include <cerrno>
+#include <sys/stat.h>
+#endif
+
 namespace {
+#if NOZZLE_HAS_DMA_BUF
+bool is_dma_buf_device_absent() {
+    struct stat info{};
+    if (::stat("/dev/dri/renderD128", &info) == 0) {
+        return false;
+    }
+    return errno == ENOENT || errno == ENOTDIR;
+}
+#endif
+
 bool is_backend_unavailable(NozzleErrorCode error) {
-    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+    if (error == NOZZLE_ERROR_UNSUPPORTED_BACKEND) {
+        return true;
+    }
+#if NOZZLE_HAS_DMA_BUF
+    return is_dma_buf_device_absent()
+        && (error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED
+            || error == NOZZLE_ERROR_BACKEND_ERROR);
+#else
+    return false;
+#endif
 }
 
 NozzleSenderDesc make_safe_fallback_sender_desc() {

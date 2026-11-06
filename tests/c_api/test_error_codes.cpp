@@ -12,6 +12,11 @@
 #include <cstring>
 #include <limits>
 
+#if NOZZLE_HAS_DMA_BUF
+#include <cerrno>
+#include <sys/stat.h>
+#endif
+
 #if NOZZLE_ENABLE_TEST_HOOKS
 extern "C" void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame);
 extern "C" void nozzle_test_fail_next_writable_frame_wrapper_alloc(void);
@@ -120,8 +125,27 @@ TEST_CASE("C API: sender and receiver info getters reject null boundaries", "[c_
 
 namespace {
 
+#if NOZZLE_HAS_DMA_BUF
+bool is_dma_buf_device_absent() {
+    struct stat info{};
+    if (::stat("/dev/dri/renderD128", &info) == 0) {
+        return false;
+    }
+    return errno == ENOENT || errno == ENOTDIR;
+}
+#endif
+
 bool is_backend_unavailable_for_commit_lifecycle(NozzleErrorCode error) {
-    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND;
+    if (error == NOZZLE_ERROR_UNSUPPORTED_BACKEND) {
+        return true;
+    }
+#if NOZZLE_HAS_DMA_BUF
+    return is_dma_buf_device_absent()
+        && (error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED
+            || error == NOZZLE_ERROR_BACKEND_ERROR);
+#else
+    return false;
+#endif
 }
 
 NozzleSenderDesc make_safe_fallback_sender_desc() {
