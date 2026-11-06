@@ -12,6 +12,11 @@
 #include <cstring>
 #include <limits>
 
+#if NOZZLE_HAS_DMA_BUF
+#include <cerrno>
+#include <sys/stat.h>
+#endif
+
 #if NOZZLE_ENABLE_TEST_HOOKS
 extern "C" void nozzle_test_mark_writable_frame_cpu_unlock_failed(NozzleFrame *frame);
 extern "C" void nozzle_test_fail_next_writable_frame_wrapper_alloc(void);
@@ -120,10 +125,34 @@ TEST_CASE("C API: sender and receiver info getters reject null boundaries", "[c_
 
 namespace {
 
+#if NOZZLE_HAS_DMA_BUF
+bool is_dma_buf_device_absent() {
+    struct stat info{};
+    if (::stat("/dev/dri/renderD128", &info) == 0) {
+        return false;
+    }
+    return errno == ENOENT || errno == ENOTDIR;
+}
+#endif
+
 bool is_backend_unavailable_for_commit_lifecycle(NozzleErrorCode error) {
-    return error == NOZZLE_ERROR_UNSUPPORTED_BACKEND
-        || error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED
-        || error == NOZZLE_ERROR_BACKEND_ERROR;
+    if (error == NOZZLE_ERROR_UNSUPPORTED_BACKEND) {
+        return true;
+    }
+#if NOZZLE_HAS_DMA_BUF
+    return is_dma_buf_device_absent()
+        && (error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED
+            || error == NOZZLE_ERROR_BACKEND_ERROR);
+#else
+    return false;
+#endif
+}
+
+NozzleSenderDesc make_safe_fallback_sender_desc() {
+    NozzleSenderDesc desc{};
+    desc.fallback_flags = NOZZLE_FALLBACK_SAFE_DEFAULTS;
+    desc.fallback_flags_valid = 1;
+    return desc;
 }
 
 struct SenderHandle {
@@ -282,9 +311,9 @@ TEST_CASE("C API: sender object wrapper allocation failure cleans registration",
     REQUIRE(nozzle_sender_create(&fail_desc, &retry.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access]") {
+TEST_CASE("C API: writable acquire wrapper allocation failure discards sender slot", "[c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_wrapper_alloc_failure_discard";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;
@@ -325,9 +354,9 @@ TEST_CASE("C API: writable acquire wrapper allocation failure discards sender sl
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: commit rejects failed writable unlock state", "[c_api][pixel_access]") {
+TEST_CASE("C API: commit rejects failed writable unlock state", "[c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
-    NozzleSenderDesc sdesc{};
+    NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "checked_writable_unlock_failed_commit";
     sdesc.application_name = "test";
     sdesc.ring_buffer_size = 2;

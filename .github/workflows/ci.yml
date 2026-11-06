@@ -49,6 +49,27 @@ jobs:
       - name: Integration tests
         run: ./build/tests/nozzle_integration_tests --reporter compact
 
+      - name: Writable-frame integration tests must run
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/nozzle_integration_tests "[writable_frame]" --reporter console --success | tee writable-frame-integration.log
+          if grep -qi "skipped" writable-frame-integration.log; then
+            echo "::error::[writable_frame] integration tests were skipped on this macOS runner"
+            exit 1
+          fi
+
+      - name: Writable-frame C API tests must run
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/nozzle_c_api_tests "[writable_frame]" --reporter console --success | tee writable-frame-c-api.log
+          if grep -qi "skipped" writable-frame-c-api.log; then
+            echo "::error::[writable_frame] C API tests were skipped on this macOS runner"
+            exit 1
+          fi
+
       - name: C API snapshot identity transition
         run: ./build/tests/nozzle_integration_tests "[info_snapshot][cross_process]" --reporter console --success
 
