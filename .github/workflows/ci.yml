@@ -9,7 +9,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' && github.event_name != 'release' }}
+  # Preserve the asset-upload / latest-tag publication sequence on main.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref_type != 'tag' && github.event_name != 'release' }}
 
 jobs:
   check-no-exceptions:
@@ -912,6 +913,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -928,8 +931,23 @@ jobs:
             exit 1
           fi
 
+      - name: Check latest publication freshness
+        id: latest_guard
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          current_main=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+          if [ "$current_main" != "$GITHUB_SHA" ]; then
+            echo "skipped: $GITHUB_SHA is no longer main; no release mutation"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Delete old latest release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.latest_guard.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -957,6 +975,7 @@ jobs:
           fi
 
       - name: Create or update SDK release
+        if: github.ref != 'refs/heads/main' || steps.latest_guard.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -980,3 +999,39 @@ jobs:
             echo "unsupported release ref: ${GITHUB_REF}" >&2
             exit 1
           fi
+
+      - name: Verify published assets and move latest tag
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.latest_guard.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=()
+          while IFS= read -r package; do
+            packages+=("$package")
+          done < sdk-zips.txt
+          test "${#packages[@]}" -gt 0
+          previous_ref=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/latest" --jq .object.sha)
+          [[ "$previous_ref" =~ ^[0-9a-f]{40}$ ]]
+          verify_dir=$(mktemp -d)
+          trap 'rm -rf "$verify_dir"' EXIT
+          gh release view latest --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$verify_dir/notes"
+          grep -F "Commit: ${GITHUB_SHA}" "$verify_dir/notes"
+          gh release view latest --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$verify_dir/remote-names"
+          for package in "${packages[@]}"; do
+            basename "$package"
+          done > "$verify_dir/local-names"
+          LC_ALL=C sort "$verify_dir/local-names" > "$verify_dir/expected"
+          LC_ALL=C sort "$verify_dir/remote-names" > "$verify_dir/actual"
+          cmp "$verify_dir/expected" "$verify_dir/actual"
+          for package in "${packages[@]}"; do
+            asset=$(basename "$package")
+            gh release download latest --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$verify_dir"
+            cmp "$package" "$verify_dir/$asset"
+            echo "verified uploaded bytes: $asset"
+          done
+          git push origin "--force-with-lease=refs/tags/latest:${previous_ref}" "${GITHUB_SHA}:refs/tags/latest"
+          published=$(gh api "repos/${GITHUB_REPOSITORY}/commits/latest" --jq .sha)
+          test "$published" = "$GITHUB_SHA"
+          echo "verified latest tag commit=$published"
