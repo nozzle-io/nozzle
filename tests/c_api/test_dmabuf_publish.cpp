@@ -15,7 +15,9 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <fcntl.h>
+#include <mutex>
 #include <thread>
 #include <unistd.h>
 
@@ -117,11 +119,14 @@ auto open_fd_count() -> std::size_t {
 #if NOZZLE_ENABLE_TEST_HOOKS
 struct persistent_accept_failure {
     std::atomic<uint32_t> calls{0};
+    std::condition_variable first_call_cv;
+    std::mutex first_call_mutex;
 };
 
 auto fail_accept_with_emfile(int, void *context) -> int {
     auto *failure = static_cast<persistent_accept_failure *>(context);
     failure->calls.fetch_add(1, std::memory_order_relaxed);
+    failure->first_call_cv.notify_all();
     errno = EMFILE;
     return -1;
 }
@@ -266,6 +271,20 @@ TEST_CASE("DMA-BUF fd broker bounds persistent resource retries and stops prompt
         nozzle::detail::backend::run_sender_accept_loop(&state);
     }};
 
+    bool worker_started = false;
+    {
+        std::unique_lock<std::mutex> lock(failure.first_call_mutex);
+        worker_started = failure.first_call_cv.wait_for(lock, 2s, [&failure] {
+            return 0 < failure.calls.load(std::memory_order_relaxed);
+        });
+    }
+    if (!worker_started) {
+        state.stop_flag_.store(true, std::memory_order_relaxed);
+        state.retry_cv_.notify_all();
+        worker.join();
+    }
+    REQUIRE(worker_started);
+
     std::this_thread::sleep_for(40ms);
     const auto calls_before_stop = failure.calls.load(std::memory_order_relaxed);
     const auto stop_started = std::chrono::steady_clock::now();
@@ -277,6 +296,113 @@ TEST_CASE("DMA-BUF fd broker bounds persistent resource retries and stops prompt
     CHECK(calls_before_stop > 0);
     CHECK(calls_before_stop <= 8);
     CHECK(stop_elapsed < 100ms);
+}
+
+TEST_CASE("DMA-BUF fd broker classifies accept failures", "[dmabuf][fd_broker]") {
+    using nozzle::detail::backend::classify_sender_accept_error;
+    using nozzle::detail::backend::sender_accept_error_kind;
+
+    CHECK(classify_sender_accept_error(EINTR) == sender_accept_error_kind::interrupted);
+
+    const int transient_errors[] = {
+        EAGAIN,
+        ECONNABORTED,
+        EPROTO,
+        ENETDOWN,
+        ENETUNREACH,
+    };
+    for (int error : transient_errors) {
+        CHECK(classify_sender_accept_error(error) == sender_accept_error_kind::transient);
+    }
+
+    const int resource_errors[] = {EMFILE, ENFILE, ENOBUFS, ENOMEM};
+    for (int error : resource_errors) {
+        CHECK(classify_sender_accept_error(error) ==
+            sender_accept_error_kind::resource_exhaustion);
+    }
+
+    const int fatal_errors[] = {EBADF, EINVAL, ENOTSOCK};
+    for (int error : fatal_errors) {
+        CHECK(classify_sender_accept_error(error) == sender_accept_error_kind::fatal);
+    }
+}
+
+TEST_CASE("DMA-BUF fd broker exposes fatal accept failure", "[dmabuf][fd_broker]") {
+    nozzle::detail::backend::linux_sender_state state;
+    state.test_accept_ = [](int, void *) -> int {
+        errno = EBADF;
+        return -1;
+    };
+
+    std::thread worker{[&state] {
+        nozzle::detail::backend::run_sender_accept_loop(&state);
+    }};
+    worker.join();
+
+    CHECK(!state.accept_thread_running_.load(std::memory_order_acquire));
+    CHECK(state.consecutive_accept_failures_.load(std::memory_order_relaxed) == 1);
+    auto status = nozzle::detail::backend::sender_broker_status(&state);
+    REQUIRE(!status.ok());
+    CHECK(status.error().code == nozzle::ErrorCode::BackendError);
+    CHECK(status.error().message.find("fatal") != std::string::npos);
+    CHECK(status.error().message.find(std::to_string(EBADF)) != std::string::npos);
+}
+
+TEST_CASE("DMA-BUF fd broker serves a normal client and cleans up", "[dmabuf][fd_broker]") {
+    using nozzle::detail::backend::g_sender_state;
+
+    REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());
+    nozzle::detail::backend::cleanup_sender_socket();
+    nozzle::detail::backend::test_reset_sender_state();
+    struct cleanup_on_exit {
+        bool active{true};
+        ~cleanup_on_exit() {
+            if (active) {
+                nozzle::detail::backend::cleanup_sender_socket();
+            }
+        }
+    } cleanup;
+
+    auto source_fd = open_harmless_fd();
+    REQUIRE(fd_is_open(source_fd.get()));
+    nozzle::detail::backend::test_set_sender_slot_fd(0, source_fd.get(), false, 1);
+
+    static std::atomic<uint32_t> socket_sequence{0};
+    const std::string uuid = "fd-broker-test-" + std::to_string(getpid()) + "-" +
+        std::to_string(socket_sequence.fetch_add(1, std::memory_order_relaxed));
+    REQUIRE(nozzle::detail::backend::notify_sender_uuid(uuid.c_str()).ok());
+
+    unique_fd client{socket(AF_UNIX, SOCK_STREAM, 0)};
+    REQUIRE(fd_is_open(client.get()));
+    struct timeval timeout{};
+    timeout.tv_sec = 2;
+    REQUIRE(setsockopt(
+        client.get(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+    nozzle::detail::backend::abstract_socket_addr address{"nozzle_fd_" + uuid};
+    REQUIRE(connect(
+        client.get(),
+        reinterpret_cast<struct sockaddr *>(&address.addr),
+        address.len) == 0);
+
+    const uint32_t slot = 0;
+    REQUIRE(send(client.get(), &slot, sizeof(slot), 0) ==
+        static_cast<ssize_t>(sizeof(slot)));
+    unique_fd received_fd{nozzle::detail::linux_backend::recv_fd_response(client.get())};
+    REQUIRE(fd_is_open(received_fd.get()));
+
+    auto *state = g_sender_state.load(std::memory_order_acquire);
+    REQUIRE(state != nullptr);
+    nozzle::detail::backend::cleanup_sender_socket();
+    cleanup.active = false;
+
+    CHECK(!state->accept_thread_running_.load(std::memory_order_acquire));
+    {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        CHECK(state->listen_fd_ == -1);
+    }
+    CHECK(nozzle::detail::backend::test_get_sender_slot_fd(0) == -1);
+    CHECK(fd_is_open(source_fd.get()));
+    CHECK(fd_is_open(received_fd.get()));
 }
 
 #if !defined(NOZZLE_SHARED)
