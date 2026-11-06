@@ -23,6 +23,13 @@ NOZZLE_FLAG = 1u << 3,
             with self.subTest(header=header), self.assertRaises(ValueError):
                 read_enums(header)
 
+    def test_unfamiliar_family_cannot_hide_behind_a_valid_family(self):
+        valid = "typedef enum NozzleKnown {\nNOZZLE_KNOWN = 0,\n} NozzleKnown;\n"
+        for declaration in ["typedef enum {", "typedef enum\nNozzleFuture {"]:
+            header = valid + declaration + "\nNOZZLE_FUTURE = 1,\n} NozzleFuture;"
+            with self.subTest(declaration=declaration), self.assertRaises(ValueError):
+                read_enums(header)
+
 
 if __name__ == "__main__":
     unittest.main()

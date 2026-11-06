@@ -12,7 +12,7 @@ def read_enums(header):
         if not line:
             continue
         if current is None:
-            if not re.search(r"\benum\s+Nozzle", line):
+            if not re.search(r"\benum\b", line):
                 continue
             start = re.fullmatch(r"typedef\s+enum\s+(Nozzle\w+)\s*\{", line)
             if not start or start[1] in enums:
