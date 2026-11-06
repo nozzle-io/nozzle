@@ -26,6 +26,7 @@ auto get_backend_type() -> backend_type;
 auto get_native_texture(const texture &tex) -> void *;
 
 auto notify_sender_uuid(const char *uuid) -> Result<void>;
+auto sender_broker_status() -> Result<void>;
 void cleanup_sender_socket();
 
 auto blit_textures(void *device, void *src, void *dst, uint32_t width, uint32_t height) -> Result<void>;

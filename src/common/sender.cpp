@@ -287,6 +287,10 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	if (!tex.valid()) {
 		return Error{ErrorCode::InvalidArgument, "texture is not valid"};
 	}
+	auto broker_status = detail::backend::sender_broker_status();
+	if (!broker_status.ok()) {
+		return broker_status.error();
+	}
 
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
@@ -335,6 +339,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	if (tdesc.width == 0 || tdesc.height == 0) {
 		return Error{ErrorCode::InvalidArgument,
 			"texture dimensions must be non-zero"};
+	}
+	auto broker_status = detail::backend::sender_broker_status();
+	if (!broker_status.ok()) {
+		return broker_status.error();
 	}
 
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
@@ -516,6 +524,10 @@ Result<void> sender::commit_frame(writable_frame &f) {
 	if (!f.valid()) {
 		return Error{ErrorCode::InvalidArgument, "frame is not valid"};
 	}
+	auto broker_status = detail::backend::sender_broker_status();
+	if (!broker_status.ok()) {
+		return broker_status.error();
+	}
 
 	writable_frame frame_to_release;
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
@@ -676,6 +688,10 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 	if (storage_format != semantic_format) {
 		return Error{ErrorCode::UnsupportedFormat,
 			"publish_native_texture does not support storage/semantic format mismatch"};
+	}
+	auto broker_status = detail::backend::sender_broker_status();
+	if (!broker_status.ok()) {
+		return broker_status.error();
 	}
 
 	auto validate_result = detail::backend::validate_texture_device(
@@ -938,6 +954,10 @@ Result<void> sender::publish_dmabuf_texture(const dma_buf::publish_desc &desc) {
 	auto validation_result = validate_dmabuf_publish_desc(desc);
 	if (!validation_result.ok()) {
 		return validation_result.error();
+	}
+	auto broker_status = detail::backend::sender_broker_status();
+	if (!broker_status.ok()) {
+		return broker_status.error();
 	}
 
 	std::lock_guard<std::mutex> lock(impl_->mutex_);

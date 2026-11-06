@@ -68,6 +68,7 @@ inline void release_texture_sync(void *native_texture, uint32_t slot_index) {
 inline auto validate_texture_device(void * /*device*/, void * /*native_texture*/) -> Result<void> { return {}; }
 
 inline auto notify_sender_uuid(const char * /*uuid*/) -> Result<void> { return {}; }
+inline auto sender_broker_status() -> Result<void> { return {}; }
 inline void cleanup_sender_socket() {}
 inline void release_device(void *device) { d3d11::release_d3d11_device(device); }
 
