@@ -191,6 +191,13 @@ TEST_CASE("D3D11 cross-process zero timeout is prompt for contention and no new 
     CHECK(no_new.acquire_ms < 250.0);
 }
 
+TEST_CASE("D3D11 writable native GPU writes are protected before commit",
+          "[.][integration][cross_process][d3d11_fanout]") {
+    peers p(1);
+    require_publication(p.sender.send("publish_native 11 0"));
+    check_frame(p.a.send("acquire 100 11 0"));
+}
+
 TEST_CASE("D3D11 cross-process held ring slots are excluded before producer writes",
           "[.][integration][cross_process][d3d11_fanout]") {
     for (const uint32_t ring : {1u, 3u}) {

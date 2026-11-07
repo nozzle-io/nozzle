@@ -39,7 +39,7 @@ inline bool read_file(const std::filesystem::path &path, std::string &text) {
 }
 
 // Wire order: code acquire_code commit_code wrote pixels_ok frame resource
-//            acquire_ms commit_ms total_ms. -1 means not attempted;
+//            acquire_ms commit_ms total_ms diagnostic. -1 means not attempted;
 // code -2 means the actor refused to write a forbidden texture after acquisition.
 struct reply {
     int code{-1};
@@ -52,19 +52,20 @@ struct reply {
     double acquire_ms{0};
     double commit_ms{0};
     double total_ms{0};
+    std::string diagnostic{"none"};
 
     std::string encode() const {
         std::ostringstream out;
         out << code << ' ' << acquire_code << ' ' << commit_code << ' '
             << wrote << ' ' << pixels_ok << ' ' << frame << ' ' << resource
-            << ' ' << acquire_ms << ' ' << commit_ms << ' ' << total_ms;
+            << ' ' << acquire_ms << ' ' << commit_ms << ' ' << total_ms << ' ' << diagnostic;
         return out.str();
     }
 
     bool decode(const std::string &text) {
         std::istringstream in(text);
         return static_cast<bool>(in >> code >> acquire_code >> commit_code
-            >> wrote >> pixels_ok >> frame >> resource >> acquire_ms >> commit_ms >> total_ms);
+            >> wrote >> pixels_ok >> frame >> resource >> acquire_ms >> commit_ms >> total_ms >> diagnostic);
     }
 };
 

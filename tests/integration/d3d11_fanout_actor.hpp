@@ -27,7 +27,7 @@ struct retained_resources {
     }
 };
 
-inline bool write_pattern(nozzle::writable_frame &frame, uint32_t seed) {
+inline bool write_native_pattern(nozzle::writable_frame &frame, uint32_t seed) {
     auto *texture = nozzle::d3d11::get_texture(frame.get_texture());
     if (!texture) return false;
     D3D11_TEXTURE2D_DESC desc{};
@@ -68,30 +68,66 @@ inline bool write_pattern(nozzle::writable_frame &frame, uint32_t seed) {
     return false;
 }
 
-inline bool verify_pattern(const nozzle::frame &frame, uint32_t seed) {
-    const auto info = frame.info();
-    if (info.width != width || info.height != height) return false;
-    auto mapping = nozzle::lock_frame_pixels_mapping_with_origin(frame, nozzle::texture_origin::top_left);
+inline bool write_pattern(nozzle::writable_frame &frame, uint32_t seed) {
+    auto mapping = nozzle::lock_writable_pixels_mapping_with_origin(frame, nozzle::texture_origin::top_left);
     if (!mapping.ok()) return false;
     const auto &pixels = mapping.value().pixels();
     const bool bgra = pixels.format == nozzle::texture_format::bgra8_unorm;
     if (pixels.width != width || pixels.height != height ||
         (!bgra && pixels.format != nozzle::texture_format::rgba8_unorm)) return false;
     for (uint32_t y = 0; y < height; ++y) {
-        const auto *row = static_cast<const uint8_t *>(pixels.data) + y * pixels.row_stride_bytes;
+        auto *row = static_cast<uint8_t *>(pixels.data) + y * pixels.row_stride_bytes;
         for (uint32_t x = 0; x < width; ++x) {
             for (uint32_t c = 0; c < 4; ++c) {
                 const auto semantic = bgra && c != 1 && c != 3 ? 2 - c : c;
-                if (row[x * 4 + c] != channel(seed, x, y, semantic)) return false;
+                row[x * 4 + c] = channel(seed, x, y, semantic);
             }
         }
     }
     return mapping.value().unlock_checked().ok();
 }
 
+inline bool verify_pattern(const nozzle::frame &frame, uint32_t seed, reply &response) {
+    const auto info = frame.info();
+    if (info.width != width || info.height != height) {
+        response.diagnostic = "frame_dimensions";
+        return false;
+    }
+    auto mapping = nozzle::lock_frame_pixels_mapping_with_origin(frame, nozzle::texture_origin::top_left);
+    if (!mapping.ok()) {
+        response.diagnostic = "mapping_error_" + std::to_string(static_cast<int>(mapping.error().code));
+        return false;
+    }
+    const auto &pixels = mapping.value().pixels();
+    const bool bgra = pixels.format == nozzle::texture_format::bgra8_unorm;
+    if (pixels.width != width || pixels.height != height ||
+        (!bgra && pixels.format != nozzle::texture_format::rgba8_unorm)) {
+        response.diagnostic = "mapping_layout_" + std::to_string(static_cast<int>(pixels.format));
+        return false;
+    }
+    for (uint32_t y = 0; y < height; ++y) {
+        const auto *row = static_cast<const uint8_t *>(pixels.data) + y * pixels.row_stride_bytes;
+        for (uint32_t x = 0; x < width; ++x) {
+            for (uint32_t c = 0; c < 4; ++c) {
+                const auto semantic = bgra && c != 1 && c != 3 ? 2 - c : c;
+                if (row[x * 4 + c] != channel(seed, x, y, semantic)) {
+                    response.diagnostic = "pixel_" + std::to_string(x) + "_" + std::to_string(y) +
+                        "_" + std::to_string(c) + "_expected_" +
+                        std::to_string(channel(seed, x, y, semantic)) + "_got_" +
+                        std::to_string(row[x * 4 + c]);
+                    return false;
+                }
+            }
+        }
+    }
+    const auto unlocked = mapping.value().unlock_checked();
+    if (!unlocked.ok()) response.diagnostic = "read_unlock_error";
+    return unlocked.ok();
+}
+
 // CLI: helper actor sender|receiver NAME RING DIRECTORY
 // DIRECTORY must exist. ready and N.reply are atomic text records (reply::encode).
-// N.command: publish SEED FORBIDDEN_RESOURCE | probe | acquire TIMEOUT SEED HOLD
+// N.command: publish|publish_native SEED FORBIDDEN_RESOURCE | probe | acquire TIMEOUT SEED HOLD
 //            verify SEED | release | quit. Commands are numbered from 1.
 inline int run_actor(const char *role, const char *name, uint32_t ring,
                      const std::filesystem::path &directory) {
@@ -129,10 +165,10 @@ inline int run_actor(const char *role, const char *name, uint32_t ring,
         reply response;
         const auto start = clock::now();
         if (operation == "quit") return 0;
-        if (producer && (operation == "publish" || operation == "probe")) {
+        if (producer && (operation == "publish" || operation == "publish_native" || operation == "probe")) {
             uint32_t seed = 0;
             uint64_t forbidden = 0;
-            if (operation == "publish" && !(input >> seed >> forbidden)) return 43;
+            if (operation != "probe" && !(input >> seed >> forbidden)) return 43;
             nozzle::texture_desc desc{};
             desc.width = width;
             desc.height = height;
@@ -156,7 +192,9 @@ inline int run_actor(const char *role, const char *name, uint32_t ring,
                     response.wrote = true;
                     // Do not discard/reuse a potentially in-flight texture on
                     // query failure. Parent tears down this failed actor.
-                    if (!write_pattern(frame, seed)) return 46;
+                    const bool written = operation == "publish_native"
+                        ? write_native_pattern(frame, seed) : write_pattern(frame, seed);
+                    if (!written) return 46;
                     const auto commit_start = clock::now();
                     auto committed = sender.commit_frame(frame);
                     response.commit_ms = milliseconds(commit_start);
@@ -175,7 +213,7 @@ inline int run_actor(const char *role, const char *name, uint32_t ring,
             response.code = response.acquire_code = acquired.ok() ? 0 : static_cast<int>(acquired.error().code);
             if (acquired.ok()) {
                 response.frame = acquired.value().info().frame_index;
-                response.pixels_ok = verify_pattern(acquired.value(), seed);
+                response.pixels_ok = verify_pattern(acquired.value(), seed, response);
                 if (hold) held = std::move(acquired.value());
             }
         } else if (!producer && operation == "verify") {
@@ -183,7 +221,7 @@ inline int run_actor(const char *role, const char *name, uint32_t ring,
             if (!(input >> seed) || !held.valid()) return 49;
             response.code = 0;
             response.frame = held.info().frame_index;
-            response.pixels_ok = verify_pattern(held, seed);
+            response.pixels_ok = verify_pattern(held, seed, response);
         } else if (!producer && operation == "release") {
             held.release();
             response.code = 0;
