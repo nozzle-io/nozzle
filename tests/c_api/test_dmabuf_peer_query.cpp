@@ -36,7 +36,7 @@ auto descriptor_count() -> size_t {
     return count;
 }
 
-enum class query_failure { syscall, short_result, invalid_pid, invalid_uid, invalid_gid };
+enum class query_failure { syscall, short_result, invalid_uid };
 
 struct query_sequence {
     query_failure failure;
@@ -55,11 +55,15 @@ auto fail_first_query(int fd, struct ucred *credentials, socklen_t *length, void
     *credentials = {getpid(), geteuid(), getegid()};
     switch (sequence.failure) {
         case query_failure::short_result: *length = sizeof(*credentials) - 1; break;
-        case query_failure::invalid_pid: credentials->pid = 0; break;
         case query_failure::invalid_uid: credentials->uid = static_cast<uid_t>(-1); break;
-        case query_failure::invalid_gid: credentials->gid = static_cast<gid_t>(-1); break;
         case query_failure::syscall: break;
     }
+    return 0;
+}
+
+auto matching_uid_without_pid(int, struct ucred *credentials, socklen_t *length, void *) -> int {
+    *credentials = {0, geteuid(), static_cast<gid_t>(-1)};
+    *length = sizeof(*credentials);
     return 0;
 }
 
@@ -86,8 +90,7 @@ TEST_CASE("DMA-BUF peer query failures deny one client without disabling the bro
     const auto before = descriptor_count();
     REQUIRE(0 < before);
     for (auto failure : {query_failure::syscall, query_failure::short_result,
-                         query_failure::invalid_pid, query_failure::invalid_uid,
-                         query_failure::invalid_gid}) {
+                         query_failure::invalid_uid}) {
         for (unsigned repetition = 0; repetition < 4; ++repetition) {
             INFO("injected failure=" << static_cast<int>(failure) << " repetition=" << repetition);
             nozzle::detail::backend::linux_sender_state state;
@@ -133,6 +136,35 @@ TEST_CASE("DMA-BUF peer query failures deny one client without disabling the bro
         }
     }
     CHECK(descriptor_count() == before);
+}
+
+TEST_CASE("DMA-BUF same-user policy admits credentials without a visible PID",
+          "[dmabuf][fd_broker][peer_policy]") {
+    int pair[2];
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+    scoped_peer_fd server{pair[0]};
+    scoped_peer_fd client{pair[1]};
+    const struct timeval timeout{1, 0};
+    REQUIRE(setsockopt(client.get(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+    scoped_peer_fd source{open("/dev/null", O_RDONLY | O_CLOEXEC)};
+    REQUIRE(0 <= source.get());
+    nozzle::detail::backend::linux_sender_state state;
+    state.slot_fds_[0] = source.get();
+    state.test_peer_query_ = &matching_uid_without_pid;
+    const uint32_t slot = 0;
+    REQUIRE(send(client.get(), &slot, sizeof(slot), MSG_NOSIGNAL) == sizeof(slot));
+    // Injected kernel-result semantics, not a live sandbox/namespace test.
+    CHECK(nozzle::detail::backend::peer_has_effective_uid(
+        server.get(), geteuid(), &matching_uid_without_pid));
+    nozzle::detail::backend::handle_fd_request(server.get(), &state);
+    scoped_peer_fd received{nozzle::detail::linux_backend::recv_fd_response(client.get())};
+    REQUIRE(0 <= received.get());
+    struct stat original{};
+    struct stat transferred{};
+    REQUIRE(fstat(source.get(), &original) == 0);
+    REQUIRE(fstat(received.get(), &transferred) == 0);
+    CHECK(original.st_dev == transferred.st_dev);
+    CHECK(original.st_ino == transferred.st_ino);
 }
 
 TEST_CASE("DMA-BUF receiver rejects credential query errors before sending a slot",

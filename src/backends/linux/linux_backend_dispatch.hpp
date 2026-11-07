@@ -54,10 +54,10 @@ inline auto peer_has_effective_uid(int socket_fd, uid_t expected_uid
     {
         result = getsockopt(socket_fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length);
     }
+    // PID may be zero across PID namespaces; only the effective UID is policy.
     // SO_PEERCRED is a connection-time snapshot, not continuous authentication.
     return result == 0 && length == sizeof(credentials) &&
-        0 < credentials.pid && credentials.uid != static_cast<uid_t>(-1) &&
-        credentials.gid != static_cast<gid_t>(-1) &&
+        credentials.uid != static_cast<uid_t>(-1) &&
         credentials.uid == expected_uid && geteuid() == expected_uid;
 }
 

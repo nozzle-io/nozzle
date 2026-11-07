@@ -156,7 +156,7 @@ bool read_peer_uid(int fd, uid_t &uid) {
     ucred credentials{};
     socklen_t size = sizeof(credentials);
     if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &size) != 0 ||
-        size != sizeof(credentials) || credentials.pid <= 0) return false;
+        size != sizeof(credentials)) return false;
     uid = credentials.uid;
     return true;
 }
