@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "ipc.hpp"
+#include "metadata.hpp"
 #include "name_validation.hpp"
 #include "shared_layout.hpp"
 #include "shared_state.hpp"
@@ -218,7 +219,8 @@ Result<Registration> register_sender(
     uint32_t width,
     uint32_t height,
     uint32_t format,
-    uint32_t ring_size)
+    uint32_t ring_size,
+    const metadata_list &initial_metadata)
 {
     std::lock_guard<std::mutex> lock(process_mutex_);
 
@@ -302,6 +304,7 @@ Result<Registration> register_sender(
     state->height = height;
     state->format = format;
     state->ring_size = ring_size < kMinimumRingSize ? kMinimumRingSize : (ring_size > kMaxRingSlots ? kMaxRingSlots : ring_size);
+    serialize_metadata(initial_metadata, state->metadata, sizeof(state->metadata));
     ipc::atomic_fence_release();
     ipc::atomic_store_release_32(&state->magic, kSenderMagic);
 

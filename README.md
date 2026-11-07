@@ -258,6 +258,13 @@ their writer threads.
 Zero-length or unpublished state is reported as `SenderNotFound` (not ready).
 Sender state and directory magic are published after initialization.
 
+The C++ `sender_desc::metadata` is serialized during registration, before sender
+magic and the directory entry are published. A newly connected receiver can read
+it without a later `set_metadata()` call or first frame. Initial values and later
+updates use the same bounded serializer and existing 512-byte buffer; encoding
+and overflow behavior are unchanged. The C sender descriptor has no metadata
+field, so this does not add a C API or change its ABI.
+
 Sender/receiver creation preserves a clear version-mismatch error when the
 stable header prefix is readable, including older layouts smaller than the
 current structure. Discovery's list-only API returns no entries for an invalid

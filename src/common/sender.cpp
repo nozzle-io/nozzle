@@ -201,7 +201,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 		app_name,
 		backend,
 		0, 0, 0,
-		desc.ring_buffer_size
+		desc.ring_buffer_size,
+		desc.metadata
 	);
 	if (!reg_result.ok()) {
 		if (owns_created_dev) detail::backend::release_device(created_native_dev);

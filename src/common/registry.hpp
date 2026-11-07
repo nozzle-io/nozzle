@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nozzle/result.hpp>
+#include <nozzle/types.hpp>
 
 #include "ipc.hpp"
 #include "shared_state.hpp"
@@ -38,7 +39,8 @@ Result<Registration> register_sender(
     uint32_t width,
     uint32_t height,
     uint32_t format,
-    uint32_t ring_size);
+    uint32_t ring_size,
+    const metadata_list &initial_metadata = {});
 
 Result<void> unregister_sender(const char *uuid);
 
