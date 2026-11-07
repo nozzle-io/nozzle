@@ -35,14 +35,14 @@ void generate_uuid(char *out) {
         bytes[12], bytes[13], bytes[14], bytes[15]);
 }
 
-struct ScopedDirLock {
+struct directory_mapping {
     ipc::dir_lock lock{};
     ipc::shm_handle handle{};
     void *mapped{nullptr};
     std::size_t mapped_size{0};
     uint32_t capacity{0};
 
-    ~ScopedDirLock() {
+    ~directory_mapping() {
         if (mapped != nullptr) {
             ipc::shm_unmap(mapped, mapped_size);
         }
@@ -50,12 +50,12 @@ struct ScopedDirLock {
         ipc::dir_lock_release(lock);
     }
 
-    ScopedDirLock() = default;
+    directory_mapping() = default;
 
-    ScopedDirLock(const ScopedDirLock &) = delete;
-    ScopedDirLock &operator=(const ScopedDirLock &) = delete;
+    directory_mapping(const directory_mapping &) = delete;
+    directory_mapping &operator=(const directory_mapping &) = delete;
 
-    ScopedDirLock(ScopedDirLock &&other) noexcept
+    directory_mapping(directory_mapping &&other) noexcept
         : lock{other.lock}
         , handle{other.handle}
         , mapped{other.mapped}
@@ -67,7 +67,7 @@ struct ScopedDirLock {
         other.mapped = nullptr;
         other.mapped_size = 0;
     }
-    ScopedDirLock &operator=(ScopedDirLock &&other) noexcept {
+    directory_mapping &operator=(directory_mapping &&other) noexcept {
         if (this != &other) {
             lock = other.lock;
             handle = other.handle;
@@ -96,8 +96,8 @@ bool recoverable_directory_initialization(const void *mapped, std::size_t size) 
     return true;
 }
 
-Result<ScopedDirLock> open_directory_locked(bool read_only) {
-    ScopedDirLock dir{};
+Result<directory_mapping> open_directory_locked(bool read_only) {
+    directory_mapping dir{};
     const auto total_size = sizeof(DirectoryHeader) + sizeof(DirectoryEntry) * kMaxSenders;
 
     auto lock_result = ipc::dir_lock_acquire(kDirectoryShmName, !read_only);
@@ -183,15 +183,26 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
 } // anonymous namespace
 
 Result<DirectorySnapshot> read_directory_snapshot() {
-    std::lock_guard<std::mutex> lock(process_mutex_);
-    auto dir_result = open_directory_locked(true);
-    if (!dir_result.ok()) return dir_result.error();
-    const auto &dir = dir_result.value();
+    // Readers never open the writer lock: render-thread polling must not wait
+    // for another process or require write access to its lock file.
+    directory_mapping dir{};
+    auto opened = ipc::shm_open_ro(kDirectoryShmName);
+    if (!opened.ok()) return opened.error();
+    dir.handle = opened.value();
+    auto prefix = validate_mapping_prefix(dir.handle, kDirectoryMagic, "directory");
+    if (!prefix.ok()) return prefix.error();
+    const auto total_size = sizeof(DirectoryHeader) + sizeof(DirectoryEntry) * kMaxSenders;
+    auto mapped = ipc::shm_map(dir.handle, total_size, true);
+    if (!mapped.ok()) return mapped.error();
+    dir.mapped = mapped.value();
+    dir.mapped_size = total_size;
+    auto capacity = validate_directory_header(*static_cast<const DirectoryHeader *>(dir.mapped));
+    if (!capacity.ok()) return capacity.error();
     DirectorySnapshot snapshot{};
-    snapshot.capacity = dir.capacity;
+    snapshot.capacity = capacity.value();
     const auto *entries = reinterpret_cast<const DirectoryEntry *>(
         static_cast<const uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
-    std::memcpy(snapshot.entries.data(), entries, dir.capacity * sizeof(DirectoryEntry));
+    std::memcpy(snapshot.entries.data(), entries, snapshot.capacity * sizeof(DirectoryEntry));
     return snapshot;
 }
 

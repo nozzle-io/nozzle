@@ -101,6 +101,11 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.sender_pid = dir_entry.value().pid;
 
     auto *state = setup.state_view.state;
+    if (sender_name != state->name ||
+        std::strncmp(state->uuid, dir_entry.value().uuid, sizeof(state->uuid)) != 0) {
+        detail::registry::close_sender_state(setup.state_view);
+        return Error{ErrorCode::SenderNotFound, "sender identity changed during lookup"};
+    }
     setup.info.name = state->name;
     setup.info.application_name = state->application_name;
     setup.info.id = state->uuid;

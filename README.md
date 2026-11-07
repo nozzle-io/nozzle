@@ -248,10 +248,13 @@ A 1663-byte creation request can therefore cover the 1664-byte sender layout on
 those systems. Version and field validation still apply within the accessible
 mapping; reconstructing the original allocation request is not a guarantee.
 
-Directory snapshots use the registry's library-instance mutex and interprocess
-lock, so cooperating readers do not copy entries during writer publication or
-slot reuse. Separate statically linked nozzle copies do not share the C++ mutex;
-POSIX process-owned file locks alone do not synchronize their threads.
+Directory readers take bounded copies without opening or waiting on the writer
+lock. A receiver verifies that the opened state's UUID and name match the copied
+entry and requested name; an identity change returns `SenderNotFound` for retry.
+These snapshots are not transactional. Writers still use the library-instance
+mutex and interprocess lock. Separate statically linked nozzle copies do not
+share the C++ mutex; POSIX process-owned file locks alone do not synchronize
+their writer threads.
 Zero-length or unpublished state is reported as `SenderNotFound` (not ready).
 Sender state and directory magic are published after initialization.
 
