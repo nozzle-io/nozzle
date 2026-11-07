@@ -86,10 +86,6 @@ TEST_CASE("Shared layout: mapped sender headers and strings are validated", "[sh
         mapping.state->version = 5;
         version_mismatch = true;
     }
-    SECTION("sender version 6 lacks lifecycle") {
-        mapping.state->version = 6;
-        version_mismatch = true;
-    }
     SECTION("future sender version") {
         mapping.state->version = nd::kSharedMemVersion + 1;
         version_mismatch = true;

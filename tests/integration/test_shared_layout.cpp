@@ -663,7 +663,7 @@ TEST_CASE("Shared layout: malformed unrelated entry does not hide a healthy send
 }
 
 TEST_CASE("Shared layout: receiver validates sender fields before connecting", "[shared_layout][integration]") {
-    for (const char *field : {"version_2", "version_5", "version_6", "version_future", "lifecycle", "ring_zero", "ring_large", "name", "application", "uuid"}) {
+    for (const char *field : {"version_2", "version_5", "version_future", "lifecycle", "ring_zero", "ring_large", "name", "application", "uuid"}) {
         DYNAMIC_SECTION(field) {
             layout_fixture fixture;
             require_setup(fixture, fixture.create());
@@ -671,7 +671,6 @@ TEST_CASE("Shared layout: receiver validates sender fields before connecting", "
             const bool version = std::strncmp(field, "version_", 8) == 0;
             if (std::strcmp(field, "version_2") == 0) state.version = 2;
             if (std::strcmp(field, "version_5") == 0) state.version = 5;
-            if (std::strcmp(field, "version_6") == 0) state.version = 6;
             if (std::strcmp(field, "version_future") == 0) state.version = nd::kSharedMemVersion + 1;
             if (std::strcmp(field, "lifecycle") == 0) state.lifecycle_state = nd::sender_state_closed + 1;
             if (std::strcmp(field, "ring_zero") == 0) state.ring_size = 0;

@@ -109,7 +109,7 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     auto *state = setup.state_view.state;
     if (sender_is_closed(*state)) {
         detail::registry::close_sender_state(setup.state_view);
-        return Error{ErrorCode::SenderClosed, "sender closed during connection"};
+        return Error{ErrorCode::SenderNotFound, "sender closed during lookup"};
     }
     if (sender_name != state->name ||
         std::strncmp(state->uuid, dir_entry.value().uuid, sizeof(state->uuid)) != 0) {

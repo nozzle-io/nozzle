@@ -20,7 +20,7 @@ constexpr uint32_t kDirectoryMagic = 0x4E5A4431;
 constexpr uint32_t kSenderMagic = 0x4E5A5331;
 constexpr uint32_t kMaxSenders = 64;
 constexpr uint32_t kMaxRingSlots = 8;
-constexpr uint64_t kSharedMemVersion = 7;
+constexpr uint64_t kSharedMemVersion = 6;
 // Directory bytes have been unchanged across historical protocol versions 2..6.
 // Sender-only version changes must not invalidate the persistent directory.
 constexpr uint32_t kDirectoryLayoutVersion = 6;
@@ -90,6 +90,8 @@ struct SenderSharedState {
     uint32_t format{0};
     uint32_t semantic_format{0};
     ring_size32 ring_size{0};
+    // Uses existing v6 padding. Older senders zero the entire mapping, so zero
+    // means open; they do not publish closure when destroyed in a live process.
     uint32_t lifecycle_state{sender_state_open};
 
     alignas(64) frame_number64 committed_frame{0};
