@@ -336,6 +336,9 @@ void mark_writable_frame_cpu_mapping_active(writable_frame &f) {
     if (state->active || state->unlock_failed || !state->owner_alive || state->sealed || !state->write_lease.held()) {
         return;
     }
+    if (backend::get_native_texture(f.impl_->tex_) != state->reserved_native_texture) {
+        return;
+    }
 #endif
     state->active = true;
     state->unlock_failed = false;
@@ -376,6 +379,9 @@ Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable
     }
     if (!state->write_lease.held()) {
         return Error{ErrorCode::BackendError, "writable frame does not hold its D3D11 writer lease"};
+    }
+    if (backend::get_native_texture(f.impl_->tex_) != state->reserved_native_texture) {
+        return Error{ErrorCode::InvalidArgument, "writable frame texture does not match its reserved D3D11 resource"};
     }
 #endif
     state->active = true;

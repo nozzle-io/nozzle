@@ -533,6 +533,8 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		impl_->reservations_[slot] = detail::get_writable_frame_mapping_state(writable_result.value());
 #if NOZZLE_HAS_D3D11
 		impl_->reservations_[slot].get()->write_lease = std::move(write_lease);
+		impl_->reservations_[slot].get()->reserved_native_texture =
+			detail::backend::get_native_texture(writable_result.value().get_texture());
 #endif
 		return writable_result;
 	}
@@ -588,6 +590,8 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	impl_->reservations_[slot] = detail::get_writable_frame_mapping_state(writable_result.value());
 #if NOZZLE_HAS_D3D11
 	impl_->reservations_[slot].get()->write_lease = std::move(write_lease);
+	impl_->reservations_[slot].get()->reserved_native_texture =
+		detail::backend::get_native_texture(writable_result.value().get_texture());
 #endif
 	return writable_result;
 }
@@ -632,6 +636,9 @@ Result<void> sender::commit_frame(writable_frame &f) {
 			"writable frame CPU unlock failed"};
 	}
 #if NOZZLE_HAS_D3D11
+	if (detail::backend::get_native_texture(f.get_texture()) != reservation.get()->reserved_native_texture) {
+		return Error{ErrorCode::InvalidArgument, "writable texture no longer matches its reserved writer lease"};
+	}
 	if (!reservation.get()->write_lease.held() || !reservation.get()->owner_alive || reservation.get()->sealed) {
 		return Error{ErrorCode::InvalidArgument, "frame has no active writer lease"};
 	}
@@ -723,11 +730,15 @@ Result<void> sender::discard_frame(writable_frame &f) {
 	}
 
 #if NOZZLE_HAS_D3D11
+	const bool texture_matches = detail::backend::get_native_texture(f.get_texture()) ==
+		reservation.get()->reserved_native_texture;
 	reservation.get()->sealed = true;
 	auto released = reservation.get()->write_lease.release();
 	if (!released.ok()) reservation.get()->unlock_failed = true;
+#else
+	const bool texture_matches = true;
 #endif
-	if (!reservation.get()->unlock_failed) {
+	if (texture_matches && !reservation.get()->unlock_failed) {
 		impl_->ring_textures_[slot] = std::move(f.get_texture());
 	}
 	frame_to_release = std::move(f);
@@ -735,6 +746,9 @@ Result<void> sender::discard_frame(writable_frame &f) {
 	impl_->reservations_[slot].reset();
 #if NOZZLE_HAS_D3D11
 	if (!released.ok()) return released.error();
+	if (!texture_matches) {
+		return Error{ErrorCode::InvalidArgument, "discarded substituted texture without caching it"};
+	}
 #endif
 
 	return {};

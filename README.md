@@ -390,6 +390,10 @@ not restore the previous publication after its storage has been overwritten.
 `publish_external_texture` returns `UnsupportedBackend` on D3D11 because it
 cannot retroactively protect writes to a borrowed texture. Use a writable frame
 or `publish_native_texture`, which copies into a sender-owned leased slot.
+The writable lease is bound to its original texture. Replacing the mutable
+`get_texture()` value does not transfer ownership: mapping and commit reject
+the mismatch, and discard consumes the invalid frame without caching its
+substituted texture.
 
 Windows registry shared-memory mappings retain one owned handle per normalized
 name in each loaded nozzle library instance. Closing a caller's mapping handle

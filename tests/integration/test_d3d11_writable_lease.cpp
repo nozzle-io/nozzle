@@ -281,6 +281,46 @@ TEST_CASE("D3D11 writable lease: rewrite and discard invalidate an old ring1 pub
     CHECK(matches_pixels(current.value(), 3));
 }
 
+TEST_CASE("D3D11 writable lease: replacing mutable texture cannot transfer write ownership",
+          "[.][integration][d3d11][writable_lease]") {
+    auto owner = make_sender();
+    auto other = make_sender();
+    auto writable = owner.acquire_writable_frame(texture_desc());
+    auto other_writable = other.acquire_writable_frame(texture_desc());
+    REQUIRE(writable.ok());
+    REQUIRE(other_writable.ok());
+    com_owner<ID3D11Texture2D> substituted;
+    substituted.ptr = nozzle::d3d11::get_texture(other_writable.value().get_texture());
+    REQUIRE(substituted.ptr != nullptr);
+    substituted.ptr->AddRef();
+    std::swap(writable.value().get_texture(), other_writable.value().get_texture());
+    auto mapping = nozzle::lock_writable_pixels_mapping_with_origin(
+        writable.value(), nozzle::texture_origin::top_left);
+    REQUIRE_FALSE(mapping.ok());
+    CHECK(mapping.error().code == nozzle::ErrorCode::InvalidArgument);
+    auto committed = owner.commit_frame(writable.value());
+    REQUIRE_FALSE(committed.ok());
+    CHECK(committed.error().code == nozzle::ErrorCode::InvalidArgument);
+    SECTION("restoring the actual reservation allows publication") {
+        std::swap(writable.value().get_texture(), other_writable.value().get_texture());
+        write_pixels(writable.value(), 9);
+        REQUIRE(owner.commit_frame(writable.value()).ok());
+        REQUIRE(other.discard_frame(other_writable.value()).ok());
+    }
+    SECTION("discard consumes mismatches without caching substituted resources") {
+        auto discarded = owner.discard_frame(writable.value());
+        REQUIRE_FALSE(discarded.ok());
+        CHECK(discarded.error().code == nozzle::ErrorCode::InvalidArgument);
+        CHECK_FALSE(writable.value().valid());
+        auto discarded_other = other.discard_frame(other_writable.value());
+        CHECK_FALSE(discarded_other.ok());
+        auto next = owner.acquire_writable_frame(texture_desc());
+        REQUIRE(next.ok());
+        CHECK(nozzle::d3d11::get_texture(next.value().get_texture()) != substituted.ptr);
+        REQUIRE(owner.discard_frame(next.value()).ok());
+    }
+}
+
 TEST_CASE("D3D11 writable lease: independent CPU mapping retains lock beyond writable owner",
           "[.][integration][d3d11][writable_lease]") {
     auto sender = make_sender();

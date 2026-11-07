@@ -25,6 +25,7 @@ struct writable_cpu_mapping_state {
     uint64_t generation{0};
 #if NOZZLE_HAS_D3D11
     d3d11::keyed_mutex_lease write_lease{};
+    void *reserved_native_texture{nullptr};
     bool owner_alive{true};
     bool sealed{false};
 #endif
