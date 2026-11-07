@@ -42,7 +42,18 @@ if(APPLE)
     )
 endif()
 
+if(WIN32)
+    list(APPEND UNIT_TEST_SOURCES unit/test_windows_ipc.cpp)
+    # Raw Win32 helper: no nozzle or GPU linkage. Both targets are siblings,
+    # including the per-configuration directory used by Visual Studio.
+    add_executable(nozzle_windows_ipc_owner helpers/windows_ipc_owner.cpp)
+endif()
+
 add_executable(nozzle_tests ${UNIT_TEST_SOURCES})
+
+if(WIN32)
+    add_dependencies(nozzle_tests nozzle_windows_ipc_owner)
+endif()
 
 target_link_libraries(nozzle_tests PRIVATE
     Catch2::Catch2WithMain

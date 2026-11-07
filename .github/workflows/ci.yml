@@ -224,6 +224,10 @@ jobs:
       - name: Build
         run: cmake --build build --config Debug
 
+      - name: Windows IPC lifetime and abandoned mutex regression
+        timeout-minutes: 2
+        run: ./build/tests/Debug/nozzle_tests.exe "[windows_ipc]" --reporter console --success
+
       - name: Unit tests
         run: ./build/tests/Debug/nozzle_tests.exe --reporter compact
 
@@ -270,6 +274,10 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Debug
+
+      - name: Windows IPC lifetime and abandoned mutex regression
+        timeout-minutes: 2
+        run: ./build/tests/Debug/nozzle_tests.exe "[windows_ipc]" --reporter console --success
 
       - name: Unit tests
         run: ./build/tests/Debug/nozzle_tests.exe --reporter compact

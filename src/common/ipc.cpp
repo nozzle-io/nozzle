@@ -12,6 +12,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <bcrypt.h>
+#include <new>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -42,12 +43,62 @@ static const char *win_shm_name(const char *name) {
     return name;
 }
 
+namespace {
+
+struct mapping_pin {
+    mapping_pin *next{nullptr};
+    HANDLE handle{nullptr};
+    char *name{nullptr};
+
+    ~mapping_pin() {
+        if (handle) {
+            CloseHandle(handle);
+        }
+        delete[] name;
+    }
+};
+
+struct mapping_registry {
+    SRWLOCK lock = SRWLOCK_INIT;
+    mapping_pin *head{nullptr};
+
+    ~mapping_registry() {
+        while (head) {
+            auto *pin = head;
+            head = pin->next;
+            delete pin;
+        }
+    }
+};
+
+mapping_registry &retained_mappings() {
+    static mapping_registry registry;
+    return registry;
+}
+
+struct mapping_registry_lock {
+    SRWLOCK &lock;
+
+    explicit mapping_registry_lock(SRWLOCK &value) noexcept : lock(value) {
+        AcquireSRWLockExclusive(&lock);
+    }
+    ~mapping_registry_lock() {
+        ReleaseSRWLockExclusive(&lock);
+    }
+    mapping_registry_lock(const mapping_registry_lock &) = delete;
+    mapping_registry_lock &operator=(const mapping_registry_lock &) = delete;
+};
+
+} // namespace
+
 bool shm_handle::valid() const noexcept {
     return handle != nullptr;
 }
 
 Result<shm_handle> shm_create(const char *name, std::size_t size) {
     const char *wname = win_shm_name(name);
+    auto &registry = retained_mappings();
+    mapping_registry_lock lock(registry.lock);
     DWORD hi = static_cast<DWORD>((size >> 32) & 0xFFFFFFFF);
     DWORD lo = static_cast<DWORD>(size & 0xFFFFFFFF);
 
@@ -55,18 +106,41 @@ Result<shm_handle> shm_create(const char *name, std::size_t size) {
         INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, hi, lo, wname);
     if (!h) {
         DWORD err = GetLastError();
-        if (err == ERROR_ALREADY_EXISTS) {
-            return shm_handle{h};
-        }
         char buf[128]{};
         std::snprintf(buf, sizeof(buf), "CreateFileMappingA failed: %lu", err);
         return Error{ErrorCode::ResourceCreationFailed, buf};
     }
 
-    // Keep an extra handle open so the named mapping survives shm_close.
-    // On Windows, a named file mapping is destroyed when ALL handles are closed,
-    // unlike POSIX shm_open where close(fd) leaves the named segment alive.
-    OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, wname);
+    // Keep exactly one owned pin per name in this library instance. Windows
+    // returns a valid handle for an existing mapping, without resizing it.
+    for (auto *pin = registry.head; pin; pin = pin->next) {
+        if (std::strcmp(pin->name, wname) == 0) {
+            return shm_handle{h};
+        }
+    }
+
+    const auto name_size = std::strlen(wname) + 1;
+    auto *pin = new (std::nothrow) mapping_pin;
+    if (pin) {
+        pin->name = new (std::nothrow) char[name_size];
+    }
+    if (!pin || !pin->name) {
+        delete pin;
+        CloseHandle(h);
+        return Error{ErrorCode::ResourceCreationFailed, "Cannot retain file mapping name"};
+    }
+    std::memcpy(pin->name, wname, name_size);
+    if (!DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(),
+                         &pin->handle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        DWORD err = GetLastError();
+        delete pin;
+        CloseHandle(h);
+        char buf[128]{};
+        std::snprintf(buf, sizeof(buf), "DuplicateHandle failed: %lu", err);
+        return Error{ErrorCode::ResourceCreationFailed, buf};
+    }
+    pin->next = registry.head;
+    registry.head = pin;
 
     return shm_handle{h};
 }
@@ -114,11 +188,16 @@ void shm_close(shm_handle &h) noexcept {
 }
 
 void shm_unlink(const char *name) noexcept {
-    // Close the extra handle opened in shm_create.
     const char *wname = win_shm_name(name);
-    void *h = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, wname);
-    if (h) {
-        CloseHandle(h);
+    auto &registry = retained_mappings();
+    mapping_registry_lock lock(registry.lock);
+    for (auto **entry = &registry.head; *entry; entry = &(*entry)->next) {
+        if (std::strcmp((*entry)->name, wname) == 0) {
+            auto *pin = *entry;
+            *entry = pin->next;
+            delete pin;
+            return;
+        }
     }
 }
 
@@ -143,7 +222,8 @@ Result<dir_lock> dir_lock_acquire(const char *name, bool) {
     }
 
     DWORD wait = WaitForSingleObject(h, INFINITE);
-    if (wait != WAIT_OBJECT_0) {
+    // WAIT_ABANDONED grants ownership too; callers must release it normally.
+    if (wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED) {
         CloseHandle(h);
         return Error{ErrorCode::ResourceCreationFailed, "WaitForSingleObject failed"};
     }

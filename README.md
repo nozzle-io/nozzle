@@ -240,6 +240,18 @@ ObjC++ code is isolated in `.mm` files. All public headers are pure C++. ARC and
 
 Textures are created with `D3D11_RESOURCE_MISC_SHARED` for cross-process sharing via `HANDLE`. Sender creates shared textures in a ring buffer. Receiver opens the shared handle and creates its own texture view. Keyed mutex synchronizes access.
 
+Windows registry shared-memory mappings retain one owned handle per normalized
+name in each loaded nozzle library instance. Closing a caller's mapping handle
+does not remove that retained handle; internal `shm_unlink` releases it, and
+library teardown releases any remaining retained handles. Unlink is not POSIX
+name removal: existing handles or mapped views, including those in other
+processes or independent library instances, can keep the mapping alive.
+
+An abandoned directory mutex is acquired and released normally. Recovery of
+mutex ownership does not make interrupted shared-memory writes transactional
+or validate directory/state layouts; layout validation is tracked in
+[nozzle-dev#189](https://github.com/nozzle-io/nozzle-dev/issues/189).
+
 ### Backend: Linux DMA-BUF peer policy
 
 The FD broker admits only peers whose connection-time effective UID matches
