@@ -1,15 +1,109 @@
 #include <nozzle/nozzle.hpp>
 
+#include "ipc.hpp"
+#include "registry.hpp"
+#include "shared_state.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstring>
 #include <future>
 #include <string>
 #include <thread>
 #include <utility>
 
 namespace {
+
+namespace nd = nozzle::detail;
+namespace ipc = nozzle::detail::ipc;
+namespace registry = nozzle::detail::registry;
+
+constexpr std::size_t v6_extent = 1664;
+constexpr std::size_t v6_padding_begin = 208;
+constexpr std::size_t v6_padding_end = 256;
+static_assert(sizeof(nd::SenderSharedState) == v6_extent, "v6 sender extent changed");
+static_assert(offsetof(nd::SenderSharedState, version) == 4, "v6 version offset changed");
+static_assert(offsetof(nd::SenderSharedState, name) == 8, "v6 name offset changed");
+static_assert(offsetof(nd::SenderSharedState, uuid) == 136, "v6 UUID offset changed");
+static_assert(offsetof(nd::SenderSharedState, width) == 188, "v6 width offset changed");
+static_assert(offsetof(nd::SenderSharedState, ring_size) + sizeof(uint32_t) == v6_padding_begin,
+              "v6 padding start changed");
+static_assert(offsetof(nd::SenderSharedState, committed_frame) == v6_padding_end,
+              "v6 committed frame offset changed");
+static_assert(offsetof(nd::SenderSharedState, committed_slot) == 320, "v6 slot index offset changed");
+static_assert(offsetof(nd::SenderSharedState, slots) == 328, "v6 slots offset changed");
+static_assert(offsetof(nd::SenderSharedState, metadata) == 1096, "v6 metadata offset changed");
+
+std::string advertised_state_name(const std::string &id) {
+    auto snapshot = registry::read_directory_snapshot();
+    INFO(snapshot.error().message);
+    REQUIRE(snapshot.ok());
+    REQUIRE(snapshot.value().capacity <= snapshot.value().entries.size());
+    for(uint32_t i = 0; i < snapshot.value().capacity; ++i) {
+        const auto &entry = snapshot.value().entries[i];
+        if(entry.valid == nd::entry_valid_flag::valid &&
+           std::strncmp(entry.uuid, id.c_str(), sizeof(entry.uuid)) == 0) {
+            REQUIRE(std::memchr(entry.shm_name, '\0', sizeof(entry.shm_name)) != nullptr);
+            return entry.shm_name;
+        }
+    }
+    FAIL("public sender is not advertised by UUID");
+    return {};
+}
+
+struct writable_sender_mapping {
+    ipc::shm_handle handle{};
+    nd::SenderSharedState *state{nullptr};
+    uint32_t original_version{0};
+    unsigned char original_padding[v6_padding_end - v6_padding_begin]{};
+
+    writable_sender_mapping() = default;
+    writable_sender_mapping(const writable_sender_mapping &) = delete;
+    writable_sender_mapping &operator=(const writable_sender_mapping &) = delete;
+
+    ~writable_sender_mapping() {
+        if(state) {
+            // Restore fixture mutations before the real sender's eventual destruction.
+            state->version = original_version;
+            std::memcpy(reinterpret_cast<unsigned char *>(state) + v6_padding_begin,
+                        original_padding, sizeof(original_padding));
+            ipc::shm_unmap(state, v6_extent);
+        }
+        ipc::shm_close(handle);
+    }
+
+    void open(const nozzle::sender &sender) {
+        REQUIRE(state == nullptr);
+        const auto name = advertised_state_name(sender.info().id);
+        auto opened = ipc::shm_open_rw(name.c_str());
+        INFO(opened.error().message);
+        REQUIRE(opened.ok());
+        handle = opened.value();
+        auto mapped = ipc::shm_map(handle, v6_extent, false);
+        INFO(mapped.error().message);
+        REQUIRE(mapped.ok());
+        state = static_cast<nd::SenderSharedState *>(mapped.value());
+        original_version = state->version;
+        std::memcpy(original_padding, reinterpret_cast<unsigned char *>(state) + v6_padding_begin,
+                    sizeof(original_padding));
+        REQUIRE(sender.info().id == state->uuid);
+    }
+
+    void emulate_v6_layout() {
+        state->version = 6;
+        // The old register_sender memset the entire 1664-byte object, including this padding.
+        std::memset(reinterpret_cast<unsigned char *>(state) + v6_padding_begin,
+                    0, v6_padding_end - v6_padding_begin);
+    }
+
+    void stage_closed() {
+        ipc::atomic_fence_release();
+        ipc::atomic_store_release_32(&state->lifecycle_state, nd::sender_state_closed);
+    }
+};
 
 nozzle::sender make_sender(const nozzle::sender_desc &desc) {
 #if NOZZLE_PLATFORM_MACOS
@@ -81,6 +175,68 @@ void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, u
 }
 
 } // namespace
+
+TEST_CASE("Sender lifecycle: v6 layout compatibility with actual texture acquisition",
+    "[integration][sender_lifecycle]") {
+    const auto desc = unique_sender_desc();
+    auto sender = make_sender(desc);
+    const auto storage_format = publish_frame(sender, 64, 48);
+    writable_sender_mapping mapping;
+    mapping.open(sender);
+
+    SECTION("current writer preserves literal sender version 6") {
+        REQUIRE(mapping.state->version == 6);
+    }
+    SECTION("emulated v6 zero padding remains readable, not an old-binary test") {
+        mapping.emulate_v6_layout();
+        nozzle::receiver_desc receiver_desc{};
+        receiver_desc.name = desc.name;
+        auto created = nozzle::receiver::create(receiver_desc);
+        INFO(created.error().message);
+        REQUIRE(created.ok());
+        auto receiver = std::move(created.value());
+        require_frame(receiver, 1, 64, 48, storage_format);
+        REQUIRE(receiver.connected_info().id == sender.info().id);
+    }
+}
+
+TEST_CASE("Sender lifecycle: staged teardown excludes an advertised closed sender from lookup",
+    "[integration][sender_lifecycle]") {
+    const auto desc = unique_sender_desc();
+    auto sender = make_sender(desc);
+    const auto storage_format = publish_frame(sender, 64, 48);
+    writable_sender_mapping mapping;
+    mapping.open(sender);
+    nozzle::receiver_desc receiver_desc{};
+    receiver_desc.name = desc.name;
+
+    // Explicitly stage the teardown interval; real destructor coverage is separate below.
+    SECTION("new receiver cannot connect to an advertised closed sender") {
+        mapping.stage_closed();
+        REQUIRE_FALSE(advertised_state_name(sender.info().id).empty());
+        auto created = nozzle::receiver::create(receiver_desc);
+        REQUIRE_FALSE(created.ok());
+        REQUIRE(created.error().code == nozzle::ErrorCode::SenderNotFound);
+    }
+    SECTION("connected receiver observes closure then retries lookup as not found") {
+        auto created = nozzle::receiver::create(receiver_desc);
+        REQUIRE(created.ok());
+        auto receiver = std::move(created.value());
+        require_frame(receiver, 1, 64, 48, storage_format);
+        mapping.stage_closed();
+        REQUIRE_FALSE(advertised_state_name(sender.info().id).empty());
+        nozzle::acquire_desc acquire{};
+        acquire.timeout_ms = 250;
+        auto closed = receiver.acquire_frame(acquire);
+        REQUIRE_FALSE(closed.ok());
+        REQUIRE(closed.error().code == nozzle::ErrorCode::SenderClosed);
+        REQUIRE_FALSE(receiver.is_connected());
+        auto absent = receiver.acquire_frame(acquire);
+        REQUIRE_FALSE(absent.ok());
+        REQUIRE(absent.error().code == nozzle::ErrorCode::SenderNotFound);
+        REQUIRE_FALSE(receiver.is_connected());
+    }
+}
 
 TEST_CASE("Sender lifecycle: live-process destruction and same-name reconnect",
     "[integration][sender_lifecycle]") {
