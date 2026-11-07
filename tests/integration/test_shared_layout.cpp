@@ -8,6 +8,8 @@
 #include <nozzle/types.hpp>
 
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -346,6 +348,55 @@ void corrupt_directory_field(nd::DirectoryEntry &entry, const char *field) {
     if (std::strcmp(field, "uuid") == 0) std::memset(entry.uuid, 'u', sizeof(entry.uuid));
     if (std::strcmp(field, "shm_name") == 0) std::memset(entry.shm_name, 's', sizeof(entry.shm_name));
 }
+
+#if !defined(_WIN32)
+struct blocked_lock_path {
+    const char *path = "/tmp/.nozzle_lock_nozzle_dir";
+    std::string backup_directory;
+    std::string backup_path;
+    bool moved{false};
+    bool blocked{false};
+    ~blocked_lock_path() { restore(); }
+
+    bool block() {
+        struct stat original{};
+        if (lstat(path, &original) != 0 || !S_ISREG(original.st_mode)) return false;
+        char temporary[] = "/tmp/nozzle_layout_lock_XXXXXX";
+        const char *created = mkdtemp(temporary);
+        if (!created) return false;
+        backup_directory = created;
+        backup_path = backup_directory + "/original";
+        if (std::rename(path, backup_path.c_str()) != 0) return false;
+        moved = true;
+        if (mkdir(path, 0700) != 0) return false;
+        blocked = true;
+        // Unlike chmod, a directory rejects O_RDWR even for a root CI runner.
+        const int fd = open(path, O_RDWR | O_CREAT, 0666);
+        const int error = errno;
+        if (fd >= 0) close(fd);
+        return fd < 0 && error == EISDIR;
+    }
+
+    bool restore() {
+        if (blocked) {
+            if (rmdir(path) != 0) return false;
+            blocked = false;
+        }
+        if (moved) {
+            struct stat occupant{};
+            // Preserve an unexpected occupant instead of overwriting it.
+            if (lstat(path, &occupant) == 0 || errno != ENOENT) return false;
+            if (std::rename(backup_path.c_str(), path) != 0) return false;
+            moved = false;
+        }
+        if (!backup_directory.empty()) {
+            if (rmdir(backup_directory.c_str()) != 0) return false;
+            backup_directory.clear();
+        }
+        return true;
+    }
+};
+#endif
 } // namespace
 
 TEST_CASE("Shared layout: CPU-only receiver accepts a registered sender", "[shared_layout][integration]") {
@@ -357,6 +408,76 @@ TEST_CASE("Shared layout: CPU-only receiver accepts a registered sender", "[shar
     REQUIRE(fixture.restore());
     check_probe(result);
 }
+
+TEST_CASE("Shared layout: receiver rejects a mapped state with another identity", "[shared_layout][integration]") {
+    layout_fixture fixture;
+    require_setup(fixture, fixture.create());
+    SECTION("mapped state uuid differs from copied directory entry") {
+        auto &last = fixture.sender_state().uuid[35];
+        last = last == '0' ? '1' : '0';
+    }
+    SECTION("mapped state name differs from requested sender") {
+        auto &name = fixture.sender_state().name;
+        std::memset(name, 0, sizeof(name));
+        std::memcpy(name, "another_sender", sizeof("another_sender"));
+    }
+    // The entry still names a real mapping with valid header, ring and strings.
+    const auto result = run_probe("connect_not_found", fixture);
+    REQUIRE(fixture.restore());
+    check_probe(result);
+}
+
+TEST_CASE("Shared layout: readers finish while another process owns the writer lock", "[shared_layout][integration]") {
+    for (const char *operation : {"control", "enumerate_control"}) {
+        DYNAMIC_SECTION(operation) {
+            layout_fixture fixture;
+            require_setup(fixture, fixture.create());
+            auto held = ipc::dir_lock_acquire(nd::kDirectoryShmName, true);
+            if (!held.ok()) require_setup(fixture, false);
+            // The parent owns the actual OS lock; the existing child deadline
+            // kills and reaps a reader blocked by the baseline implementation.
+            const auto result = run_probe(operation, fixture);
+#if defined(_WIN32)
+            const bool unlocked = ReleaseMutex(held.value().handle) != FALSE;
+            const bool closed = CloseHandle(held.value().handle) != FALSE;
+#else
+            struct flock unlock{};
+            unlock.l_type = F_UNLCK;
+            unlock.l_whence = SEEK_SET;
+            int unlock_result;
+            do { unlock_result = fcntl(held.value().fd, F_SETLK, &unlock); }
+            while (unlock_result < 0 && errno == EINTR);
+            const bool unlocked = unlock_result == 0;
+            const bool closed = close(held.value().fd) == 0;
+#endif
+            held.value() = {};
+            const bool restored = fixture.restore();
+            CHECK(unlocked);
+            CHECK(closed);
+            REQUIRE(restored);
+            check_probe(result);
+        }
+    }
+}
+
+#if !defined(_WIN32)
+TEST_CASE("Shared layout: lookup does not need a writable POSIX lock path", "[shared_layout][integration]") {
+    layout_fixture fixture;
+    require_setup(fixture, fixture.create());
+    blocked_lock_path lock_path;
+    const bool blocked = lock_path.block();
+    probe_result result;
+    if (blocked) result = run_probe("control", fixture);
+    // Restore the original inode before registry cleanup or any fatal assertion.
+    const bool path_restored = lock_path.restore();
+    const bool registry_restored = fixture.restore();
+    INFO("original lock backup: " << lock_path.backup_path);
+    REQUIRE(path_restored);
+    REQUIRE(registry_restored);
+    REQUIRE(blocked);
+    check_probe(result);
+}
+#endif
 
 TEST_CASE("Shared layout: directory headers are rejected without resetting existing bytes", "[shared_layout][integration]") {
     for (const char *corruption : {"version", "magic", "zero_capacity", "large_capacity"}) {
