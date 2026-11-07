@@ -87,7 +87,7 @@ TEST_CASE("Shared layout: mapped sender headers and strings are validated", "[sh
         version_mismatch = true;
     }
     SECTION("future sender version") {
-        mapping.state->version = nd::kSharedMemVersion + 1;
+        mapping.state->version = 8; // Beyond both non-D3D11 v6 and D3D11 v7.
         version_mismatch = true;
     }
     SECTION("invalid lifecycle") { mapping.state->lifecycle_state = nd::sender_state_closed + 1; }
@@ -124,4 +124,29 @@ TEST_CASE("Shared layout: unpublished sender state is not ready", "[shared_layou
     if (accepted) registry::close_sender_state(opened.value());
     CHECK_FALSE(accepted);
     if (!accepted) CHECK(opened.error().code == nozzle::ErrorCode::SenderNotFound);
+}
+
+TEST_CASE("Shared layout: D3D11 lock protocol has a backend-specific sender version",
+          "[shared_layout][d3d11_sync_version]") {
+    for (const auto backend : {nozzle::backend_type::d3d11,
+                              nozzle::backend_type::metal,
+                              nozzle::backend_type::dma_buf}) {
+        for (const uint32_t version : {6u, 7u}) {
+            INFO("backend=" << static_cast<int>(backend) << " version=" << version);
+            state_mapping mapping;
+            mapping.create();
+            mapping.state->backend = static_cast<uint8_t>(backend);
+            mapping.state->version = version;
+            const bool expected = version == (backend == nozzle::backend_type::d3d11 ? 7u : 6u);
+            auto opened = registry::open_sender_state(mapping.name.c_str());
+            const bool accepted = opened.ok();
+            if (accepted) registry::close_sender_state(opened.value());
+            CHECK(accepted == expected);
+            if (!expected && !accepted) {
+                CHECK(opened.error().code == nozzle::ErrorCode::BackendError);
+                CHECK(opened.error().message.find("version") != std::string::npos);
+            }
+        }
+    }
+    CHECK(nd::kDirectoryLayoutVersion == 6);
 }

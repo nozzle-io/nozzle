@@ -130,6 +130,7 @@ if(WIN32)
     list(APPEND INTEGRATION_TEST_SOURCES
         integration/test_d3d11_device_injection.cpp
         integration/test_d3d11_multi_receiver.cpp
+        integration/test_d3d11_fanout.cpp
     )
 
     add_executable(nozzle_d3d11_cross_process_sender
@@ -169,6 +170,7 @@ if(NOT BUILD_SHARED_LIBS)
 
     if(WIN32)
         target_link_libraries(nozzle_integration_tests PRIVATE d3d11 dxgi)
+        add_dependencies(nozzle_integration_tests nozzle_d3d11_cross_process_sender)
     endif()
 
     target_include_directories(nozzle_integration_tests PRIVATE

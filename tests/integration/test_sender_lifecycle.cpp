@@ -176,16 +176,17 @@ void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, u
 
 } // namespace
 
-TEST_CASE("Sender lifecycle: v6 layout compatibility with actual texture acquisition",
-    "[integration][sender_lifecycle]") {
+TEST_CASE("Sender lifecycle: backend-specific version compatibility with actual texture acquisition",
+    "[integration][sender_lifecycle][d3d11_sync_version]") {
     const auto desc = unique_sender_desc();
     auto sender = make_sender(desc);
     const auto storage_format = publish_frame(sender, 64, 48);
     writable_sender_mapping mapping;
     mapping.open(sender);
 
-    SECTION("current writer preserves literal sender version 6") {
-        REQUIRE(mapping.state->version == 6);
+    SECTION("current writer uses D3D11 v7 and preserves other backends v6") {
+        const auto expected = sender.info().backend == nozzle::backend_type::d3d11 ? 7u : 6u;
+        REQUIRE(mapping.state->version == expected);
     }
     SECTION("emulated v6 zero padding remains readable, not an old-binary test") {
         mapping.emulate_v6_layout();
@@ -193,6 +194,12 @@ TEST_CASE("Sender lifecycle: v6 layout compatibility with actual texture acquisi
         receiver_desc.name = desc.name;
         auto created = nozzle::receiver::create(receiver_desc);
         INFO(created.error().message);
+        if (sender.info().backend == nozzle::backend_type::d3d11) {
+            REQUIRE_FALSE(created.ok());
+            REQUIRE(created.error().code == nozzle::ErrorCode::BackendError);
+            REQUIRE(created.error().message.find("version") != std::string::npos);
+            return;
+        }
         REQUIRE(created.ok());
         auto receiver = std::move(created.value());
         require_frame(receiver, 1, 64, 48, storage_format);

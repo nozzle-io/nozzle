@@ -154,7 +154,7 @@ struct layout_fixture {
         state.close();
         ipc::shm_unlink(registration.shm_name);
         if (wrong_version) {
-            const uint32_t prefix[]{nd::kSenderMagic, static_cast<uint32_t>(nd::kSharedMemVersion + 1)};
+            const uint32_t prefix[]{nd::kSenderMagic, 8}; // Beyond both supported sender protocols.
             if (!state.create(registration.shm_name, sizeof(prefix))) return false;
             std::memcpy(state.data, prefix, sizeof(prefix));
         } else {
@@ -671,7 +671,7 @@ TEST_CASE("Shared layout: receiver validates sender fields before connecting", "
             const bool version = std::strncmp(field, "version_", 8) == 0;
             if (std::strcmp(field, "version_2") == 0) state.version = 2;
             if (std::strcmp(field, "version_5") == 0) state.version = 5;
-            if (std::strcmp(field, "version_future") == 0) state.version = nd::kSharedMemVersion + 1;
+            if (std::strcmp(field, "version_future") == 0) state.version = 8;
             if (std::strcmp(field, "lifecycle") == 0) state.lifecycle_state = nd::sender_state_closed + 1;
             if (std::strcmp(field, "ring_zero") == 0) state.ring_size = 0;
             if (std::strcmp(field, "ring_large") == 0) state.ring_size = nd::kMaxRingSlots + 1;
