@@ -47,6 +47,12 @@ int expect_rejection(const nozzle::Result<T> &result, bool version, bool layout_
     if (version && result.error().message.find("version") == std::string::npos) return 10;
     return 0;
 }
+
+template <typename T>
+int expect_not_found(const nozzle::Result<T> &result) {
+    const int status = expect_rejection(result, false, false);
+    return status == 0 && result.error().code == nozzle::ErrorCode::SenderNotFound ? 0 : 10;
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -67,12 +73,64 @@ int main(int argc, char **argv) {
     if (operation == "enumerate") {
         return nozzle::enumerate_senders().empty() ? 0 : 10;
     }
+    if (operation == "enumerate_control") {
+        const auto senders = nozzle::enumerate_senders();
+        return senders.size() == 1 && senders[0].name == name
+            && senders[0].application_name == "layout_tests" && senders[0].id.size() == 36
+            && std::string(nd::kSenderShmPrefix) + senders[0].id.substr(0, 8) == state_name ? 0 : 10;
+    }
+    if (operation == "register_control") {
+        auto registered = registry::register_sender("layout_probe_extra", "layout_tests",
+            0, 8, 8, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm), 2);
+        if (!registered.ok()) {
+            std::fprintf(stderr, "registration error=%d message=%s\n",
+                static_cast<int>(registered.error().code), registered.error().message.c_str());
+            return 10;
+        }
+        nozzle::receiver_desc desc{};
+        desc.name = "layout_probe_extra";
+        auto connected = nozzle::receiver::create(desc);
+        auto opened = registry::open_sender_state(registered.value().shm_name);
+        bool valid = connected.ok() && opened.ok();
+        if (opened.ok()) {
+            valid = valid && matches_state_control(*opened.value().state, desc.name.c_str(), registered.value().shm_name);
+            registry::close_sender_state(opened.value());
+        }
+        if (connected.ok()) {
+            const auto info = connected.value().connected_info();
+            valid = valid && info.name == desc.name && info.id == registered.value().uuid;
+        }
+        auto directory = ipc::shm_open_ro(nd::kDirectoryShmName);
+        if (directory.ok()) {
+            const auto size = sizeof(nd::DirectoryHeader) + nd::kMaxSenders * sizeof(nd::DirectoryEntry);
+            auto mapped = ipc::shm_map(directory.value(), size, true);
+            if (mapped.ok()) {
+                const auto header = *static_cast<const nd::DirectoryHeader *>(mapped.value());
+                valid = valid && header.magic == nd::kDirectoryMagic
+                    && header.version >= 2 && header.version <= 6 && header.capacity == nd::kMaxSenders;
+                ipc::shm_unmap(mapped.value(), size);
+            } else valid = false;
+            ipc::shm_close(directory.value());
+        } else valid = false;
+        ipc::shm_unlink(registered.value().shm_name);
+        return valid ? 0 : 10;
+    }
     if (operation == "register" || operation == "register_version" || operation == "register_short") {
         auto registered = registry::register_sender("layout_probe_extra", "layout_tests",
             0, 8, 8, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm), 2);
         // Never unregister through a deliberately corrupt directory.
         if (registered.ok()) ipc::shm_unlink(registered.value().shm_name);
         return expect_rejection(registered, version, operation != "register_short");
+    }
+    if (operation == "map_directory") {
+        auto opened = ipc::shm_open_ro(nd::kDirectoryShmName);
+        if (!opened.ok()) return 20;
+        const auto size = sizeof(nd::DirectoryHeader) + nd::kMaxSenders * sizeof(nd::DirectoryEntry);
+        auto mapped = ipc::shm_map(opened.value(), size, true);
+        const int status = expect_rejection(mapped, false, false);
+        if (mapped.ok()) ipc::shm_unmap(mapped.value(), size);
+        ipc::shm_close(opened.value());
+        return status;
     }
     if (operation == "map_state" || operation == "map_state_rounded" || operation == "map_page_boundary") {
         auto opened = ipc::shm_open_ro(state_name);
@@ -123,13 +181,16 @@ int main(int argc, char **argv) {
     nozzle::receiver_desc desc{};
     desc.name = name;
     auto connected = nozzle::receiver::create(desc);
+    if (operation == "connect_not_found") return expect_not_found(connected);
     if (operation == "connect" || operation == "connect_version"
         || operation == "connect_short" || operation == "connect_state_short" || operation == "connect_state_version") {
         return expect_rejection(connected, version, operation == "connect" || version);
     }
     if (!connected.ok()) {
-        std::fprintf(stderr, "SETUP: receiver connection failed: %s\n", connected.error().message.c_str());
-        return 20;
+        const bool acceptance_control = operation == "control" || operation == "connect_state_rounded";
+        std::fprintf(stderr, "%s: receiver connection failed: %s\n",
+            acceptance_control ? "FAIL" : "SETUP", connected.error().message.c_str());
+        return acceptance_control ? 10 : 20;
     }
     if (operation == "control") {
         const auto info = connected.value().connected_info();

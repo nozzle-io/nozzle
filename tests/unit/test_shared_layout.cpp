@@ -78,11 +78,19 @@ TEST_CASE("Shared layout: mapped sender headers and strings are validated", "[sh
     state_mapping mapping;
     mapping.create();
     bool version_mismatch = false;
-    SECTION("version") {
-        ++mapping.state->version;
+    SECTION("sender version 2 is not directory compatibility") {
+        mapping.state->version = 2;
         version_mismatch = true;
     }
-    SECTION("magic") { mapping.state->magic = 0; }
+    SECTION("sender version 5 is not directory compatibility") {
+        mapping.state->version = 5;
+        version_mismatch = true;
+    }
+    SECTION("newer sender version 7") {
+        mapping.state->version = 7;
+        version_mismatch = true;
+    }
+    SECTION("foreign magic") { mapping.state->magic = nd::kSenderMagic ^ 1u; }
     SECTION("zero ring") { mapping.state->ring_size = 0; }
     SECTION("oversized ring") { mapping.state->ring_size = nd::kMaxRingSlots + 1; }
     SECTION("unterminated name") {
@@ -103,4 +111,16 @@ TEST_CASE("Shared layout: mapped sender headers and strings are validated", "[sh
         CHECK(opened.error().code == nozzle::ErrorCode::BackendError);
         CHECK(opened.error().message.find("version") != std::string::npos);
     }
+}
+
+TEST_CASE("Shared layout: unpublished sender state is not ready", "[shared_layout][registry]") {
+    state_mapping mapping;
+    mapping.create();
+    SECTION("zeroed backing") { std::memset(mapping.state, 0, sizeof(*mapping.state)); }
+    SECTION("magic not yet published") { mapping.state->magic = 0; }
+    auto opened = registry::open_sender_state(mapping.name.c_str());
+    const bool accepted = opened.ok();
+    if (accepted) registry::close_sender_state(opened.value());
+    CHECK_FALSE(accepted);
+    if (!accepted) CHECK(opened.error().code == nozzle::ErrorCode::SenderNotFound);
 }

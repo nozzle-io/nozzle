@@ -242,9 +242,8 @@ These checks validate OS-accessible backing, not the creator's original byte
 count. macOS reports page-rounded shared-memory lengths, and Windows page-backed
 sections can also cover a request beyond the original size within that page.
 A 1663-byte creation request can therefore cover the 1664-byte sender layout on
-those systems. There is currently no producer-declared payload-length field;
-exact logical-length validation would require a versioned protocol change
-([nozzle-dev#256](https://github.com/nozzle-io/nozzle-dev/issues/256)).
+those systems. Version and field validation still apply within the accessible
+mapping; reconstructing the original allocation request is not a guarantee.
 
 Sender/receiver creation preserves a clear version-mismatch error when the
 stable header prefix is readable, including older layouts smaller than the

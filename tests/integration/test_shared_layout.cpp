@@ -20,6 +20,9 @@
 #else
 #include <cerrno>
 #include <csignal>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -30,6 +33,17 @@ namespace registry = nozzle::detail::registry;
 namespace nd = nozzle::detail;
 constexpr std::size_t directory_size = sizeof(nd::DirectoryHeader)
     + sizeof(nd::DirectoryEntry) * nd::kMaxSenders;
+
+std::size_t runtime_page_size() {
+#if defined(_WIN32)
+    SYSTEM_INFO system_info{};
+    GetSystemInfo(&system_info);
+    return system_info.dwPageSize;
+#else
+    const long size = sysconf(_SC_PAGESIZE);
+    return size > 0 ? static_cast<std::size_t>(size) : 0;
+#endif
+}
 
 struct mapped_region {
     ipc::shm_handle handle{};
@@ -85,7 +99,7 @@ struct layout_fixture {
         active = true;
         std::memset(directory.data, 0, directory_size);
         header().magic = nd::kDirectoryMagic;
-        header().version = nd::kSharedMemVersion;
+        header().version = 6;
         header().capacity = nd::kMaxSenders;
         auto registered = registry::register_sender(sender_name.c_str(), "layout_tests",
             0, 8, 8, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm), 2);
@@ -100,9 +114,9 @@ struct layout_fixture {
     nd::DirectoryHeader &header() {
         return *static_cast<nd::DirectoryHeader *>(directory.data);
     }
-    nd::DirectoryEntry &entry() {
-        return *reinterpret_cast<nd::DirectoryEntry *>(
-            static_cast<unsigned char *>(directory.data) + sizeof(nd::DirectoryHeader));
+    nd::DirectoryEntry &entry(std::size_t index = 0) {
+        return reinterpret_cast<nd::DirectoryEntry *>(
+            static_cast<unsigned char *>(directory.data) + sizeof(nd::DirectoryHeader))[index];
     }
     nd::SenderSharedState &sender_state() {
         return *static_cast<nd::SenderSharedState *>(state.data);
@@ -113,14 +127,20 @@ struct layout_fixture {
         ipc::shm_unlink(nd::kDirectoryShmName);
         replaced = true;
         if (wrong_version) {
-            const uint32_t prefix[]{nd::kDirectoryMagic, static_cast<uint32_t>(nd::kSharedMemVersion + 1)};
+            const uint32_t prefix[]{nd::kDirectoryMagic, 7};
             if (!directory.create(nd::kDirectoryShmName, sizeof(prefix))) return false;
             std::memcpy(directory.data, prefix, sizeof(prefix));
         } else {
-            if (!directory.create(nd::kDirectoryShmName, sizeof(nd::DirectoryHeader))) return false;
+            // Remove at least one runtime page, so page rounding cannot make
+            // the full directory fit as it can for a subpage sender state.
+            const auto page_size = runtime_page_size();
+            if (page_size == 0 || directory_size <= page_size + sizeof(nd::DirectoryHeader)) return false;
+            const auto short_size = directory_size - page_size;
+            if (!directory.create(nd::kDirectoryShmName, short_size)) return false;
+            std::memset(directory.data, 0, short_size);
             header() = nd::DirectoryHeader{};
             header().magic = nd::kDirectoryMagic;
-            header().version = nd::kSharedMemVersion;
+            header().version = 6;
             header().capacity = nd::kMaxSenders;
         }
         return true;
@@ -148,15 +168,7 @@ struct layout_fixture {
     }
 
     bool use_one_page_state() {
-#if defined(_WIN32)
-        SYSTEM_INFO system_info{};
-        GetSystemInfo(&system_info);
-        const std::size_t page_size = system_info.dwPageSize;
-#else
-        const long queried_size = sysconf(_SC_PAGESIZE);
-        if (queried_size <= 0) return false;
-        const auto page_size = static_cast<std::size_t>(queried_size);
-#endif
+        const auto page_size = runtime_page_size();
         if (page_size < sizeof(nd::SenderSharedState)) return false;
         const auto original = sender_state();
         state.close();
@@ -166,8 +178,64 @@ struct layout_fixture {
         return true;
     }
 
+    void remove_state() {
+        state.close();
+        ipc::shm_unlink(registration.shm_name);
+    }
+
+#if !defined(_WIN32)
+    bool zero_length_state() {
+        remove_state();
+        // Model O_EXCL-before-ftruncate, not an object allocated by ftruncate(0).
+        state.handle.fd = ::shm_open(registration.shm_name, O_RDWR | O_CREAT | O_EXCL, 0600);
+        state.size = 0;
+        return state.handle.valid();
+    }
+    bool zero_length_directory() {
+        directory.close();
+        ipc::shm_unlink(nd::kDirectoryShmName);
+        replaced = true;
+        directory.handle.fd = ::shm_open(nd::kDirectoryShmName, O_RDWR | O_CREAT | O_EXCL, 0600);
+        directory.size = 0;
+        return directory.handle.valid();
+    }
+#endif
+
+    void cleanup_probe_registration() {
+        // The child may have died after registering. Only remove the named
+        // probe's mapping; never route cleanup through a corrupt directory.
+        mapped_region current;
+        auto opened = ipc::shm_open_rw(nd::kDirectoryShmName);
+        if (!opened.ok()) return;
+        current.handle = opened.value();
+#if defined(_WIN32)
+        current.size = directory_size;
+        current.data = MapViewOfFile(current.handle.handle, FILE_MAP_READ, 0, 0, directory_size);
+        if (!current.data) return;
+#else
+        // Parent cleanup must not trust the IPC extent check being tested.
+        struct stat backing{};
+        if (fstat(current.handle.fd, &backing) != 0 || backing.st_size < 0
+            || static_cast<std::uintmax_t>(backing.st_size) < directory_size) return;
+        if (!current.map(directory_size)) return;
+#endif
+        const auto *header = static_cast<const nd::DirectoryHeader *>(current.data);
+        if (header->magic != nd::kDirectoryMagic || header->capacity > nd::kMaxSenders) return;
+        const auto *entries = reinterpret_cast<const nd::DirectoryEntry *>(
+            static_cast<const unsigned char *>(current.data) + sizeof(nd::DirectoryHeader));
+        for (uint32_t i = 0; i < header->capacity; ++i) {
+            const auto &entry = entries[i];
+            if (entry.valid == nd::entry_valid_flag::valid
+                && std::strncmp(entry.sender_name, "layout_probe_extra", sizeof(entry.sender_name)) == 0
+                && std::memchr(entry.shm_name, '\0', sizeof(entry.shm_name))) {
+                ipc::shm_unlink(entry.shm_name);
+            }
+        }
+    }
+
     bool restore() {
         if (!active) return true;
+        cleanup_probe_registration();
         state.close();
         if (registration.shm_name[0]) ipc::shm_unlink(registration.shm_name);
         if (replaced) {
@@ -271,6 +339,13 @@ void check_probe(const probe_result &result) {
     CHECK(result.reaped);
     CHECK(result.status == 0);
 }
+
+void corrupt_directory_field(nd::DirectoryEntry &entry, const char *field) {
+    if (std::strcmp(field, "name") == 0) std::memset(entry.sender_name, 'n', sizeof(entry.sender_name));
+    if (std::strcmp(field, "application") == 0) std::memset(entry.application_name, 'a', sizeof(entry.application_name));
+    if (std::strcmp(field, "uuid") == 0) std::memset(entry.uuid, 'u', sizeof(entry.uuid));
+    if (std::strcmp(field, "shm_name") == 0) std::memset(entry.shm_name, 's', sizeof(entry.shm_name));
+}
 } // namespace
 
 TEST_CASE("Shared layout: CPU-only receiver accepts a registered sender", "[shared_layout][integration]") {
@@ -290,8 +365,8 @@ TEST_CASE("Shared layout: directory headers are rejected without resetting exist
                 layout_fixture fixture;
                 require_setup(fixture, fixture.create());
                 const bool version = std::strcmp(corruption, "version") == 0;
-                if (version) ++fixture.header().version;
-                if (std::strcmp(corruption, "magic") == 0) fixture.header().magic = 0;
+                if (version) fixture.header().version = 7;
+                if (std::strcmp(corruption, "magic") == 0) fixture.header().magic = nd::kDirectoryMagic ^ 1u;
                 if (std::strcmp(corruption, "zero_capacity") == 0) fixture.header().capacity = 0;
                 if (std::strcmp(corruption, "large_capacity") == 0) fixture.header().capacity = nd::kMaxSenders + 1;
                 std::vector<unsigned char> before(directory_size);
@@ -308,17 +383,156 @@ TEST_CASE("Shared layout: directory headers are rejected without resetting exist
     }
 }
 
+TEST_CASE("Shared layout: receiver waits for absent or unpublished sender state", "[shared_layout][integration]") {
+    for (const char *phase : {"absent", "zeroed"}) {
+        DYNAMIC_SECTION(phase) {
+            layout_fixture fixture;
+            require_setup(fixture, fixture.create());
+            // Keep the real directory entry valid, as older senders do during startup.
+            if (std::strcmp(phase, "absent") == 0) fixture.remove_state();
+            else std::memset(fixture.state.data, 0, sizeof(nd::SenderSharedState));
+            const auto result = run_probe("connect_not_found", fixture);
+            REQUIRE(fixture.restore());
+            check_probe(result);
+        }
+    }
+}
+
+TEST_CASE("Shared layout: unpublished directory remains retryable for receivers", "[shared_layout][integration]") {
+    for (const char *phase : {"zero_prefix", "partial_header"}) {
+        DYNAMIC_SECTION(phase) {
+            layout_fixture fixture;
+            require_setup(fixture, fixture.create());
+            fixture.header().magic = 0;
+            if (std::strcmp(phase, "zero_prefix") == 0) fixture.header().version = 0;
+            const auto result = run_probe("connect_not_found", fixture);
+            REQUIRE(fixture.restore());
+            check_probe(result);
+        }
+    }
+}
+
+#if !defined(_WIN32)
+TEST_CASE("Shared layout: POSIX zero-length backing rejects maps but lookup remains retryable", "[shared_layout][integration]") {
+    for (const char *object : {"directory", "sender"}) {
+        for (const char *operation : {"map", "connect_not_found"}) {
+            DYNAMIC_SECTION(object << " / " << operation) {
+                layout_fixture fixture;
+                require_setup(fixture, fixture.create());
+                const bool directory = std::strcmp(object, "directory") == 0;
+                require_setup(fixture, directory ? fixture.zero_length_directory() : fixture.zero_length_state());
+                const char *probe = std::strcmp(operation, "map") == 0
+                    ? (directory ? "map_directory" : "map_state") : operation;
+                const auto result = run_probe(probe, fixture);
+                REQUIRE(fixture.restore());
+                check_probe(result);
+            }
+        }
+    }
+}
+#endif
+
+TEST_CASE("Shared layout: registry writer recovers abandoned directory initialization", "[shared_layout][integration]") {
+    for (const char *phase : {"zeroed", "partial_header"
+#if !defined(_WIN32)
+        , "zero_length"
+#endif
+    }) {
+        DYNAMIC_SECTION(phase) {
+            layout_fixture fixture;
+            require_setup(fixture, fixture.create());
+            // Recovery may replace abandoned backing. Restore the named object,
+            // not just a view of an inode the writer may have unlinked.
+            fixture.replaced = true;
+#if !defined(_WIN32)
+            if (std::strcmp(phase, "zero_length") == 0) {
+                require_setup(fixture, fixture.zero_length_directory());
+            } else
+#endif
+            {
+                std::memset(fixture.directory.data, 0, directory_size);
+                if (std::strcmp(phase, "partial_header") == 0) {
+                    fixture.header().version = 6;
+                    fixture.header().capacity = 64;
+                }
+            }
+            // Call the real writer, which acquires the directory's exclusive lock.
+            const auto result = run_probe("register_control", fixture);
+            REQUIRE(fixture.restore());
+            check_probe(result);
+        }
+    }
+}
+
+TEST_CASE("Shared layout: zero magic with foreign body is not writer-recoverable", "[shared_layout][integration]") {
+    for (const char *location : {"entry", "tail"}) {
+        DYNAMIC_SECTION(location) {
+            layout_fixture fixture;
+            require_setup(fixture, fixture.create());
+            std::memset(fixture.directory.data, 0, directory_size);
+            fixture.header().version = 6;
+            fixture.header().capacity = 64;
+            if (std::strcmp(location, "entry") == 0) fixture.entry().sender_name[0] = 'x';
+            else static_cast<unsigned char *>(fixture.directory.data)[directory_size - 1] = 0x5a;
+            std::vector<unsigned char> before(directory_size);
+            std::memcpy(before.data(), fixture.directory.data, directory_size);
+            const auto reader = run_probe("connect_not_found", fixture);
+            const auto writer = run_probe("register", fixture);
+            const bool intact = std::memcmp(before.data(), fixture.directory.data, directory_size) == 0;
+            REQUIRE(fixture.restore());
+            check_probe(reader);
+            check_probe(writer);
+            CHECK(intact);
+        }
+    }
+}
+
+TEST_CASE("Shared layout: directory versions 2 5 and 6 keep existing live entries", "[shared_layout][integration]") {
+    for (uint32_t version : {2u, 5u, 6u}) {
+        for (const char *operation : {"enumerate_control", "control", "register_control"}) {
+            DYNAMIC_SECTION(version << " / " << operation) {
+                layout_fixture fixture;
+                require_setup(fixture, fixture.create());
+                fixture.header().version = version;
+                unsigned char original_entry[sizeof(nd::DirectoryEntry)];
+                std::memcpy(original_entry, &fixture.entry(), sizeof(original_entry));
+                const auto result = run_probe(operation, fixture);
+                const bool intact = fixture.header().version == version
+                    && fixture.header().capacity == 64
+                    && std::memcmp(original_entry, &fixture.entry(), sizeof(original_entry)) == 0;
+                REQUIRE(fixture.restore());
+                check_probe(result);
+                CHECK(intact);
+            }
+        }
+    }
+}
+
 TEST_CASE("Shared layout: unterminated directory fields are rejected", "[shared_layout][integration]") {
     for (const char *field : {"name", "application", "uuid", "shm_name"}) {
         for (const char *operation : {"enumerate", "register", "connect"}) {
             DYNAMIC_SECTION(field << " / " << operation) {
                 layout_fixture fixture;
                 require_setup(fixture, fixture.create());
-                auto &entry = fixture.entry();
-                if (std::strcmp(field, "name") == 0) std::memset(entry.sender_name, 'n', sizeof(entry.sender_name));
-                if (std::strcmp(field, "application") == 0) std::memset(entry.application_name, 'a', sizeof(entry.application_name));
-                if (std::strcmp(field, "uuid") == 0) std::memset(entry.uuid, 'u', sizeof(entry.uuid));
-                if (std::strcmp(field, "shm_name") == 0) std::memset(entry.shm_name, 's', sizeof(entry.shm_name));
+                corrupt_directory_field(fixture.entry(), field);
+                const auto result = run_probe(std::strcmp(operation, "connect") == 0 ? "connect_not_found" : operation, fixture);
+                REQUIRE(fixture.restore());
+                check_probe(result);
+            }
+        }
+    }
+}
+
+TEST_CASE("Shared layout: malformed unrelated entry does not hide a healthy sender", "[shared_layout][integration]") {
+    for (const char *field : {"name", "application", "uuid", "shm_name"}) {
+        for (const char *operation : {"enumerate_control", "control"}) {
+            DYNAMIC_SECTION(field << " / " << operation) {
+                layout_fixture fixture;
+                require_setup(fixture, fixture.create());
+                fixture.entry(1) = fixture.entry();
+                std::memset(fixture.entry().sender_name, 0, sizeof(fixture.entry().sender_name));
+                std::memcpy(fixture.entry().sender_name, "unrelated", sizeof("unrelated"));
+                corrupt_directory_field(fixture.entry(), field);
                 const auto result = run_probe(operation, fixture);
                 REQUIRE(fixture.restore());
                 check_probe(result);
@@ -328,13 +542,13 @@ TEST_CASE("Shared layout: unterminated directory fields are rejected", "[shared_
 }
 
 TEST_CASE("Shared layout: receiver validates sender fields before connecting", "[shared_layout][integration]") {
-    for (const char *field : {"version", "ring_zero", "ring_large", "name", "application", "uuid"}) {
+    for (const char *field : {"version_2", "version_5", "version_7", "ring_zero", "ring_large", "name", "application", "uuid"}) {
         DYNAMIC_SECTION(field) {
             layout_fixture fixture;
             require_setup(fixture, fixture.create());
             auto &state = fixture.sender_state();
-            const bool version = std::strcmp(field, "version") == 0;
-            if (version) ++state.version;
+            const bool version = std::strncmp(field, "version_", 8) == 0;
+            if (version) state.version = static_cast<uint32_t>(field[8] - '0');
             if (std::strcmp(field, "ring_zero") == 0) state.ring_size = 0;
             if (std::strcmp(field, "ring_large") == 0) state.ring_size = nd::kMaxRingSlots + 1;
             if (std::strcmp(field, "name") == 0) std::memset(state.name, 'n', sizeof(state.name));
