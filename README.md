@@ -15,6 +15,13 @@ Although it may appear usable at first glance, it may not function correctly.
 Please use it with the understanding that no guarantees are made regarding its behavior, and perform debugging, validation, and review as needed.
 If you encounter problems, please do not become angry; instead, contributions in the form of Issues or Pull Requests would be greatly appreciated.
 
+The API/ABI may change in v0.x; the `stable` branch does not mean the API is frozen.
+
+### Known limitations
+
+- **D3D11 ([#187](https://github.com/nozzle-io/nozzle-dev/issues/187)):** frames are not broadcast to every receiver. In the two-receiver CI measurement, B could not acquire the frame A had released; default `timeout_ms = 0` waited about 1.00 s, and commit onto a held slot waited about 1.00 s, for both ring sizes 1 and 3. The synchronization fix is pending.
+- **Names ([#252](https://github.com/nozzle-io/nozzle-dev/issues/252)):** JNI wrappers reject names containing non-BMP characters because they pass modified UTF-8. Windows programs using narrow `argv` can reject non-ASCII names when the bytes are not UTF-8. Use ASCII names through these paths until the wrappers convert correctly.
+
 ## Features
 
 - Named sender/receiver model with discovery
