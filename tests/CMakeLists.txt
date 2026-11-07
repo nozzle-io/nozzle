@@ -176,6 +176,7 @@ add_executable(nozzle_c_api_tests
     c_api/test_error_codes.cpp
     c_api/test_info_snapshot.cpp
     c_api/test_dmabuf_publish.cpp
+    c_api/test_dmabuf_peer_policy.cpp
     c_api/dmabuf_dispatch_peer.cpp
     c_api/test_backend_capabilities.cpp
 )
@@ -195,7 +196,7 @@ if(NOZZLE_ENABLE_TEST_HOOKS)
     target_compile_definitions(nozzle_c_api_tests PRIVATE NOZZLE_ENABLE_TEST_HOOKS=1)
 endif()
 
-catch_discover_tests(nozzle_c_api_tests)
+catch_discover_tests(nozzle_c_api_tests TEST_SPEC "~[peer_policy_privileged]")
 
 if(NOZZLE_BUILD_F16C_TEST)
     if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
