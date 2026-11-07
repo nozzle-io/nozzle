@@ -339,6 +339,7 @@ jobs:
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact
 
       - name: Receiver threading regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ./build/tests/Debug/nozzle_integration_tests.exe "[integration][threading]" --reporter console --success
 
       - name: C API snapshot identity transition
