@@ -5,6 +5,7 @@
 
 #include "backends/backend_dispatch.hpp"
 #include "ipc.hpp"
+#include "shared_layout.hpp"
 #include "frame_helpers.hpp"
 #include "metadata.hpp"
 #include "name_validation.hpp"
@@ -38,59 +39,38 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
     }
 
-    auto shm_result = detail::ipc::shm_open_ro(detail::kDirectoryShmName);
-    if (!shm_result.ok()) {
-        return Error{ErrorCode::SenderNotFound, "no nozzle directory found"};
-    }
-
-    const auto total_size = sizeof(detail::DirectoryHeader) +
-                            sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
-
-    auto map_result = detail::ipc::shm_map(shm_result.value(), total_size, true);
-    if (!map_result.ok()) {
-        detail::ipc::shm_close(shm_result.value());
-        return Error{ErrorCode::SenderNotFound, "failed to map nozzle directory"};
-    }
-    void *mapped = map_result.value();
-
-    auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
-    if (header->magic != detail::kDirectoryMagic) {
-        detail::ipc::shm_unmap(mapped, total_size);
-        detail::ipc::shm_close(shm_result.value());
-        return Error{ErrorCode::SenderNotFound, "nozzle directory has invalid magic"};
-    }
-
-    auto *entries = reinterpret_cast<const detail::DirectoryEntry *>(
-        static_cast<const uint8_t *>(mapped) + sizeof(detail::DirectoryHeader));
+    auto snapshot = detail::registry::read_directory_snapshot();
+    if (!snapshot.ok()) return snapshot.error();
 
     SenderDirectoryEntry found{};
     bool found_entry = false;
 
-    for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid != detail::entry_valid_flag::valid) {
+    for (uint32_t i = 0; i < snapshot.value().capacity; ++i) {
+        const auto &entry = snapshot.value().entries[i];
+        if (entry.valid != detail::entry_valid_flag::valid) {
             continue;
         }
-        if (entries[i].pid == detail::kInvalidPid) {
+        if (!detail::valid_directory_strings(entry)) {
             continue;
         }
-        if (!detail::ipc::is_pid_alive(entries[i].pid)) {
+        if (entry.pid == detail::kInvalidPid) {
             continue;
         }
-        if (std::strncmp(entries[i].sender_name, name, sizeof(entries[i].sender_name)) != 0) {
+        if (!detail::ipc::is_pid_alive(entry.pid)) {
+            continue;
+        }
+        if (std::strncmp(entry.sender_name, name, sizeof(entry.sender_name)) != 0) {
             continue;
         }
 
-        std::memcpy(found.shm_name, entries[i].shm_name, sizeof(found.shm_name));
-        std::memcpy(found.application_name, entries[i].application_name, sizeof(found.application_name));
-        std::memcpy(found.uuid, entries[i].uuid, sizeof(found.uuid));
-        found.backend = entries[i].backend;
-        found.pid = entries[i].pid;
+        std::memcpy(found.shm_name, entry.shm_name, sizeof(found.shm_name));
+        std::memcpy(found.application_name, entry.application_name, sizeof(found.application_name));
+        std::memcpy(found.uuid, entry.uuid, sizeof(found.uuid));
+        found.backend = entry.backend;
+        found.pid = entry.pid;
         found_entry = true;
         break;
     }
-
-    detail::ipc::shm_unmap(mapped, total_size);
-    detail::ipc::shm_close(shm_result.value());
 
     if (!found_entry) {
         return Error{ErrorCode::SenderNotFound, "sender not found: " + std::string(name)};
@@ -113,8 +93,7 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
 
     auto state_result = detail::registry::open_sender_state(dir_entry.value().shm_name);
     if (!state_result.ok()) {
-        return Error{ErrorCode::SenderNotFound,
-                     "failed to open sender state for: " + sender_name};
+        return state_result.error();
     }
 
     ConnectionSetup setup{};
@@ -122,13 +101,11 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.sender_pid = dir_entry.value().pid;
 
     auto *state = setup.state_view.state;
-    if (state->version != detail::kSharedMemVersion) {
-        return Error{ErrorCode::BackendError,
-            "sender shared memory version mismatch: expected " +
-            std::to_string(detail::kSharedMemVersion) +
-            ", got " + std::to_string(state->version)};
+    if (sender_name != state->name ||
+        std::strncmp(state->uuid, dir_entry.value().uuid, sizeof(state->uuid)) != 0) {
+        detail::registry::close_sender_state(setup.state_view);
+        return Error{ErrorCode::SenderNotFound, "sender identity changed during lookup"};
     }
-
     setup.info.name = state->name;
     setup.info.application_name = state->application_name;
     setup.info.id = state->uuid;
@@ -316,8 +293,7 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
     if (!impl_->connected_) {
         auto setup = establish_connection(impl_->sender_name_);
         if (!setup.ok()) {
-            return Error{ErrorCode::SenderNotFound,
-                         "reconnect failed: " + setup.error().message};
+            return setup.error();
         }
         if (impl_->state_view_.state) {
             detail::registry::close_sender_state(impl_->state_view_);
@@ -349,9 +325,14 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
     }
 
     while (true) {
+        auto ring_size = detail::validate_sender_layout(*state);
+        if (!ring_size.ok()) return ring_size.error();
         uint64_t frame = detail::ipc::atomic_load_relaxed(&state->committed_frame);
         detail::ipc::atomic_fence_acquire();
         uint32_t slot = detail::ipc::atomic_load_relaxed(&state->committed_slot);
+        if (slot >= ring_size.value()) {
+            return Error{ErrorCode::BackendError, "sender state has invalid committed slot"};
+        }
 
         if (frame == detail::kInitialFrameNumber) {
             if (desc.timeout_ms > 0) {
@@ -373,10 +354,6 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
                 continue;
             }
             return Error{ErrorCode::Timeout, "no new frame"};
-        }
-
-        if (slot >= state->ring_size) {
-            slot = slot % state->ring_size;
         }
 
         uint32_t dropped = 0;

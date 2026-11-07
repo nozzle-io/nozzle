@@ -5,7 +5,9 @@
 #include <nozzle/types.hpp>
 
 #include "ipc.hpp"
+#include "registry.hpp"
 #include "shared_state.hpp"
+#include "shared_layout.hpp"
 
 #include <cstring>
 #include <exception>
@@ -20,54 +22,31 @@ std::vector<sender_info> enumerate_senders() {
     try {
 #endif
 
-    auto shm_result = detail::ipc::shm_open_ro(detail::kDirectoryShmName);
-    if (!shm_result.ok()) {
-        return result;
-    }
+    auto snapshot = detail::registry::read_directory_snapshot();
+    if (!snapshot.ok()) return result;
 
-    const auto total_size = sizeof(detail::DirectoryHeader) +
-                            sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
-
-    auto map_result = detail::ipc::shm_map(shm_result.value(), total_size, true);
-    if (!map_result.ok()) {
-        detail::ipc::shm_close(shm_result.value());
-        return result;
-    }
-    void *mapped = map_result.value();
-
-    auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
-    if (header->magic != detail::kDirectoryMagic) {
-        detail::ipc::shm_unmap(mapped, total_size);
-        detail::ipc::shm_close(shm_result.value());
-        return result;
-    }
-
-    auto *entries = reinterpret_cast<const detail::DirectoryEntry *>(
-        static_cast<const uint8_t *>(mapped) + sizeof(detail::DirectoryHeader));
-
-    for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid != detail::entry_valid_flag::valid) {
+    for (uint32_t i = 0; i < snapshot.value().capacity; ++i) {
+        const auto &entry = snapshot.value().entries[i];
+        if (entry.valid != detail::entry_valid_flag::valid ||
+            !detail::valid_directory_strings(entry)) {
             continue;
         }
 
-        if (entries[i].pid == detail::kInvalidPid) {
+        if (entry.pid == detail::kInvalidPid) {
             continue;
         }
 
-        if (!detail::ipc::is_pid_alive(entries[i].pid)) {
+        if (!detail::ipc::is_pid_alive(entry.pid)) {
             continue;
         }
 
         sender_info info{};
-        info.name = entries[i].sender_name;
-        info.application_name = entries[i].application_name;
-        info.id = entries[i].uuid;
-        info.backend = static_cast<backend_type>(entries[i].backend);
+        info.name = entry.sender_name;
+        info.application_name = entry.application_name;
+        info.id = entry.uuid;
+        info.backend = static_cast<backend_type>(entry.backend);
         result.push_back(std::move(info));
     }
-
-    detail::ipc::shm_unmap(mapped, total_size);
-    detail::ipc::shm_close(shm_result.value());
 
 #if NOZZLE_HAS_EXCEPTIONS
     } catch (const std::exception &) {
