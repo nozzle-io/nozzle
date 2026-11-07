@@ -764,8 +764,12 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
     std::atomic<bool> stop{false};
     std::atomic<bool> stalled{false};
     std::atomic<int> produced{0};
+    std::atomic<int> transient_acquire_timeouts{0};
     std::atomic<int> transient_commit_timeouts{0};
     std::atomic<int> fatal_producer_errors{0};
+    std::string fatal_producer_stage;
+    std::string fatal_producer_message;
+    int fatal_producer_code = 0;
     std::atomic<int> cpp_acquired{0};
     std::atomic<int> c_acquired{0};
     std::atomic<int> c_info_mismatches{0};
@@ -789,14 +793,25 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
             const int acquired_before = cpp_acquired.load() + c_acquired.load();
             auto wf_result = snd.acquire_writable_frame(tdesc);
             if (!wf_result.ok()) {
-                fatal_producer_errors.fetch_add(1);
-                break;
+                if (wf_result.error().code == nozzle::ErrorCode::Timeout) {
+                    // D3D11 now checks receiver ownership before exposing writable storage.
+                    transient_acquire_timeouts.fetch_add(1);
+                } else {
+                    fatal_producer_stage = "acquire";
+                    fatal_producer_code = static_cast<int>(wf_result.error().code);
+                    fatal_producer_message = wf_result.error().message;
+                    fatal_producer_errors.fetch_add(1);
+                    break;
+                }
             } else {
                 auto commit_result = snd.commit_frame(wf_result.value());
                 if (!commit_result.ok()) {
                     if (commit_result.error().code == nozzle::ErrorCode::Timeout) {
                         transient_commit_timeouts.fetch_add(1);
                     } else {
+                        fatal_producer_stage = "commit";
+                        fatal_producer_code = static_cast<int>(commit_result.error().code);
+                        fatal_producer_message = commit_result.error().message;
                         fatal_producer_errors.fetch_add(1);
                         break;
                     }
@@ -875,8 +890,12 @@ TEST_CASE("Integration: one receiver is safe to share across threads", "[integra
 
     INFO("produced=" << produced.load() << " cpp_acquired=" << cpp_acquired.load()
          << " c_acquired=" << c_acquired.load()
+         << " transient_acquire_timeouts=" << transient_acquire_timeouts.load()
          << " transient_commit_timeouts=" << transient_commit_timeouts.load()
          << " fatal_producer_errors=" << fatal_producer_errors.load()
+         << " fatal_stage=" << fatal_producer_stage
+         << " fatal_code=" << fatal_producer_code
+         << " fatal_message=" << fatal_producer_message
          << " stalled=" << stalled.load());
     REQUIRE_FALSE(stalled.load());
     REQUIRE(fatal_producer_errors.load() == 0);
