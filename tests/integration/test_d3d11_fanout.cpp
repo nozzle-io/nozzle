@@ -250,6 +250,11 @@ TEST_CASE("D3D11 cross-process killed receiver abandons a resource without wedgi
     REQUIRE(held.code == 0);
     REQUIRE(held.pixels_ok);
     p.a.kill();
+    // A dead consumer must not turn B's session into a fatal backend error
+    // while the producer is idle and has not yet replaced the abandoned slot.
+    const auto unavailable = p.b.send("acquire 0 9 0");
+    CHECK(unavailable.code == static_cast<int>(nozzle::ErrorCode::Timeout));
+    CHECK(unavailable.acquire_ms < 250.0);
     reply recovered;
     const auto start = clock::now();
     // Recovery may invalidate on one call and allocate on the next. Never
