@@ -41,7 +41,7 @@ nozzle::sender_desc unique_sender_desc() {
     return desc;
 }
 
-void publish_frame(nozzle::sender &sender, uint32_t width, uint32_t height) {
+nozzle::texture_format publish_frame(nozzle::sender &sender, uint32_t width, uint32_t height) {
     nozzle::texture_desc desc{};
     desc.width = width;
     desc.height = height;
@@ -50,12 +50,15 @@ void publish_frame(nozzle::sender &sender, uint32_t width, uint32_t height) {
     INFO(writable.error().message);
     REQUIRE(writable.ok());
     REQUIRE(writable.value().get_texture().valid());
+    const auto storage_format = writable.value().get_texture().desc().format;
     auto committed = sender.commit_frame(writable.value());
     INFO(committed.error().message);
     REQUIRE(committed.ok());
+    return storage_format;
 }
 
-void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, uint32_t height) {
+void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, uint32_t height,
+                   nozzle::texture_format storage_format) {
     nozzle::acquire_desc desc{};
     desc.timeout_ms = 1000;
     auto result = receiver.acquire_frame(desc);
@@ -67,7 +70,7 @@ void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, u
     REQUIRE(info.frame_index == index);
     REQUIRE(info.width == width);
     REQUIRE(info.height == height);
-    REQUIRE(info.format == nozzle::texture_format::rgba8_unorm);
+    REQUIRE(info.format == storage_format);
     REQUIRE(info.dropped_frame_count == 0);
     // Release backend synchronization before destroying or publishing a sender.
     result.value().release();
@@ -79,13 +82,13 @@ TEST_CASE("Sender lifecycle: live-process destruction and same-name reconnect",
     "[integration][sender_lifecycle]") {
     auto desc = unique_sender_desc();
     auto sender = make_sender(desc);
-    publish_frame(sender, 64, 48);
+    const auto original_format = publish_frame(sender, 64, 48);
     nozzle::receiver_desc receiver_desc{};
     receiver_desc.name = desc.name;
     auto created = nozzle::receiver::create(receiver_desc);
     REQUIRE(created.ok());
     auto receiver = std::move(created.value());
-    require_frame(receiver, 1, 64, 48);
+    require_frame(receiver, 1, 64, 48, original_format);
     const auto original = receiver.connected_info();
     REQUIRE(original.id == sender.info().id);
     REQUIRE_FALSE(original.id.empty());
@@ -111,8 +114,8 @@ TEST_CASE("Sender lifecycle: live-process destruction and same-name reconnect",
     desc.metadata = {{"generation", "replacement"}};
     sender = make_sender(desc);
     REQUIRE(sender.info().id != original.id);
-    publish_frame(sender, 96, 80);
-    require_frame(receiver, 1, 96, 80);
+    const auto replacement_format = publish_frame(sender, 96, 80);
+    require_frame(receiver, 1, 96, 80, replacement_format);
     REQUIRE(receiver.is_connected());
     const auto replacement = receiver.connected_info();
     REQUIRE(replacement.id == sender.info().id);
@@ -122,7 +125,7 @@ TEST_CASE("Sender lifecycle: live-process destruction and same-name reconnect",
     REQUIRE(replacement.backend == original.backend);
     REQUIRE(replacement.width == 96);
     REQUIRE(replacement.height == 80);
-    REQUIRE(replacement.format == nozzle::texture_format::rgba8_unorm);
+    REQUIRE(replacement.format == replacement_format);
     REQUIRE(replacement.frame_counter == 1);
     const auto metadata = receiver.sender_metadata();
     REQUIRE(metadata.size() == 1);
@@ -142,8 +145,8 @@ TEST_CASE("Sender lifecycle: closure interrupts frame acquisition",
 
     SECTION("awaiting first frame") {}
     SECTION("awaiting new frame") {
-        publish_frame(sender, 64, 48);
-        require_frame(receiver, 1, 64, 48);
+        const auto storage_format = publish_frame(sender, 64, 48);
+        require_frame(receiver, 1, 64, 48, storage_format);
     }
 
     nozzle::acquire_desc acquire{};
