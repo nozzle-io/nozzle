@@ -294,13 +294,13 @@ jobs:
             exit 1
           fi
 
-      - name: D3D11 cross-process fan-out regression
+      - name: D3D11 cross-process fan-out and writable lease regressions
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 3
         shell: bash
         run: |
           set -o pipefail
-          ./build/tests/Debug/nozzle_integration_tests.exe "[d3d11_fanout]" --reporter console --success | tee d3d11-fanout.log
+          ./build/tests/Debug/nozzle_integration_tests.exe "[d3d11_fanout],[writable_lease]" --reporter console --success | tee d3d11-fanout.log
           if grep -qi "skipped" d3d11-fanout.log; then
             echo "::error::D3D11 cross-process fan-out tests must execute"
             exit 1

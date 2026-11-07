@@ -191,7 +191,7 @@ TEST_CASE("D3D11 cross-process zero timeout is prompt for contention and no new 
     CHECK(no_new.acquire_ms < 250.0);
 }
 
-TEST_CASE("D3D11 writable native GPU writes are protected before commit",
+TEST_CASE("D3D11 native writable GPU pixels survive cross-process publication",
           "[.][integration][cross_process][d3d11_fanout]") {
     peers p(1);
     require_publication(p.sender.send("publish_native 11 0"));

@@ -131,6 +131,7 @@ if(WIN32)
         integration/test_d3d11_device_injection.cpp
         integration/test_d3d11_multi_receiver.cpp
         integration/test_d3d11_fanout.cpp
+        integration/test_d3d11_writable_lease.cpp
     )
 
     add_executable(nozzle_d3d11_cross_process_sender
