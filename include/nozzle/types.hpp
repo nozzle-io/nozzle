@@ -306,6 +306,7 @@ struct sender_desc {
     // boundary. Empty uses "unknown" in discovery, sender info and snapshots.
     std::string application_name{};
     uint32_t ring_buffer_size{3};
+    // Initial metadata is serialized before this sender appears in discovery.
     metadata_list metadata{};
     uint32_t fallback_flags{fallback_safe_defaults};
     native_device_desc native_device{};

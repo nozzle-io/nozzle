@@ -26,6 +26,7 @@ set(UNIT_TEST_SOURCES
     unit/test_shared_layout.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/metadata.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp
     ${CMAKE_SOURCE_DIR}/src/common/channel_swizzle.cpp
     ${CMAKE_SOURCE_DIR}/src/common/format_resolve.cpp
@@ -97,6 +98,7 @@ endif()
 set(INTEGRATION_TEST_SOURCES
     integration/test_cross_process.cpp
     integration/test_sender_lifecycle.cpp
+    integration/test_initial_metadata.cpp
     integration/test_c_sender_desc.cpp
     integration/test_cpp_sender_desc.cpp
     integration/test_names.cpp

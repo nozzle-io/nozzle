@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "registry.hpp"
+#include "metadata.hpp"
 #include "shared_state.hpp"
 
 #include <nozzle/discovery.hpp>
@@ -18,6 +19,42 @@ static void clear_all_registered_senders() {
     for (const auto &sender : senders) {
         registry::unregister_sender(sender.id.c_str());
     }
+}
+
+TEST_CASE("Registry: initial metadata is complete at registration return", "[registry][initial_metadata]") {
+    struct registration_scope {
+        registry::Registration registration{};
+        registry::SenderStateView view{};
+        ~registration_scope() {
+            registry::close_sender_state(view);
+            if (registration.uuid[0] != '\0') registry::unregister_sender(registration.uuid);
+        }
+    } scope;
+    nozzle::metadata_list metadata;
+    SECTION("empty metadata") {}
+    SECTION("ordinary initial entries") {
+        metadata = {{"source", "camera"}, {"mode", "a=b"}, {"optional", ""}};
+    }
+    const auto name = "initial_md_" + std::to_string(nd::ipc::current_pid()) + "_" +
+        std::to_string(nd::ipc::monotonic_ns());
+    auto result = registry::register_sender(name.c_str(), "metadata_test", 0, 0, 0, 0, 2, metadata);
+    REQUIRE(result.ok());
+    scope.registration = result.value();
+    auto opened = registry::open_sender_state(scope.registration.shm_name);
+    REQUIRE(opened.ok());
+    scope.view = opened.value();
+    REQUIRE(scope.view.state->magic == nd::kSenderMagic);
+    const auto actual = nd::parse_metadata(scope.view.state->metadata, sizeof(scope.view.state->metadata));
+    REQUIRE(actual.size() == metadata.size());
+    for (std::size_t i = 0; i < metadata.size(); ++i) {
+        CHECK(actual[i].key == metadata[i].key);
+        CHECK(actual[i].value == metadata[i].value);
+    }
+    bool advertised = false;
+    for (const auto &sender : nozzle::enumerate_senders()) {
+        if (sender.id == scope.registration.uuid) advertised = true;
+    }
+    CHECK(advertised);
 }
 
 TEST_CASE("Registry: register and unregister sender", "[registry]") {
