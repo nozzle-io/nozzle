@@ -435,7 +435,11 @@ Result<dir_lock> dir_lock_acquire(const char *name, bool) {
     fl.l_start = 0;
     fl.l_len = 0;
 
-    if (fcntl(fd, F_SETLKW, &fl) != 0) {
+    int lock_result;
+    do {
+        lock_result = fcntl(fd, F_SETLKW, &fl);
+    } while (lock_result != 0 && errno == EINTR);
+    if (lock_result != 0) {
         close(fd);
         return Error{ErrorCode::ResourceCreationFailed, "fcntl lock failed"};
     }
