@@ -26,7 +26,8 @@ struct shm_handle {
 
 using pid_type = uint64_t;
 
-Result<shm_handle> shm_create(const char *name, std::size_t size);
+// Existing objects are opened unchanged; created is true only on successful creation.
+Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created = nullptr);
 Result<shm_handle> shm_open_ro(const char *name);
 Result<shm_handle> shm_open_rw(const char *name);
 Result<void *> shm_map(shm_handle &h, std::size_t size, bool read_only);

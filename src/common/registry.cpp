@@ -10,6 +10,7 @@
 
 #include "ipc.hpp"
 #include "name_validation.hpp"
+#include "shared_layout.hpp"
 #include "shared_state.hpp"
 
 namespace nozzle {
@@ -39,6 +40,7 @@ struct ScopedDirLock {
     ipc::shm_handle handle{};
     void *mapped{nullptr};
     std::size_t mapped_size{0};
+    uint32_t capacity{0};
 
     ~ScopedDirLock() {
         if (mapped != nullptr) {
@@ -58,6 +60,7 @@ struct ScopedDirLock {
         , handle{other.handle}
         , mapped{other.mapped}
         , mapped_size{other.mapped_size}
+        , capacity{other.capacity}
     {
         other.lock = {};
         other.handle = {};
@@ -70,6 +73,7 @@ struct ScopedDirLock {
             handle = other.handle;
             mapped = other.mapped;
             mapped_size = other.mapped_size;
+            capacity = other.capacity;
             other.lock = {};
             other.handle = {};
             other.mapped = nullptr;
@@ -96,6 +100,8 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
         }
         dir.handle = std::move(shm_result.value());
 
+        auto prefix = validate_mapping_prefix(dir.handle, kDirectoryMagic, "directory");
+        if (!prefix.ok()) return prefix.error();
         auto map_result = ipc::shm_map(dir.handle, total_size, true);
         if (!map_result.ok()) {
             return map_result.error();
@@ -103,25 +109,42 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
         dir.mapped = map_result.value();
         dir.mapped_size = total_size;
     } else {
-        auto shm_result = ipc::shm_create(kDirectoryShmName, total_size);
+        bool created = false;
+        auto shm_result = ipc::shm_create(kDirectoryShmName, total_size, &created);
         if (!shm_result.ok()) {
             return shm_result.error();
         }
         dir.handle = std::move(shm_result.value());
 
+        if (!created) {
+            auto prefix = validate_mapping_prefix(dir.handle, kDirectoryMagic, "directory");
+            if (!prefix.ok()) return prefix.error();
+        }
         auto map_result = ipc::shm_map(dir.handle, total_size, false);
         if (!map_result.ok()) {
+            if (created) ipc::shm_unlink(kDirectoryShmName);
             return map_result.error();
         }
         dir.mapped = map_result.value();
         dir.mapped_size = total_size;
 
         auto *header = static_cast<DirectoryHeader *>(dir.mapped);
-        if (header->magic != kDirectoryMagic) {
+        if (created) {
             std::memset(dir.mapped, 0, total_size);
             header->magic = kDirectoryMagic;
             header->version = kSharedMemVersion;
             header->capacity = kMaxSenders;
+        }
+    }
+
+    auto capacity = validate_directory_header(*static_cast<const DirectoryHeader *>(dir.mapped));
+    if (!capacity.ok()) return capacity.error();
+    dir.capacity = capacity.value();
+    const auto *entries = reinterpret_cast<const DirectoryEntry *>(
+        static_cast<const uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
+    for (uint32_t i = 0; i < dir.capacity; ++i) {
+        if (entries[i].valid == entry_valid_flag::valid && !valid_directory_strings(entries[i])) {
+            return Error{ErrorCode::BackendError, "nozzle directory has unterminated entry fields"};
         }
     }
 
@@ -141,7 +164,7 @@ void cleanup_stale_entries() {
     auto *entries = reinterpret_cast<DirectoryEntry *>(
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
-    for (uint32_t i = 0; i < header->capacity; ++i) {
+    for (uint32_t i = 0; i < dir.capacity; ++i) {
         if (entries[i].valid == entry_valid_flag::valid && !ipc::is_pid_alive(entries[i].pid)) {
             entries[i].valid = entry_valid_flag::invalid;
         }
@@ -192,14 +215,14 @@ Result<Registration> register_sender(
     auto *entries = reinterpret_cast<DirectoryEntry *>(
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
-    for (uint32_t i = 0; i < header->capacity; ++i) {
+    for (uint32_t i = 0; i < dir.capacity; ++i) {
         if (entries[i].valid == entry_valid_flag::valid && !ipc::is_pid_alive(entries[i].pid)) {
             entries[i].valid = entry_valid_flag::invalid;
         }
     }
 
     int slot_index = kSlotNotFound;
-    for (uint32_t i = 0; i < header->capacity; ++i) {
+    for (uint32_t i = 0; i < dir.capacity; ++i) {
         if (entries[i].valid == entry_valid_flag::invalid) {
             slot_index = static_cast<int>(i);
             break;
@@ -222,17 +245,23 @@ Result<Registration> register_sender(
     ipc::atomic_store_relaxed(&header->change_counter,
         ipc::atomic_load_relaxed(&header->change_counter) + 1);
 
-    auto sender_shm = ipc::shm_create(reg.shm_name, sizeof(SenderSharedState));
+    bool created = false;
+    auto sender_shm = ipc::shm_create(reg.shm_name, sizeof(SenderSharedState), &created);
     if (!sender_shm.ok()) {
         entry.valid = entry_valid_flag::invalid;
         return Error{ErrorCode::ResourceCreationFailed, "shm_create failed for sender state"};
+    }
+    if (!created) {
+        ipc::shm_close(sender_shm.value());
+        entry.valid = entry_valid_flag::invalid;
+        return Error{ErrorCode::ResourceCreationFailed, "sender state name already exists"};
     }
 
     auto sender_map = ipc::shm_map(sender_shm.value(), sizeof(SenderSharedState), false);
     if (!sender_map.ok()) {
         ipc::shm_close(sender_shm.value());
-    ipc::shm_unlink(reg.shm_name);
-    entry.valid = entry_valid_flag::invalid;
+        ipc::shm_unlink(reg.shm_name);
+        entry.valid = entry_valid_flag::invalid;
         return Error{ErrorCode::ResourceCreationFailed, "shm_map failed for sender state"};
     }
 
@@ -271,7 +300,7 @@ Result<void> unregister_sender(const char *uuid) {
     char shm_name[96]{};
     bool found = false;
 
-    for (uint32_t i = 0; i < header->capacity; ++i) {
+    for (uint32_t i = 0; i < dir.capacity; ++i) {
         if (entries[i].valid == entry_valid_flag::valid && std::strncmp(entries[i].uuid, uuid, 36) == 0) {
             std::memcpy(shm_name, entries[i].shm_name, sizeof(shm_name));
             entries[i].valid = entry_valid_flag::invalid;
@@ -301,6 +330,11 @@ Result<SenderStateView> open_sender_state(const char *shm_name) {
     }
     view.handle = std::move(shm_result.value());
 
+    auto prefix = validate_mapping_prefix(view.handle, kSenderMagic, "sender");
+    if (!prefix.ok()) {
+        close_sender_state(view);
+        return prefix.error();
+    }
     view.mapped_size = sizeof(SenderSharedState);
     auto map_result = ipc::shm_map(view.handle, view.mapped_size, true);
     if (!map_result.ok()) {
@@ -312,9 +346,10 @@ Result<SenderStateView> open_sender_state(const char *shm_name) {
 
     view.state = static_cast<const SenderSharedState *>(view.mapped);
 
-    if (view.state->magic != kSenderMagic) {
+    auto layout = validate_sender_layout(*view.state);
+    if (!layout.ok()) {
         close_sender_state(view);
-        return Error{ErrorCode::BackendError, "sender state has invalid magic"};
+        return layout.error();
     }
 
     return view;

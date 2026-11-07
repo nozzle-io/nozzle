@@ -6,6 +6,7 @@
 
 #include "ipc.hpp"
 #include "shared_state.hpp"
+#include "shared_layout.hpp"
 
 #include <cstring>
 #include <exception>
@@ -25,6 +26,11 @@ std::vector<sender_info> enumerate_senders() {
         return result;
     }
 
+    auto prefix = detail::validate_mapping_prefix(shm_result.value(), detail::kDirectoryMagic, "directory");
+    if (!prefix.ok()) {
+        detail::ipc::shm_close(shm_result.value());
+        return result;
+    }
     const auto total_size = sizeof(detail::DirectoryHeader) +
                             sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
 
@@ -36,7 +42,8 @@ std::vector<sender_info> enumerate_senders() {
     void *mapped = map_result.value();
 
     auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
-    if (header->magic != detail::kDirectoryMagic) {
+    auto capacity = detail::validate_directory_header(*header);
+    if (!capacity.ok()) {
         detail::ipc::shm_unmap(mapped, total_size);
         detail::ipc::shm_close(shm_result.value());
         return result;
@@ -45,24 +52,26 @@ std::vector<sender_info> enumerate_senders() {
     auto *entries = reinterpret_cast<const detail::DirectoryEntry *>(
         static_cast<const uint8_t *>(mapped) + sizeof(detail::DirectoryHeader));
 
-    for (uint32_t i = 0; i < header->capacity; ++i) {
-        if (entries[i].valid != detail::entry_valid_flag::valid) {
+    for (uint32_t i = 0; i < capacity.value(); ++i) {
+        const auto entry = entries[i];
+        if (entry.valid != detail::entry_valid_flag::valid ||
+            !detail::valid_directory_strings(entry)) {
             continue;
         }
 
-        if (entries[i].pid == detail::kInvalidPid) {
+        if (entry.pid == detail::kInvalidPid) {
             continue;
         }
 
-        if (!detail::ipc::is_pid_alive(entries[i].pid)) {
+        if (!detail::ipc::is_pid_alive(entry.pid)) {
             continue;
         }
 
         sender_info info{};
-        info.name = entries[i].sender_name;
-        info.application_name = entries[i].application_name;
-        info.id = entries[i].uuid;
-        info.backend = static_cast<backend_type>(entries[i].backend);
+        info.name = entry.sender_name;
+        info.application_name = entry.application_name;
+        info.id = entry.uuid;
+        info.backend = static_cast<backend_type>(entry.backend);
         result.push_back(std::move(info));
     }
 

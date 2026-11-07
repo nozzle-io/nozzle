@@ -21,15 +21,20 @@ metadata_list parse_metadata(const char *buf, std::size_t buf_size) {
 		}
 
 		const char *entry = buf + pos;
-		auto entry_len = std::strlen(entry);
+		const auto *end = static_cast<const char *>(
+			std::memchr(entry, '\0', buf_size - pos));
+		if (!end) {
+			break;
+		}
+		const auto entry_len = static_cast<std::size_t>(end - entry);
 		if (entry_len == 0) {
 			break;
 		}
 
-		const char *eq = std::strchr(entry, '=');
+		const auto *eq = static_cast<const char *>(std::memchr(entry, '=', entry_len));
 		if (eq && eq != entry) {
 			std::string key(entry, static_cast<std::size_t>(eq - entry));
-			std::string value(eq + 1);
+			std::string value(eq + 1, static_cast<std::size_t>(end - eq - 1));
 			result.push_back({std::move(key), std::move(value)});
 		}
 

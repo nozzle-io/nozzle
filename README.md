@@ -230,6 +230,28 @@ Layer 1: Common API (sender, receiver, frame, texture, device, discovery)
 Layer 0: Platform infrastructure (registry, IPC, shared memory)
 ```
 
+### Shared-memory compatibility
+
+Directory readers and writers validate magic/version, capacity, and identity
+fields before using them as bounds or strings. Receivers additionally reject
+invalid sender-state headers, ring sizes, and committed slots. Existing named mappings are not
+resized, reset, or replaced to make them fit the current layout. Only newly
+created directory mappings are initialized. POSIX mappings check the backing
+extent before access; Windows uses the requested view extent.
+
+Sender/receiver creation preserves a clear version-mismatch error when the
+stable header prefix is readable, including older layouts smaller than the
+current structure. Discovery's list-only API returns no entries for an invalid
+directory and skips malformed entries. Align core versions across applications;
+do not remove an active application's shared state to bypass a mismatch.
+
+These checks are compatibility/corruption defenses, not authentication or a
+guarantee against malicious concurrent mutation/truncation. Crash cleanup,
+PID-reuse-safe liveness, and publication timestamp semantics are separate work:
+[nozzle-dev#253](https://github.com/nozzle-io/nozzle-dev/issues/253),
+[nozzle-dev#254](https://github.com/nozzle-io/nozzle-dev/issues/254), and
+[nozzle-dev#255](https://github.com/nozzle-io/nozzle-dev/issues/255).
+
 ### Backend: macOS Metal
 
 Textures are backed by `IOSurface` for cross-process sharing. Sender creates IOSurface-backed Metal textures in a ring buffer. Receiver looks up the IOSurface by ID and creates its own Metal texture view.

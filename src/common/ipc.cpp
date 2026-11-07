@@ -95,7 +95,10 @@ bool shm_handle::valid() const noexcept {
     return handle != nullptr;
 }
 
-Result<shm_handle> shm_create(const char *name, std::size_t size) {
+Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created) {
+    if (created) {
+        *created = false;
+    }
     const char *wname = win_shm_name(name);
     auto &registry = retained_mappings();
     mapping_registry_lock lock(registry.lock);
@@ -104,10 +107,10 @@ Result<shm_handle> shm_create(const char *name, std::size_t size) {
 
     void *h = CreateFileMappingA(
         INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, hi, lo, wname);
+    const DWORD create_error = GetLastError();
     if (!h) {
-        DWORD err = GetLastError();
         char buf[128]{};
-        std::snprintf(buf, sizeof(buf), "CreateFileMappingA failed: %lu", err);
+        std::snprintf(buf, sizeof(buf), "CreateFileMappingA failed: %lu", create_error);
         return Error{ErrorCode::ResourceCreationFailed, buf};
     }
 
@@ -115,6 +118,9 @@ Result<shm_handle> shm_create(const char *name, std::size_t size) {
     // returns a valid handle for an existing mapping, without resizing it.
     for (auto *pin = registry.head; pin; pin = pin->next) {
         if (std::strcmp(pin->name, wname) == 0) {
+            if (created) {
+                *created = create_error != ERROR_ALREADY_EXISTS;
+            }
             return shm_handle{h};
         }
     }
@@ -142,6 +148,9 @@ Result<shm_handle> shm_create(const char *name, std::size_t size) {
     pin->next = registry.head;
     registry.head = pin;
 
+    if (created) {
+        *created = create_error != ERROR_ALREADY_EXISTS;
+    }
     return shm_handle{h};
 }
 
@@ -285,35 +294,33 @@ bool shm_handle::valid() const noexcept {
     return fd >= 0;
 }
 
-Result<shm_handle> shm_create(const char *name, std::size_t size) {
-    int fd = shm_open(name, O_RDWR | O_CREAT, 0666);
+Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created) {
+    if (created) {
+        *created = false;
+    }
+    int fd = ::shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
     if (fd < 0) {
+        if (errno == EEXIST) {
+            fd = ::shm_open(name, O_RDWR, 0);
+            if (fd >= 0) {
+                return shm_handle{fd};
+            }
+        }
         return Error{ErrorCode::ResourceCreationFailed, "shm_open failed"};
     }
 
-    struct stat st{};
-    if (fstat(fd, &st) == 0 && static_cast<std::size_t>(st.st_size) >= size) {
-        return shm_handle{fd};
-    }
-
     if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
-        int saved = errno;
+        const int saved = errno;
         close(fd);
-        shm_unlink(name);
-
-        fd = shm_open(name, O_RDWR | O_CREAT, 0666);
-        if (fd < 0) {
-            return Error{ErrorCode::ResourceCreationFailed, "shm_open recreate failed"};
-        }
-        if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
-            close(fd);
-            char buf[128]{};
-            std::snprintf(buf, sizeof(buf), "ftruncate failed: errno=%d (retry errno=%d)",
-                          saved, errno);
-            return Error{ErrorCode::ResourceCreationFailed, buf};
-        }
+        ::shm_unlink(name);
+        char buf[128]{};
+        std::snprintf(buf, sizeof(buf), "ftruncate failed: errno=%d", saved);
+        return Error{ErrorCode::ResourceCreationFailed, buf};
     }
 
+    if (created) {
+        *created = true;
+    }
     return shm_handle{fd};
 }
 
@@ -334,6 +341,15 @@ Result<shm_handle> shm_open_rw(const char *name) {
 }
 
 Result<void *> shm_map(shm_handle &h, std::size_t size, bool read_only) {
+    struct stat st{};
+    if (fstat(h.fd, &st) != 0) {
+        return Error{ErrorCode::ResourceCreationFailed, "fstat failed before mmap"};
+    }
+    if (st.st_size < 0 || static_cast<std::uintmax_t>(st.st_size) < size) {
+        return Error{ErrorCode::ResourceCreationFailed,
+                     "shared memory backing is smaller than requested mapping"};
+    }
+    // This rejects an already undersized object, not a concurrent truncate.
     int prot = read_only ? PROT_READ : PROT_READ | PROT_WRITE;
     void *ptr = mmap(nullptr, size, prot, MAP_SHARED, h.fd, 0);
     if (ptr == MAP_FAILED) {
