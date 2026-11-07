@@ -7,6 +7,7 @@
 #include "ipc.hpp"
 #include "frame_helpers.hpp"
 #include "metadata.hpp"
+#include "name_validation.hpp"
 #include "registry.hpp"
 #include "shared_metadata.hpp"
 #include "shared_state.hpp"
@@ -257,9 +258,8 @@ receiver &receiver::operator=(receiver &&other) noexcept {
 }
 
 Result<receiver> receiver::create(const receiver_desc &desc) {
-    if (desc.name.empty()) {
-        return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
-    }
+    auto name_result = detail::validate_sender_name(desc.name);
+    if (!name_result.ok()) return name_result.error();
 
     auto setup = establish_connection(desc.name);
     if (!setup.ok()) {

@@ -8,7 +8,9 @@
 #include <memory>
 
 TEST_CASE("Name boundaries round trip through C++ and C snapshots", "[names][name_roundtrip]") {
-    for (const auto &sample : name_cases::valid_names()) {
+    auto samples = name_cases::valid_names();
+    samples.push_back({"name_default_app", "", "unknown"});
+    for (const auto &sample : samples) {
         CAPTURE(sample.name, sample.application);
         nozzle::sender_desc desc{};
         desc.name = sample.name;

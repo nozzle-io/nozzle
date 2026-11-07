@@ -121,6 +121,27 @@ nozzle_sender_acquire_writable_frame(sender, 1920, 1080, NOZZLE_FORMAT_RGBA8_UNO
 nozzle_sender_commit_frame(sender, frame);
 ```
 
+### Names and UTF-8
+
+Sender identity (`name`) is **1 to 63 bytes of valid UTF-8**, excluding the
+terminating NUL. Both sender creation and receiver lookup reject longer names
+or invalid UTF-8 with `InvalidArgument` (`NOZZLE_ERROR_INVALID_ARGUMENT` in C).
+Identity is never truncated. C++ strings must not contain embedded NUL bytes;
+C arguments must be NUL-terminated.
+
+`application_name` is display text. Sender creation validates the entire input,
+then stores at most 63 bytes, ending on a UTF-8 code-point boundary. An omitted
+or empty value becomes `unknown`. Discovery, sender info, receiver info and C
+snapshots all expose that stored value. Code-point-safe truncation does not
+preserve grapheme clusters: combining marks or ZWJ emoji sequences can be split.
+
+**Breaking change (nozzle-dev#190):** applications that previously created
+senders with names longer than 63 bytes or malformed UTF-8 now receive an error
+at creation. Pass standard UTF-8 at wrapper boundaries. Windows ANSI/CP932
+strings and JNI modified UTF-8 are not substitutes; convert from the host's
+encoding before calling nozzle. No shared-memory capacity, layout or version
+changes are part of this validation change.
+
 ### CPU pixel mapping semantics
 
 New CPU pixel mapping code should use the owned mapping-handle APIs. The handle

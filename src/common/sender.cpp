@@ -26,6 +26,7 @@
 #include "frame_helpers.hpp"
 #include "ipc.hpp"
 #include "metadata.hpp"
+#include "name_validation.hpp"
 #include "registry.hpp"
 #include "sender_fallback.hpp"
 #include "shared_metadata.hpp"
@@ -146,9 +147,10 @@ sender::sender(sender &&) noexcept = default;
 sender &sender::operator=(sender &&) noexcept = default;
 
 Result<sender> sender::create(const sender_desc &desc) {
-	if (desc.name.empty()) {
-		return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
-	}
+	auto name_result = detail::validate_sender_name(desc.name);
+	if (!name_result.ok()) return name_result.error();
+	auto app_result = detail::validate_application_name(desc.application_name);
+	if (!app_result.ok()) return app_result.error();
 
 	auto flag_result = validate_fallback_flags(desc.fallback_flags);
 	if (!flag_result.ok()) {
@@ -260,8 +262,8 @@ Result<sender> sender::create(const sender_desc &desc) {
 		s.impl_->owns_native_device_ = true;
 	}
 	s.impl_->slot_in_use_.fill(false);
-	s.impl_->info_.name = desc.name;
-	s.impl_->info_.application_name = desc.application_name;
+	s.impl_->info_.name = state->name;
+	s.impl_->info_.application_name = state->application_name;
 	s.impl_->info_.id = std::string(s.impl_->registration_.uuid);
 	s.impl_->info_.backend = detail::backend::get_backend_type();
 	s.impl_->metadata_ = desc.metadata;

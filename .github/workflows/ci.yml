@@ -90,6 +90,12 @@ jobs:
       - name: C API snapshot identity transition
         run: ./build/tests/nozzle_integration_tests "[info_snapshot][cross_process]" --reporter console --success
 
+      - name: UTF-8 names and snapshot round trip
+        run: |
+          ./build/tests/nozzle_tests "[names]" --reporter compact
+          ./build/tests/nozzle_c_api_tests "[names]" --reporter compact
+          ./build/tests/nozzle_integration_tests "[name_roundtrip]" --reporter console --success
+
       # Explicit evidence for #56 RGB semantic -> storage fallback receiver metadata.
       - name: RGB semantic receiver metadata tests
         run: ./build/tests/nozzle_integration_tests "[integration][fallback][rgb_semantic]" --reporter console --success --allow-running-no-tests
@@ -236,6 +242,13 @@ jobs:
 
       - name: C API snapshot identity transition
         run: ./build/tests/Debug/nozzle_integration_tests.exe "[info_snapshot][cross_process]" --reporter console --success
+
+      - name: UTF-8 names and snapshot round trip
+        shell: bash
+        run: |
+          ./build/tests/Debug/nozzle_tests.exe "[names]" --reporter compact
+          ./build/tests/Debug/nozzle_c_api_tests.exe "[names]" --reporter compact
+          ./build/tests/Debug/nozzle_integration_tests.exe "[name_roundtrip]" --reporter console --success
 
       # Explicit evidence for #56 RGB semantic -> storage fallback receiver metadata.
       - name: RGB semantic receiver metadata tests

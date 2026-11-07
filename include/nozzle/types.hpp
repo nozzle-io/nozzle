@@ -300,7 +300,10 @@ struct native_device_desc {
 };
 
 struct sender_desc {
+    // UTF-8 identity: 1 to 63 bytes, no embedded NUL; never truncated.
     std::string name{};
+    // Valid UTF-8 without embedded NUL; truncated to 63 bytes at a code-point
+    // boundary. Empty uses "unknown" in discovery, sender info and snapshots.
     std::string application_name{};
     uint32_t ring_buffer_size{3};
     metadata_list metadata{};
@@ -309,6 +312,7 @@ struct sender_desc {
 };
 
 struct receiver_desc {
+    // Same identity constraints as sender_desc::name.
     std::string name{};
     std::string application_name{};
     receive_mode receive_mode_val{receive_mode::latest_only};
