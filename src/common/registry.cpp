@@ -96,74 +96,57 @@ bool recoverable_directory_initialization(const void *mapped, std::size_t size) 
     return true;
 }
 
-Result<directory_mapping> open_directory_locked(bool read_only) {
+Result<directory_mapping> open_directory_locked() {
     directory_mapping dir{};
     const auto total_size = sizeof(DirectoryHeader) + sizeof(DirectoryEntry) * kMaxSenders;
 
-    auto lock_result = ipc::dir_lock_acquire(kDirectoryShmName, !read_only);
+    auto lock_result = ipc::dir_lock_acquire(kDirectoryShmName, true);
     if (!lock_result.ok()) {
         return lock_result.error();
     }
     dir.lock = std::move(lock_result.value());
 
-    if (read_only) {
-        auto shm_result = ipc::shm_open_ro(kDirectoryShmName);
-        if (!shm_result.ok()) {
-            return shm_result.error();
-        }
-        dir.handle = std::move(shm_result.value());
+    bool created = false;
+    auto shm_result = ipc::shm_create(kDirectoryShmName, total_size, &created);
+    if (!shm_result.ok()) {
+        return shm_result.error();
+    }
+    dir.handle = std::move(shm_result.value());
 
+    bool initialize = created;
+    if (!created) {
+        auto extent = ipc::shm_get_size(dir.handle);
+        if (extent.ok() && extent.value() == 0) {
+            auto prepared = ipc::shm_initialize_empty(dir.handle, total_size);
+            if (!prepared.ok()) return prepared.error();
+            initialize = true;
+        }
         auto prefix = validate_mapping_prefix(dir.handle, kDirectoryMagic, "directory");
-        if (!prefix.ok()) return prefix.error();
-        auto map_result = ipc::shm_map(dir.handle, total_size, true);
-        if (!map_result.ok()) {
-            return map_result.error();
+        if (!prefix.ok()) {
+            if (prefix.error().code != ErrorCode::SenderNotFound) return prefix.error();
+            initialize = true;
         }
-        dir.mapped = map_result.value();
-        dir.mapped_size = total_size;
-    } else {
-        bool created = false;
-        auto shm_result = ipc::shm_create(kDirectoryShmName, total_size, &created);
-        if (!shm_result.ok()) {
-            return shm_result.error();
-        }
-        dir.handle = std::move(shm_result.value());
+    }
+    auto map_result = ipc::shm_map(dir.handle, total_size, false);
+    if (!map_result.ok()) {
+        if (created) ipc::shm_unlink(kDirectoryShmName);
+        return map_result.error();
+    }
+    dir.mapped = map_result.value();
+    dir.mapped_size = total_size;
 
-        bool initialize = created;
-        if (!created) {
-            auto extent = ipc::shm_get_size(dir.handle);
-            if (extent.ok() && extent.value() == 0) {
-                auto prepared = ipc::shm_initialize_empty(dir.handle, total_size);
-                if (!prepared.ok()) return prepared.error();
-                initialize = true;
-            }
-            auto prefix = validate_mapping_prefix(dir.handle, kDirectoryMagic, "directory");
-            if (!prefix.ok()) {
-                if (prefix.error().code != ErrorCode::SenderNotFound) return prefix.error();
-                initialize = true;
-            }
+    auto *header = static_cast<DirectoryHeader *>(dir.mapped);
+    if (initialize) {
+        // Both the process mutex and interprocess lock are held. A zero
+        // magic with populated entries is corruption, not our startup.
+        if (!created && !recoverable_directory_initialization(dir.mapped, total_size)) {
+            return Error{ErrorCode::BackendError, "unpublished directory contains foreign data"};
         }
-        auto map_result = ipc::shm_map(dir.handle, total_size, false);
-        if (!map_result.ok()) {
-            if (created) ipc::shm_unlink(kDirectoryShmName);
-            return map_result.error();
-        }
-        dir.mapped = map_result.value();
-        dir.mapped_size = total_size;
-
-        auto *header = static_cast<DirectoryHeader *>(dir.mapped);
-        if (initialize) {
-            // Both the process mutex and interprocess lock are held. A zero
-            // magic with populated entries is corruption, not our startup.
-            if (!created && !recoverable_directory_initialization(dir.mapped, total_size)) {
-                return Error{ErrorCode::BackendError, "unpublished directory contains foreign data"};
-            }
-            std::memset(dir.mapped, 0, total_size);
-            header->version = kDirectoryLayoutVersion;
-            header->capacity = kMaxSenders;
-            ipc::atomic_fence_release();
-            ipc::atomic_store_release_32(&header->magic, kDirectoryMagic);
-        }
+        std::memset(dir.mapped, 0, total_size);
+        header->version = kDirectoryLayoutVersion;
+        header->capacity = kMaxSenders;
+        ipc::atomic_fence_release();
+        ipc::atomic_store_release_32(&header->magic, kDirectoryMagic);
     }
 
     auto capacity = validate_directory_header(*static_cast<const DirectoryHeader *>(dir.mapped));
@@ -172,7 +155,7 @@ Result<directory_mapping> open_directory_locked(bool read_only) {
     const auto *entries = reinterpret_cast<const DirectoryEntry *>(
         static_cast<const uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
     for (uint32_t i = 0; i < dir.capacity; ++i) {
-        if (!read_only && entries[i].valid == entry_valid_flag::valid && !valid_directory_strings(entries[i])) {
+        if (entries[i].valid == entry_valid_flag::valid && !valid_directory_strings(entries[i])) {
             return Error{ErrorCode::BackendError, "nozzle directory has unterminated entry fields"};
         }
     }
@@ -208,7 +191,7 @@ Result<DirectorySnapshot> read_directory_snapshot() {
 
 void cleanup_stale_entries() {
     std::lock_guard<std::mutex> lock(process_mutex_);
-    auto dir_result = open_directory_locked(false);
+    auto dir_result = open_directory_locked();
     if (!dir_result.ok()) {
         return;
     }
@@ -259,7 +242,7 @@ Result<Registration> register_sender(
     generate_uuid(reg.uuid);
     std::snprintf(reg.shm_name, sizeof(reg.shm_name), "%s%.8s", kSenderShmPrefix, reg.uuid);
 
-    auto dir_result = open_directory_locked(false);
+    auto dir_result = open_directory_locked();
     if (!dir_result.ok()) {
         return dir_result.error();
     }
@@ -343,7 +326,7 @@ Result<Registration> register_sender(
 Result<void> unregister_sender(const char *uuid) {
     std::lock_guard<std::mutex> lock(process_mutex_);
 
-    auto dir_result = open_directory_locked(false);
+    auto dir_result = open_directory_locked();
     if (!dir_result.ok()) {
         return dir_result.error();
     }
