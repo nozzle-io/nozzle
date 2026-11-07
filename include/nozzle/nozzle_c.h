@@ -217,7 +217,11 @@ typedef struct NozzleNativeDevice {
 } NozzleNativeDevice;
 
 typedef struct NozzleSenderDesc {
+    // NUL-terminated UTF-8 identity: 1 to 63 bytes, never truncated.
+    // Longer or invalid UTF-8 names cause NOZZLE_ERROR_INVALID_ARGUMENT.
     const char *name;
+    // Valid UTF-8 display text; truncated to 63 bytes at a code-point boundary.
+    // NULL or empty uses "unknown". Invalid UTF-8 is INVALID_ARGUMENT.
     const char *application_name;
     uint32_t ring_buffer_size;
     int allow_format_fallback;
@@ -226,6 +230,8 @@ typedef struct NozzleSenderDesc {
 } NozzleSenderDesc;
 
 typedef struct NozzleReceiverDesc {
+    // Same identity constraints as NozzleSenderDesc::name; invalid input is
+    // INVALID_ARGUMENT, not SENDER_NOT_FOUND.
     const char *name;
     const char *application_name;
     NozzleReceiveMode receive_mode;
@@ -238,8 +244,9 @@ typedef struct NozzleAcquireDesc {
 // ========== Sender Info ==========
 
 // These capacities include the trailing NUL byte and match the shared-memory
-// protocol. Strings longer than the available payload are truncated by byte,
-// so truncation is not guaranteed to preserve a UTF-8 code-point boundary.
+// protocol: at most 63 bytes of UTF-8 payload, not 63 characters. Sender names
+// are rejected if too long; application names are truncated at a code-point
+// boundary (not a grapheme boundary). IDs remain ASCII UUIDs.
 #define NOZZLE_SENDER_NAME_CAPACITY 64
 #define NOZZLE_APPLICATION_NAME_CAPACITY 64
 #define NOZZLE_SENDER_ID_CAPACITY 37

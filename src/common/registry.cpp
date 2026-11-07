@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "ipc.hpp"
+#include "name_validation.hpp"
 #include "shared_state.hpp"
 
 namespace nozzle {
@@ -165,6 +166,17 @@ Result<Registration> register_sender(
         return Error{ErrorCode::InvalidArgument, "name and app_name must not be null"};
     }
 
+    const std::string_view sender_name{name};
+    const std::string_view application_name{app_name};
+    auto name_result = validate_sender_name(sender_name);
+    if (!name_result.ok()) return name_result.error();
+    auto app_result = validate_application_name(application_name);
+    if (!app_result.ok()) return app_result.error();
+    const auto application_length = utf8_prefix_length(
+        application_name, sizeof(SenderSharedState::application_name) - 1);
+    static_assert(sizeof(DirectoryEntry::sender_name) == sizeof(SenderSharedState::name), "name capacity mismatch");
+    static_assert(sizeof(DirectoryEntry::application_name) == sizeof(SenderSharedState::application_name), "application capacity mismatch");
+
     Registration reg{};
 
     generate_uuid(reg.uuid);
@@ -199,8 +211,8 @@ Result<Registration> register_sender(
 
     auto &entry = entries[slot_index];
     std::memset(&entry, 0, sizeof(entry));
-    std::snprintf(entry.sender_name, sizeof(entry.sender_name), "%s", name);
-    std::snprintf(entry.application_name, sizeof(entry.application_name), "%s", app_name);
+    std::memcpy(entry.sender_name, name, sender_name.size());
+    std::memcpy(entry.application_name, app_name, application_length);
     std::memcpy(entry.uuid, reg.uuid, sizeof(entry.uuid));
     std::memcpy(entry.shm_name, reg.shm_name, sizeof(entry.shm_name));
     entry.backend = backend;
@@ -228,8 +240,8 @@ Result<Registration> register_sender(
     std::memset(state, 0, sizeof(SenderSharedState));
     state->magic = kSenderMagic;
     state->version = kSharedMemVersion;
-    std::snprintf(state->name, sizeof(state->name), "%s", name);
-    std::snprintf(state->application_name, sizeof(state->application_name), "%s", app_name);
+    std::memcpy(state->name, name, sender_name.size());
+    std::memcpy(state->application_name, app_name, application_length);
     std::memcpy(state->uuid, reg.uuid, sizeof(state->uuid));
     state->backend = backend;
     state->width = width;

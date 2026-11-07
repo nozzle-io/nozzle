@@ -14,6 +14,7 @@ FetchContent_MakeAvailable(Catch2)
 set(UNIT_TEST_SOURCES
     unit/test_main.cpp
     unit/test_registry.cpp
+    unit/test_names.cpp
     unit/test_discovery.cpp
     unit/test_channel_swizzle.cpp
     unit/test_format_resolve.cpp
@@ -85,6 +86,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_cross_process.cpp
     integration/test_c_sender_desc.cpp
     integration/test_cpp_sender_desc.cpp
+    integration/test_names.cpp
     integration/test_integration_fallback_getters.cpp
     integration/test_publish_mismatch.cpp
     integration/test_checked_writable_unlock.cpp
@@ -175,6 +177,7 @@ add_executable(nozzle_c_api_tests
     c_api/test_fill_alpha.cpp
     c_api/test_error_codes.cpp
     c_api/test_info_snapshot.cpp
+    c_api/test_names.cpp
     c_api/test_dmabuf_publish.cpp
     c_api/test_dmabuf_peer_policy.cpp
     c_api/test_dmabuf_peer_query.cpp
