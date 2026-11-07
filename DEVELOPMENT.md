@@ -96,7 +96,7 @@ nozzle/
 │       ├── metal/                 # macOS Metal backend (.mm — ObjC++)
 │       │   ├── metal_backend.mm  #     Device management
 │       │   ├── metal_texture.mm  #     IOSurface texture creation/lookup
-│       │   └── metal_sync.mm     #     IOSurface lock-based synchronization
+│       │   └── metal_backend_dispatch.hpp # Caller-completed GPU writes; sync hooks are no-ops
 │       ├── d3d11/                 # Windows D3D11 backend
 │       │   ├── d3d11_backend.cpp #     Device management
 │       │   ├── d3d11_texture.cpp #     Shared texture creation/lookup
@@ -129,7 +129,7 @@ Synchronization uses `_Atomic` fields with `__atomic_thread_fence` for visibilit
 
 - **`sender`**: Creates a ring buffer of IOSurface-backed Metal textures. `acquire_writable_frame()` returns a slot for rendering. `commit_frame()` publishes it. `publish_external_texture()` publishes a user-owned texture.
 - **`receiver`**: Opens sender's shared state, reads committed slot, looks up IOSurface by ID via `IOSurfaceLookup`. `acquire_frame()` returns a read-only frame view.
-- **`frame` / `writable_frame`**: RAII wrappers around textures. Frames are automatically returned to the ring buffer on destruction or explicit `release()`.
+- **`frame` / `writable_frame`**: RAII wrappers around local texture resources. Writable reservations must be committed or discarded. Releasing a received Metal frame is not a cross-process GPU completion acknowledgment.
 - **`texture`**: Holds backend-native handles (Metal texture + IOSurface). Opaque to users unless they access backend-specific APIs.
 - **`device`**: Wraps a Metal device (`id<MTLDevice>`). Can be auto-detected or user-provided via `metal::wrap_device()`.
 - **`discovery`**: Reads the directory shared memory to enumerate active senders.
@@ -145,6 +145,12 @@ Key functions:
 - `metal::lookup_iosurface_texture()` — Creates a Metal texture view of an existing IOSurface (by ID)
 - `metal::wrap_texture()` — Wraps an existing Metal texture + IOSurface into a nozzle texture
 - `metal::get_io_surface()` — Extracts the IOSurface from a nozzle texture
+
+Writable-frame callers must successfully complete all GPU writes before
+`commit_frame`; neither publication nor receiver acquisition waits for a Metal
+command buffer. See the [completion contract and example](README.md#metal-writable-frame-completion).
+The backend synchronization hooks are no-ops; no consumer completion protocol is
+provided. IOSurface CPU locks do not replace this producer GPU completion requirement.
 
 **ARC compatibility**: All `.mm` files compile under both ARC and non-ARC via `__has_feature(objc_arc)` bridging macros (`NOZZLE_BRIDGE_GET`, `NOZZLE_BRIDGE_RETAIN`, `NOZZLE_BRIDGE_RELEASE`, `NOZZLE_RETAIN`).
 
@@ -180,10 +186,10 @@ Key functions:
 Sender:
   1. acquire_writable_frame(desc)
      → picks next ring slot, returns writable_frame
-  2. User renders into the texture
+  2. User renders into the texture (Metal: wait for successful GPU completion)
   3. commit_frame(frame)
      → atomically updates committed_frame + committed_slot
-     → frame is now visible to receivers
+     → frame metadata is now visible to receivers; no implicit Metal GPU wait
 
 Receiver:
   1. acquire_frame()
@@ -195,6 +201,9 @@ Receiver:
 ```
 
 Ring buffer size is configurable per sender (default: 3). Committed slots use `_Atomic uint64_t` for lock-free reads.
+
+Writable slots advance after a successful commit; they are not fixed to slot 0.
+Rotation alone does not prevent overwriting a surface still used by a receiver.
 
 ### Windows-Specific Notes
 

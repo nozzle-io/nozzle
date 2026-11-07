@@ -64,6 +64,8 @@ inline auto blit_textures(void *device, void *src, void *dst, uint32_t width, ui
     return metal::blit_to_texture(device, src, dst, width, height);
 }
 
+// Writable-frame callers must complete GPU writes before publishing. These
+// hooks provide neither producer GPU fences nor consumer completion tracking.
 inline auto signal_texture_ready(void * /*native_texture*/, uint32_t /*slot_index*/) -> Result<void> {
     return {};
 }
