@@ -296,6 +296,13 @@ The script disassembles the given files with `objdump`. It exits non-zero if it 
 
 ## Source lists
 
+Binding enum tests read `tools/enum_manifest.json` from their embedded core.
+Regenerate it after C enum edits with `python3 scripts/generate_enum_manifest.py`.
+The parser accepts the header's explicit decimal constants and unsigned shifts;
+unfamiliar enum syntax fails rather than being omitted. CI checks the committed
+JSON and compiles generated C11 `_Static_assert` checks against `nozzle_c.h`.
+This covers C enums only, not macros, pixel byte sizes or host/C++ semantic enums.
+
 `sources/*.txt` is the single list of files to compile. CMake reads it, and wrappers that do not use core's CMake must read it too instead of copying paths.
 
 | List | Contents |

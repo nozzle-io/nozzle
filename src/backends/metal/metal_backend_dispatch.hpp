@@ -79,6 +79,7 @@ inline auto validate_texture_device(void *device, void *native_texture) -> Resul
 }
 
 inline auto notify_sender_uuid(const char * /*uuid*/) -> Result<void> { return {}; }
+inline auto sender_broker_status() -> Result<void> { return {}; }
 inline void cleanup_sender_socket() {}
 inline void release_device(void *device) { metal::release_mtl_device(device); }
 

@@ -26,6 +26,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check source lists
         run: bash scripts/check_source_manifest.sh
+      - name: Check binding enum manifest against C compiler
+        run: |
+          python3 scripts/test_enum_manifest.py
+          python3 scripts/generate_enum_manifest.py --check --assertions "$RUNNER_TEMP/nozzle_enum_assertions.c"
+          cc -std=c11 -fsyntax-only -Iinclude "$RUNNER_TEMP/nozzle_enum_assertions.c"
 
   build-macos:
     runs-on: macos-15
@@ -275,6 +280,9 @@ jobs:
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
 
+      - name: DMA-BUF fd broker retry regression
+        run: ./build/tests/nozzle_c_api_tests "[fd_broker]" --reporter console --success
+
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact
 
@@ -299,6 +307,9 @@ jobs:
 
       - name: SIMD parity tests (compiled-path report)
         run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
+
+      - name: DMA-BUF fd broker retry regression
+        run: ./build/tests/nozzle_c_api_tests "[fd_broker]" --reporter console --success
 
       - name: C API tests
         run: ./build/tests/nozzle_c_api_tests --reporter compact

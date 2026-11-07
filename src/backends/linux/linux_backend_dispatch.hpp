@@ -10,7 +10,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <cstddef>
+#include <condition_variable>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -26,6 +31,14 @@ namespace detail {
 // Share state within one linked binary, never across independently loaded plugins.
 namespace backend __attribute__((visibility("hidden"))) {
 
+enum class sender_accept_error_kind : uint8_t {
+    none,
+    interrupted,
+    transient,
+    resource_exhaustion,
+    fatal,
+};
+
 struct linux_sender_state {
     std::array<int, 8> slot_fds_{};
     std::array<bool, 8> slot_fd_owned_by_state_{};
@@ -36,7 +49,19 @@ struct linux_sender_state {
     std::string uuid_{};
     std::thread accept_thread_{};
     std::atomic<bool> stop_flag_{false};
+    std::atomic<int> accept_errno_{0};
+    std::atomic<sender_accept_error_kind> accept_error_kind_{sender_accept_error_kind::none};
+    std::atomic<uint32_t> consecutive_accept_failures_{0};
+    std::atomic<bool> accept_thread_running_{false};
+    std::condition_variable retry_cv_{};
+    std::mutex retry_mutex_{};
     std::mutex mutex_;
+
+#if NOZZLE_ENABLE_TEST_HOOKS
+    using test_accept_function = int (*)(int, void *);
+    test_accept_function test_accept_{nullptr};
+    void *test_accept_context_{nullptr};
+#endif
 
     linux_sender_state() {
         slot_fds_.fill(-1);
@@ -108,25 +133,153 @@ inline void close_owned_slot_fd_locked(linux_sender_state *state, uint32_t slot_
 }
 
 // Keep private state types/layouts out of exported std::thread template instantiations.
+inline auto accept_sender_client(linux_sender_state *state) -> int {
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (state->test_accept_) {
+        return state->test_accept_(state->listen_fd_, state->test_accept_context_);
+    }
+#endif
+    return accept(state->listen_fd_, nullptr, nullptr);
+}
+
+inline auto classify_sender_accept_error(int error) -> sender_accept_error_kind {
+    if (error == EINTR) {
+        return sender_accept_error_kind::interrupted;
+    }
+    if (error == EMFILE || error == ENFILE || error == ENOBUFS || error == ENOMEM) {
+        return sender_accept_error_kind::resource_exhaustion;
+    }
+    if (error == EAGAIN || error == EWOULDBLOCK || error == ECONNABORTED ||
+        error == EPROTO || error == ENETDOWN || error == ENOPROTOOPT ||
+        error == EHOSTDOWN || error == ENONET || error == EHOSTUNREACH ||
+        error == EOPNOTSUPP || error == ENETUNREACH) {
+        return sender_accept_error_kind::transient;
+    }
+    return sender_accept_error_kind::fatal;
+}
+
+inline auto sender_accept_retry_delay(
+    sender_accept_error_kind kind,
+    uint32_t consecutive_failures
+) -> std::chrono::milliseconds {
+    uint32_t base_ms = 1;
+    uint32_t cap_ms = 16;
+    if (kind == sender_accept_error_kind::transient) {
+        base_ms = 2;
+        cap_ms = 64;
+    } else if (kind == sender_accept_error_kind::resource_exhaustion) {
+        base_ms = 10;
+        cap_ms = 250;
+    }
+
+    const uint32_t exponent = std::min(
+        consecutive_failures > 0 ? consecutive_failures - 1 : 0,
+        uint32_t{6});
+    const uint32_t delay_ms = std::min(cap_ms, base_ms << exponent);
+    return std::chrono::milliseconds{delay_ms};
+}
+
+inline auto wait_for_sender_accept_retry(
+    linux_sender_state *state,
+    std::chrono::milliseconds delay
+) -> bool {
+    std::unique_lock<std::mutex> lock(state->retry_mutex_);
+    return !state->retry_cv_.wait_for(lock, delay, [state] {
+        return state->stop_flag_.load(std::memory_order_relaxed);
+    });
+}
+
+class accepted_client_fd {
+public:
+    explicit accepted_client_fd(int fd)
+    : fd_{fd}
+    {}
+
+    ~accepted_client_fd() {
+        if (0 <= fd_) {
+            close(fd_);
+        }
+    }
+
+    accepted_client_fd(const accepted_client_fd &) = delete;
+    accepted_client_fd &operator=(const accepted_client_fd &) = delete;
+
+    auto get() const -> int {
+        return fd_;
+    }
+
+private:
+    int fd_{-1};
+};
+
 inline void run_sender_accept_loop(void *context) {
     auto *state = static_cast<linux_sender_state *>(context);
+    state->accept_thread_running_.store(true, std::memory_order_release);
+    uint32_t consecutive_failures = 0;
+    bool resource_exhaustion_reported = false;
     while (!state->stop_flag_.load(std::memory_order_relaxed)) {
-        int client_fd = accept(state->listen_fd_, nullptr, nullptr);
+        int client_fd = accept_sender_client(state);
         if (client_fd < 0) {
             if (state->stop_flag_.load(std::memory_order_relaxed)) break;
+            const int accept_error = errno;
+            const auto error_kind = classify_sender_accept_error(accept_error);
+            consecutive_failures = std::min(consecutive_failures + 1, uint32_t{64});
+            state->accept_errno_.store(accept_error, std::memory_order_relaxed);
+            state->accept_error_kind_.store(error_kind, std::memory_order_release);
+            state->consecutive_accept_failures_.store(
+                consecutive_failures, std::memory_order_relaxed);
+            if (error_kind == sender_accept_error_kind::resource_exhaustion &&
+                !resource_exhaustion_reported) {
+                std::fprintf(stderr,
+                    "nozzle: DMA-BUF fd broker resource exhaustion (errno %d); "
+                    "retrying accepts, publication remains enabled\n", accept_error);
+                resource_exhaustion_reported = true;
+            }
+            if (error_kind == sender_accept_error_kind::fatal) {
+                break;
+            }
+            if (!wait_for_sender_accept_retry(
+                    state,
+                    sender_accept_retry_delay(error_kind, consecutive_failures))) {
+                break;
+            }
             continue;
         }
+        accepted_client_fd client{client_fd};
+        consecutive_failures = 0;
+        resource_exhaustion_reported = false;
+        state->accept_errno_.store(0, std::memory_order_relaxed);
+        state->accept_error_kind_.store(
+            sender_accept_error_kind::none, std::memory_order_release);
+        state->consecutive_accept_failures_.store(0, std::memory_order_relaxed);
         struct timeval tv{};
         tv.tv_sec = 2;
         tv.tv_usec = 0;
-        if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
-            setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
-            close(client_fd);
+        if (setsockopt(client.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0 ||
+            setsockopt(client.get(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
             continue;
         }
-        handle_fd_request(client_fd, state);
-        close(client_fd);
+        handle_fd_request(client.get(), state);
     }
+    state->accept_thread_running_.store(false, std::memory_order_release);
+}
+
+inline auto sender_broker_status(const linux_sender_state *state) -> Result<void> {
+    if (!state) {
+        return {};
+    }
+    const auto kind = state->accept_error_kind_.load(std::memory_order_acquire);
+    if (kind != sender_accept_error_kind::fatal) {
+        return {};
+    }
+    const int accept_error = state->accept_errno_.load(std::memory_order_relaxed);
+    return Error{ErrorCode::BackendError,
+        std::string{"DMA-BUF fd broker fatal accept failure (errno "} +
+            std::to_string(accept_error) + ")"};
+}
+
+inline auto sender_broker_status() -> Result<void> {
+    return sender_broker_status(g_sender_state.load(std::memory_order_acquire));
 }
 
 inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
@@ -196,6 +349,11 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     }
 
     state->stop_flag_.store(false, std::memory_order_relaxed);
+    state->accept_errno_.store(0, std::memory_order_relaxed);
+    state->accept_error_kind_.store(
+        sender_accept_error_kind::none, std::memory_order_release);
+    state->consecutive_accept_failures_.store(0, std::memory_order_relaxed);
+    state->accept_thread_running_.store(false, std::memory_order_relaxed);
 
 #if NOZZLE_HAS_EXCEPTIONS
     try {
@@ -220,7 +378,12 @@ inline void cleanup_sender_socket() {
     auto *state = g_sender_state.load(std::memory_order_acquire);
     if (!state) return;
 
-    state->stop_flag_.store(true, std::memory_order_relaxed);
+    {
+        // Pair the predicate update with wait_for's mutex to avoid a lost wakeup.
+        std::lock_guard<std::mutex> lock(state->retry_mutex_);
+        state->stop_flag_.store(true, std::memory_order_relaxed);
+    }
+    state->retry_cv_.notify_all();
 
     {
         std::lock_guard<std::mutex> lock(state->mutex_);
@@ -249,6 +412,11 @@ inline void cleanup_sender_socket() {
         state->slot_generations_.fill(0);
         state->ring_size_ = 0;
     }
+    state->accept_errno_.store(0, std::memory_order_relaxed);
+    state->accept_error_kind_.store(
+        sender_accept_error_kind::none, std::memory_order_release);
+    state->consecutive_accept_failures_.store(0, std::memory_order_relaxed);
+    state->accept_thread_running_.store(false, std::memory_order_relaxed);
 }
 
 inline auto get_default_device() -> void * {
@@ -378,6 +546,11 @@ inline void test_reset_sender_state() {
     state->slot_fd_owned_by_state_.fill(false);
     state->slot_generations_.fill(0);
     state->ring_size_ = 0;
+    state->accept_errno_.store(0, std::memory_order_relaxed);
+    state->accept_error_kind_.store(
+        sender_accept_error_kind::none, std::memory_order_release);
+    state->consecutive_accept_failures_.store(0, std::memory_order_relaxed);
+    state->accept_thread_running_.store(false, std::memory_order_relaxed);
 }
 
 inline void test_set_sender_slot_fd(

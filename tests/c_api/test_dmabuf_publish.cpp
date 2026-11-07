@@ -8,11 +8,18 @@
 #include <string>
 
 #if NOZZLE_HAS_DMA_BUF
+#include <nozzle/sender.hpp>
 #include "backends/backend_dispatch.hpp"
 #include "backends/linux/linux_helpers.hpp"
 #include "dmabuf_dispatch_peer.hpp"
 
+#include <atomic>
+#include <cerrno>
+#include <chrono>
+#include <condition_variable>
 #include <fcntl.h>
+#include <mutex>
+#include <thread>
 #include <unistd.h>
 
 #include <dirent.h>
@@ -109,6 +116,26 @@ auto open_fd_count() -> std::size_t {
     closedir(dir);
     return count;
 }
+
+#if NOZZLE_ENABLE_TEST_HOOKS
+struct persistent_accept_failure {
+    std::atomic<uint32_t> calls{0};
+    std::condition_variable first_call_cv;
+    std::mutex first_call_mutex;
+};
+
+auto fail_accept_with_emfile(int, void *context) -> int {
+    auto *failure = static_cast<persistent_accept_failure *>(context);
+    {
+        std::lock_guard<std::mutex> lock(failure->first_call_mutex);
+        failure->calls.fetch_add(1, std::memory_order_relaxed);
+    }
+    failure->first_call_cv.notify_all();
+    errno = EMFILE;
+    return -1;
+}
+#endif
+
 TEST_CASE("DMA-BUF backend: float nozzle formats have no DRM FourCC mapping", "[dmabuf][format]") {
     const nozzle::texture_format float_formats[] = {
         nozzle::texture_format::r16_float,
@@ -235,6 +262,272 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
 }
 
 #if NOZZLE_HAS_DMA_BUF && NOZZLE_ENABLE_TEST_HOOKS
+
+TEST_CASE("DMA-BUF fd broker bounds persistent resource retries and stops promptly", "[dmabuf][fd_broker]") {
+    using namespace std::chrono_literals;
+
+    nozzle::detail::backend::linux_sender_state state;
+    persistent_accept_failure failure;
+    state.test_accept_ = &fail_accept_with_emfile;
+    state.test_accept_context_ = &failure;
+
+    std::thread worker{[&state] {
+        nozzle::detail::backend::run_sender_accept_loop(&state);
+    }};
+
+    bool worker_started = false;
+    {
+        std::unique_lock<std::mutex> lock(failure.first_call_mutex);
+        worker_started = failure.first_call_cv.wait_for(lock, 2s, [&failure] {
+            return 0 < failure.calls.load(std::memory_order_relaxed);
+        });
+    }
+    if (!worker_started) {
+        {
+            std::lock_guard<std::mutex> lock(state.retry_mutex_);
+            state.stop_flag_.store(true, std::memory_order_relaxed);
+        }
+        state.retry_cv_.notify_all();
+        worker.join();
+    }
+    REQUIRE(worker_started);
+
+    std::this_thread::sleep_for(40ms);
+    const auto calls_before_stop = failure.calls.load(std::memory_order_relaxed);
+    const auto stop_started = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(state.retry_mutex_);
+        state.stop_flag_.store(true, std::memory_order_relaxed);
+    }
+    state.retry_cv_.notify_all();
+    worker.join();
+    const auto stop_elapsed = std::chrono::steady_clock::now() - stop_started;
+
+    CHECK(calls_before_stop > 0);
+    CHECK(calls_before_stop <= 8);
+    CHECK(stop_elapsed < 100ms);
+}
+
+TEST_CASE("DMA-BUF fd broker classifies accept failures", "[dmabuf][fd_broker]") {
+    using nozzle::detail::backend::classify_sender_accept_error;
+    using nozzle::detail::backend::sender_accept_error_kind;
+
+    CHECK(classify_sender_accept_error(EINTR) == sender_accept_error_kind::interrupted);
+
+    const int transient_errors[] = {
+        EAGAIN,
+        ECONNABORTED,
+        EPROTO,
+        ENETDOWN,
+        ENETUNREACH,
+    };
+    for (int error : transient_errors) {
+        CHECK(classify_sender_accept_error(error) == sender_accept_error_kind::transient);
+    }
+
+    const int resource_errors[] = {EMFILE, ENFILE, ENOBUFS, ENOMEM};
+    for (int error : resource_errors) {
+        CHECK(classify_sender_accept_error(error) ==
+            sender_accept_error_kind::resource_exhaustion);
+    }
+
+    const int fatal_errors[] = {EBADF, EINVAL, ENOTSOCK};
+    for (int error : fatal_errors) {
+        CHECK(classify_sender_accept_error(error) == sender_accept_error_kind::fatal);
+    }
+}
+
+TEST_CASE("DMA-BUF fd broker exposes fatal accept failure", "[dmabuf][fd_broker]") {
+    nozzle::detail::backend::linux_sender_state state;
+    state.test_accept_ = [](int, void *) -> int {
+        errno = EBADF;
+        return -1;
+    };
+
+    std::thread worker{[&state] {
+        nozzle::detail::backend::run_sender_accept_loop(&state);
+    }};
+    worker.join();
+
+    CHECK(!state.accept_thread_running_.load(std::memory_order_acquire));
+    CHECK(state.consecutive_accept_failures_.load(std::memory_order_relaxed) == 1);
+    auto status = nozzle::detail::backend::sender_broker_status(&state);
+    REQUIRE(!status.ok());
+    CHECK(status.error().code == nozzle::ErrorCode::BackendError);
+    CHECK(status.error().message.find("fatal") != std::string::npos);
+    CHECK(status.error().message.find(std::to_string(EBADF)) != std::string::npos);
+}
+
+TEST_CASE("DMA-BUF fd broker clears resource diagnostics after a successful accept", "[dmabuf][fd_broker]") {
+    using nozzle::detail::backend::linux_sender_state;
+    using nozzle::detail::backend::run_sender_accept_loop;
+    using nozzle::detail::backend::sender_accept_error_kind;
+    using nozzle::detail::backend::sender_broker_status;
+    linux_sender_state state;
+    int sockets[2];
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    unique_fd client{sockets[0]};
+    unique_fd peer{sockets[1]};
+    const uint32_t slot = 0;
+    REQUIRE(send(peer.get(), &slot, sizeof(slot), 0) ==
+        static_cast<ssize_t>(sizeof(slot)));
+
+    struct accept_sequence {
+        linux_sender_state *state;
+        unique_fd *client;
+        unsigned calls{0};
+        bool saw_resource_error{false};
+    } sequence{&state, &client};
+    state.test_accept_context_ = &sequence;
+    state.test_accept_ = [](int, void *context) -> int {
+        auto &sequence = *static_cast<accept_sequence *>(context);
+        sequence.calls += 1;
+        if (sequence.calls == 1) {
+            errno = EMFILE;
+            return -1;
+        }
+        if (sequence.calls == 2) {
+            sequence.saw_resource_error =
+                sequence.state->accept_error_kind_.load(std::memory_order_acquire) ==
+                    sender_accept_error_kind::resource_exhaustion &&
+                sequence.state->accept_errno_.load(std::memory_order_relaxed) == EMFILE;
+            return sequence.client->release();
+        }
+        {
+            std::lock_guard<std::mutex> lock(sequence.state->retry_mutex_);
+            sequence.state->stop_flag_.store(true, std::memory_order_relaxed);
+        }
+        sequence.state->retry_cv_.notify_all();
+        errno = EINTR;
+        return -1;
+    };
+
+    run_sender_accept_loop(&state);
+    CHECK(sequence.calls == 3);
+    CHECK(sequence.saw_resource_error);
+    CHECK(state.accept_errno_.load(std::memory_order_relaxed) == 0);
+    CHECK(state.accept_error_kind_.load(std::memory_order_acquire) ==
+        sender_accept_error_kind::none);
+    CHECK(state.consecutive_accept_failures_.load(std::memory_order_relaxed) == 0);
+    CHECK(sender_broker_status(&state).ok());
+}
+
+#if !defined(NOZZLE_SHARED)
+// Private broker injection must target the same linked core as the sender API.
+TEST_CASE("DMA-BUF sender publication distinguishes recoverable and fatal broker state", "[dmabuf][fd_broker]") {
+    using nozzle::detail::backend::cleanup_sender_socket;
+    using nozzle::detail::backend::g_sender_state;
+    using nozzle::detail::backend::sender_accept_error_kind;
+    using nozzle::detail::backend::test_get_sender_slot_fd;
+    using nozzle::detail::backend::test_sender_slot_owned_by_state;
+    nozzle::sender_desc desc;
+    desc.name = "fd-broker-publication-" + std::to_string(getpid());
+    // No GPU allocation/import is performed: only external-fd metadata publication.
+    desc.native_device = {nozzle::backend_type::dma_buf, reinterpret_cast<void *>(1), nullptr};
+    desc.fallback_flags = nozzle::fallback_none;
+    auto created = nozzle::sender::create(desc);
+    REQUIRE(created.ok());
+    auto &sender = created.value();
+    // Quiesce the real listener before injecting its private status deterministically.
+    cleanup_sender_socket();
+    auto *state = g_sender_state.load(std::memory_order_acquire);
+    REQUIRE(state != nullptr);
+
+    SECTION("resource exhaustion does not reject external fd publication") {
+        auto source = open_harmless_fd();
+        REQUIRE(fd_is_open(source.get()));
+        nozzle::dma_buf::publish_desc frame;
+        frame.dmabuf_fd = source.get();
+        frame.width = 16;
+        frame.height = 16;
+        frame.fourcc = rgba8_fourcc();
+        frame.plane_count = 1;
+        frame.planes[0].stride = 64;
+        frame.storage_format = nozzle::texture_format::rgba8_unorm;
+        frame.semantic_format = frame.storage_format;
+        for (int error : {EMFILE, ENFILE, ENOBUFS, ENOMEM}) {
+            state->accept_errno_.store(error, std::memory_order_relaxed);
+            state->accept_error_kind_.store(
+                sender_accept_error_kind::resource_exhaustion, std::memory_order_release);
+            REQUIRE(sender.publish_dmabuf_texture(frame).ok());
+        }
+        CHECK(fd_is_open(test_get_sender_slot_fd(0)));
+        CHECK(test_sender_slot_owned_by_state(0));
+        CHECK(fd_is_open(source.get()));
+    }
+
+    SECTION("fatal broker failure rejects writable acquisition") {
+        state->accept_errno_.store(EBADF, std::memory_order_relaxed);
+        state->accept_error_kind_.store(sender_accept_error_kind::fatal, std::memory_order_release);
+        nozzle::texture_desc frame;
+        frame.width = 16;
+        frame.height = 16;
+        // Unknown format also prevents GPU allocation if the broker guard regresses.
+        frame.format = nozzle::texture_format::unknown;
+        auto result = sender.acquire_writable_frame(frame);
+        REQUIRE(!result.ok());
+        CHECK(result.error().code == nozzle::ErrorCode::BackendError);
+        CHECK(result.error().message.find("fd broker fatal") != std::string::npos);
+    }
+}
+#endif
+
+TEST_CASE("DMA-BUF fd broker serves a normal client and cleans up", "[dmabuf][fd_broker]") {
+    using nozzle::detail::backend::g_sender_state;
+
+    REQUIRE(nozzle::detail::backend::test_ensure_sender_state().ok());
+    nozzle::detail::backend::cleanup_sender_socket();
+    nozzle::detail::backend::test_reset_sender_state();
+    struct cleanup_on_exit {
+        bool active{true};
+        ~cleanup_on_exit() {
+            if (active) {
+                nozzle::detail::backend::cleanup_sender_socket();
+            }
+        }
+    } cleanup;
+
+    auto source_fd = open_harmless_fd();
+    REQUIRE(fd_is_open(source_fd.get()));
+    nozzle::detail::backend::test_set_sender_slot_fd(0, source_fd.get(), false, 1);
+
+    static std::atomic<uint32_t> socket_sequence{0};
+    const std::string uuid = "fd-broker-test-" + std::to_string(getpid()) + "-" +
+        std::to_string(socket_sequence.fetch_add(1, std::memory_order_relaxed));
+    REQUIRE(nozzle::detail::backend::notify_sender_uuid(uuid.c_str()).ok());
+
+    unique_fd client{socket(AF_UNIX, SOCK_STREAM, 0)};
+    REQUIRE(fd_is_open(client.get()));
+    struct timeval timeout{};
+    timeout.tv_sec = 2;
+    REQUIRE(setsockopt(
+        client.get(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+    nozzle::detail::backend::abstract_socket_addr address{"nozzle_fd_" + uuid};
+    REQUIRE(connect(
+        client.get(),
+        reinterpret_cast<struct sockaddr *>(&address.addr),
+        address.len) == 0);
+
+    const uint32_t slot = 0;
+    REQUIRE(send(client.get(), &slot, sizeof(slot), 0) ==
+        static_cast<ssize_t>(sizeof(slot)));
+    unique_fd received_fd{nozzle::detail::linux_backend::recv_fd_response(client.get())};
+    REQUIRE(fd_is_open(received_fd.get()));
+
+    auto *state = g_sender_state.load(std::memory_order_acquire);
+    REQUIRE(state != nullptr);
+    nozzle::detail::backend::cleanup_sender_socket();
+    cleanup.active = false;
+
+    CHECK(!state->accept_thread_running_.load(std::memory_order_acquire));
+    {
+        std::lock_guard<std::mutex> lock(state->mutex_);
+        CHECK(state->listen_fd_ == -1);
+    }
+    CHECK(nozzle::detail::backend::test_get_sender_slot_fd(0) == -1);
+    CHECK(fd_is_open(source_fd.get()));
+    CHECK(fd_is_open(received_fd.get()));
+}
 
 #if !defined(NOZZLE_SHARED)
 // These inspect private state in the linked binary, not a separate shared core.
