@@ -48,7 +48,8 @@ Result<void> checked_acquire_result(HRESULT hr) {
     case mutex_acquire_result::timeout:
         return Error{ErrorCode::Timeout, "timeout acquiring D3D11 keyed mutex"};
     case mutex_acquire_result::abandoned:
-        return Error{ErrorCode::BackendError, "D3D11 keyed mutex abandoned; resource is invalid"};
+        // The producer owns replacement. Other receivers can poll until it republishes.
+        return Error{ErrorCode::Timeout, "D3D11 frame unavailable after mutex abandonment"};
     case mutex_acquire_result::failed:
         return Error{ErrorCode::BackendError, "failed to acquire D3D11 keyed mutex"};
     }

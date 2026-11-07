@@ -385,7 +385,9 @@ after acquiring ownership; one receiver does not consume another's publication.
 Writer acquisition probes ring slots without waiting. Receiver `timeout_ms=0`
 is nonblocking; positive timeouts use the remaining acquisition budget. Held
 slots are never overwritten. Abandoned keyed mutex resources are retired and
-recreated by their sender, not treated as successfully acquired. Discard does
+recreated by their sender, not treated as successfully acquired. A receiver
+returns `Timeout` for an abandoned frame until the producer replaces it; one
+crashed consumer must not fatally terminate another consumer's polling session. Discard does
 not restore the previous publication after its storage has been overwritten.
 `publish_external_texture` returns `UnsupportedBackend` on D3D11 because it
 cannot retroactively protect writes to a borrowed texture. Use a writable frame
