@@ -138,12 +138,31 @@ struct layout_fixture {
         } else {
             // All checked fields remain valid: rejecting a zero-filled ring
             // must not accidentally substitute for checking the mapping size.
-            // Windows CI must establish whether MapViewOfFile rejects this
-            // logical-size overrun despite page rounding; do not infer it from
-            // the mapped region's virtual page size.
+            // Linux exposes this exact byte extent. macOS/Windows expose
+            // page-rounded backing, so a full-state view is a valid control
+            // there, not evidence that the original request was 1664 bytes.
             if (!state.create(registration.shm_name, bytes.size())) return false;
             std::memcpy(state.data, bytes.data(), bytes.size());
         }
+        return true;
+    }
+
+    bool use_one_page_state() {
+#if defined(_WIN32)
+        SYSTEM_INFO system_info{};
+        GetSystemInfo(&system_info);
+        const std::size_t page_size = system_info.dwPageSize;
+#else
+        const long queried_size = sysconf(_SC_PAGESIZE);
+        if (queried_size <= 0) return false;
+        const auto page_size = static_cast<std::size_t>(queried_size);
+#endif
+        if (page_size < sizeof(nd::SenderSharedState)) return false;
+        const auto original = sender_state();
+        state.close();
+        ipc::shm_unlink(registration.shm_name);
+        if (!state.create(registration.shm_name, page_size)) return false;
+        std::memcpy(state.data, &original, sizeof(original));
         return true;
     }
 
@@ -328,19 +347,46 @@ TEST_CASE("Shared layout: receiver validates sender fields before connecting", "
     }
 }
 
-TEST_CASE("Shared layout: undersized mappings fail in a bounded child", "[shared_layout][integration]") {
-    for (const char *operation : {"enumerate", "register_short", "connect_short", "map_state", "open_state", "connect_state_short"}) {
+TEST_CASE("Shared layout: undersized directory mappings fail in a bounded child", "[shared_layout][integration]") {
+    for (const char *operation : {"enumerate", "register_short", "connect_short"}) {
         DYNAMIC_SECTION(operation) {
             layout_fixture fixture;
             require_setup(fixture, fixture.create());
-            if (std::strcmp(operation, "map_state") == 0 || std::strcmp(operation, "open_state") == 0
-                || std::strcmp(operation, "connect_state_short") == 0) require_setup(fixture, fixture.shorten_state());
-            else require_setup(fixture, fixture.shorten_directory());
+            require_setup(fixture, fixture.shorten_directory());
             const auto result = run_probe(operation, fixture);
             REQUIRE(fixture.restore());
             check_probe(result);
         }
     }
+}
+
+#if defined(__linux__)
+TEST_CASE("Shared layout: Linux rejects exact-byte undersized sender backing", "[shared_layout][integration]") {
+    for (const char *operation : {"map_state", "open_state", "connect_state_short"}) {
+#elif defined(__APPLE__) || defined(_WIN32)
+TEST_CASE("Shared layout: macOS and Windows accept valid page-rounded sender backing", "[shared_layout][integration]") {
+    for (const char *operation : {"map_state_rounded", "open_state_rounded", "connect_state_rounded"}) {
+#endif
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+        DYNAMIC_SECTION(operation) {
+            layout_fixture fixture;
+            require_setup(fixture, fixture.create());
+            require_setup(fixture, fixture.shorten_state());
+            const auto result = run_probe(operation, fixture);
+            REQUIRE(fixture.restore());
+            check_probe(result);
+        }
+    }
+}
+#endif
+
+TEST_CASE("Shared layout: mapping beyond one page of backing is rejected", "[shared_layout][integration]") {
+    layout_fixture fixture;
+    require_setup(fixture, fixture.create());
+    require_setup(fixture, fixture.use_one_page_state());
+    const auto result = run_probe("map_page_boundary", fixture);
+    REQUIRE(fixture.restore());
+    check_probe(result);
 }
 
 TEST_CASE("Shared layout: small old layouts retain explicit version diagnostics", "[shared_layout][integration]") {

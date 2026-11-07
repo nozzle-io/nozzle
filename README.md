@@ -237,7 +237,14 @@ fields before using them as bounds or strings. Receivers additionally reject
 invalid sender-state headers, ring sizes, and committed slots. Existing named mappings are not
 resized, reset, or replaced to make them fit the current layout. Only newly
 created directory mappings are initialized. POSIX mappings check the backing
-extent before access; Windows uses the requested view extent.
+extent reported by `fstat` before access; Windows requests the full view extent.
+These checks validate OS-accessible backing, not the creator's original byte
+count. macOS reports page-rounded shared-memory lengths, and Windows page-backed
+sections can also cover a request beyond the original size within that page.
+A 1663-byte creation request can therefore cover the 1664-byte sender layout on
+those systems. There is currently no producer-declared payload-length field;
+exact logical-length validation would require a versioned protocol change
+([nozzle-dev#256](https://github.com/nozzle-io/nozzle-dev/issues/256)).
 
 Sender/receiver creation preserves a clear version-mismatch error when the
 stable header prefix is readable, including older layouts smaller than the
