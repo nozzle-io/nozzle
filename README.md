@@ -268,6 +268,19 @@ still require an exact version match. Align core versions across applications.
 For an incompatible persistent directory on macOS/Linux, quit all nozzle apps
 and reboot. Do not remove an active application's state to bypass a mismatch.
 
+Sender-state version 7 adds an explicit open/closed lifecycle marker; the
+directory layout remains version 6. Destroying a sender publishes closure before
+resource cleanup, even while its process stays alive. A receiver that observes
+closure during acquisition returns `SenderClosed`, releases its old mapping, and
+reports disconnected. Call acquisition again to resolve the original name:
+`SenderNotFound` means no replacement yet; a same-name replacement uses its new
+UUID, metadata, and frame sequence. This is a retryable lifecycle event, not a
+reason for an interactive receiver to permanently stop polling. Process-death
+detection remains a fallback; it does not solve PID reuse. Backend waits retain
+their existing timeouts and are not asynchronously cancelled by closure.
+Connection snapshots and `is_connected()` describe the last observed state, not
+an independent liveness probe. Frames already returned retain their ownership.
+
 These checks are compatibility/corruption defenses, not authentication or a
 guarantee against malicious concurrent mutation/truncation. Crash cleanup,
 PID-reuse-safe liveness, and publication timestamp semantics are separate work:

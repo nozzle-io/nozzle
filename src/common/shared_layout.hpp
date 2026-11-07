@@ -87,6 +87,11 @@ inline Result<uint32_t> validate_sender_layout(const SenderSharedState &state) {
     const auto ring_size = state.ring_size;
     auto prefix = validate_shared_prefix(magic, version, kSenderMagic, "sender");
     if (!prefix.ok()) return prefix.error();
+    const auto lifecycle = ipc::atomic_load_relaxed(&state.lifecycle_state);
+    ipc::atomic_fence_acquire();
+    if (lifecycle != sender_state_open && lifecycle != sender_state_closed) {
+        return Error{ErrorCode::BackendError, "sender state has invalid lifecycle"};
+    }
     if (ring_size < kMinimumRingSize || ring_size > kMaxRingSlots) {
         return Error{ErrorCode::BackendError, "sender state has invalid ring size"};
     }

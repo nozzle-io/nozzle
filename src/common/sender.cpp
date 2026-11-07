@@ -109,6 +109,12 @@ struct sender::Impl {
 	std::mutex mutex_;
 
 	~Impl() {
+		if (state != nullptr) {
+			// Publish closure before releasing resources or removing discovery.
+			detail::ipc::atomic_fence_release();
+			detail::ipc::atomic_store_release_32(
+				&state->lifecycle_state, detail::sender_state_closed);
+		}
 		valid_ = false;
 		for (uint32_t i = 0; i < detail::kMaxRingSlots; ++i) {
 			slot_in_use_[i] = false;

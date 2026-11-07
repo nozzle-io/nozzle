@@ -293,6 +293,7 @@ Result<Registration> register_sender(
     auto *state = static_cast<SenderSharedState *>(sender_map.value());
     std::memset(state, 0, sizeof(SenderSharedState));
     state->version = kSharedMemVersion;
+    state->lifecycle_state = sender_state_open;
     std::memcpy(state->name, name, sender_name.size());
     std::memcpy(state->application_name, app_name, application_length);
     std::memcpy(state->uuid, reg.uuid, sizeof(state->uuid));
