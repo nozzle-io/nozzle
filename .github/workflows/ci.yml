@@ -43,7 +43,18 @@ jobs:
         run: cmake -B build -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
+        id: build
         run: cmake --build build
+
+      - name: Shared layout unit regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: ./build/tests/nozzle_tests "[shared_layout]" --reporter console --success
+
+      - name: Shared layout receiver regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: ./build/tests/nozzle_integration_tests "[shared_layout]" --reporter console --success
 
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact
@@ -222,7 +233,18 @@ jobs:
         run: cmake -B build -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
+        id: build
         run: cmake --build build --config Debug
+
+      - name: Shared layout unit regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: ./build/tests/Debug/nozzle_tests.exe "[shared_layout]" --reporter console --success
+
+      - name: Shared layout receiver regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: ./build/tests/Debug/nozzle_integration_tests.exe "[shared_layout]" --reporter console --success
 
       - name: Windows IPC lifetime and abandoned mutex regression
         timeout-minutes: 2
@@ -321,7 +343,18 @@ jobs:
         run: cmake -B build -DNOZZLE_ENABLE_TEST_HOOKS=ON
 
       - name: Build
+        id: build
         run: cmake --build build
+
+      - name: Shared layout unit regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: ./build/tests/nozzle_tests "[shared_layout]" --reporter console --success
+
+      - name: Shared layout receiver regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: ./build/tests/nozzle_integration_tests "[shared_layout]" --reporter console --success
 
       - name: Unit tests
         run: ./build/tests/nozzle_tests --reporter compact

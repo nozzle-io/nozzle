@@ -23,6 +23,7 @@ set(UNIT_TEST_SOURCES
     unit/test_format_convert.cpp
     unit/test_simd_parity.cpp
     unit/test_shared_metadata.cpp
+    unit/test_shared_layout.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/discovery.cpp
@@ -101,6 +102,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/test_integration_fallback_getters.cpp
     integration/test_publish_mismatch.cpp
     integration/test_checked_writable_unlock.cpp
+    integration/test_shared_layout.cpp
 )
 
     if(APPLE)
@@ -139,6 +141,16 @@ endif()
 if(NOT BUILD_SHARED_LIBS)
     add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
 
+    add_executable(nozzle_shared_layout_probe helpers/shared_layout_probe.cpp)
+    target_link_libraries(nozzle_shared_layout_probe PRIVATE nozzle)
+    target_include_directories(nozzle_shared_layout_probe PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/common
+    )
+    add_dependencies(nozzle_integration_tests nozzle_shared_layout_probe)
+    target_compile_definitions(nozzle_integration_tests PRIVATE
+        NOZZLE_SHARED_LAYOUT_PROBE_PATH="$<TARGET_FILE:nozzle_shared_layout_probe>"
+    )
+
     if(APPLE)
         set(NOZZLE_FORCE_LOAD_FLAG "-Wl,-force_load")
     else()
@@ -176,7 +188,11 @@ include(CTest)
 include(Catch)
 catch_discover_tests(nozzle_tests)
 if(NOT BUILD_SHARED_LIBS)
-    catch_discover_tests(nozzle_integration_tests)
+    # Shared-layout probes temporarily replace the global directory. Exclude
+    # every other CTest process while those cases own it, including unit tests.
+    catch_discover_tests(nozzle_integration_tests TEST_SPEC "[shared_layout]"
+        PROPERTIES RUN_SERIAL TRUE)
+    catch_discover_tests(nozzle_integration_tests TEST_SPEC "~[shared_layout]")
 endif()
 
 # --- C API test executable ---
