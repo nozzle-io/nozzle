@@ -157,7 +157,7 @@ void check_frame(const reply &result) {
 } // namespace
 
 TEST_CASE("D3D11 cross-process fanout delivers identical pixels in either receiver order",
-          "[integration][cross_process][d3d11_fanout]") {
+          "[.][integration][cross_process][d3d11_fanout]") {
     peers p(3);
     require_publication(p.publish(1));
     const auto a = p.a.send("acquire 100 1 0");
@@ -176,7 +176,7 @@ TEST_CASE("D3D11 cross-process fanout delivers identical pixels in either receiv
 }
 
 TEST_CASE("D3D11 cross-process zero timeout is prompt for contention and no new frame",
-          "[integration][cross_process][d3d11_fanout]") {
+          "[.][integration][cross_process][d3d11_fanout]") {
     peers p(3);
     require_publication(p.publish(3));
     const auto held = p.a.send("acquire 100 3 1");
@@ -192,7 +192,7 @@ TEST_CASE("D3D11 cross-process zero timeout is prompt for contention and no new 
 }
 
 TEST_CASE("D3D11 cross-process held ring slots are excluded before producer writes",
-          "[integration][cross_process][d3d11_fanout]") {
+          "[.][integration][cross_process][d3d11_fanout]") {
     for (const uint32_t ring : {1u, 3u}) {
         INFO("ring=" << ring);
         peers p(ring);
@@ -235,7 +235,7 @@ TEST_CASE("D3D11 cross-process held ring slots are excluded before producer writ
 }
 
 TEST_CASE("D3D11 cross-process killed receiver abandons a resource without wedging peers",
-          "[integration][cross_process][d3d11_fanout]") {
+          "[.][integration][cross_process][d3d11_fanout]") {
     peers p(1);
     const auto initial = p.publish(9);
     require_publication(initial);

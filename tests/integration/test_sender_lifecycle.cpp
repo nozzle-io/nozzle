@@ -176,30 +176,41 @@ void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, u
 
 } // namespace
 
-TEST_CASE("Sender lifecycle: backend-specific version compatibility with actual texture acquisition",
-    "[integration][sender_lifecycle][d3d11_sync_version]") {
+TEST_CASE("Sender lifecycle: sender v7 compatibility with actual texture acquisition",
+    "[integration][sender_lifecycle][sender_version]") {
     const auto desc = unique_sender_desc();
     auto sender = make_sender(desc);
     const auto storage_format = publish_frame(sender, 64, 48);
     writable_sender_mapping mapping;
     mapping.open(sender);
 
-    SECTION("current writer uses D3D11 v7 and preserves other backends v6") {
-        const auto expected = sender.info().backend == nozzle::backend_type::d3d11 ? 7u : 6u;
-        REQUIRE(mapping.state->version == expected);
+    SECTION("current writer publishes v7 regardless of backend") {
+        CHECK(mapping.state->version == 7u);
+        nozzle::receiver_desc receiver_desc{};
+        receiver_desc.name = desc.name;
+        auto created = nozzle::receiver::create(receiver_desc);
+        INFO(created.error().message);
+        REQUIRE(created.ok());
+        auto receiver = std::move(created.value());
+        require_frame(receiver, 1, 64, 48, storage_format);
     }
-    SECTION("emulated v6 zero padding remains readable, not an old-binary test") {
+    SECTION("emulated v6 zero padding is rejected on every backend") {
         mapping.emulate_v6_layout();
         nozzle::receiver_desc receiver_desc{};
         receiver_desc.name = desc.name;
         auto created = nozzle::receiver::create(receiver_desc);
         INFO(created.error().message);
-        if (sender.info().backend == nozzle::backend_type::d3d11) {
-            REQUIRE_FALSE(created.ok());
-            REQUIRE(created.error().code == nozzle::ErrorCode::BackendError);
-            REQUIRE(created.error().message.find("version") != std::string::npos);
-            return;
-        }
+        REQUIRE_FALSE(created.ok());
+        REQUIRE(created.error().code == nozzle::ErrorCode::BackendError);
+        REQUIRE(created.error().message.find("version") != std::string::npos);
+    }
+    SECTION("literal v7 mapping permits actual texture acquisition") {
+        // This tests the reader independently of the writer's current constant.
+        mapping.state->version = 7;
+        nozzle::receiver_desc receiver_desc{};
+        receiver_desc.name = desc.name;
+        auto created = nozzle::receiver::create(receiver_desc);
+        INFO(created.error().message);
         REQUIRE(created.ok());
         auto receiver = std::move(created.value());
         require_frame(receiver, 1, 64, 48, storage_format);
