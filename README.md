@@ -234,9 +234,12 @@ Layer 0: Platform infrastructure (registry, IPC, shared memory)
 
 Directory readers and writers validate magic/version, capacity, and identity
 fields before using them as bounds or strings. Receivers additionally reject
-invalid sender-state headers, ring sizes, and committed slots. Existing named mappings are not
-resized, reset, or replaced to make them fit the current layout. Only newly
-created directory mappings are initialized. POSIX mappings check the backing
+invalid sender-state headers, ring sizes, and committed slots. Existing initialized
+or foreign mappings are not resized, reset, or replaced to fit the current layout.
+Under the directory lock, a writer can recover an empty POSIX object left before
+allocation, or a full-size unpublished directory containing only zero entries
+and an unfinished supported header. Other corruption is rejected, not repaired.
+POSIX mappings check the backing
 extent reported by `fstat` before access; Windows requests the full view extent.
 These checks validate OS-accessible backing, not the creator's original byte
 count. macOS reports page-rounded shared-memory lengths, and Windows page-backed
@@ -245,11 +248,22 @@ A 1663-byte creation request can therefore cover the 1664-byte sender layout on
 those systems. Version and field validation still apply within the accessible
 mapping; reconstructing the original allocation request is not a guarantee.
 
+Directory snapshots use the registry's library-instance mutex and interprocess
+lock, so cooperating readers do not copy entries during writer publication or
+slot reuse. Separate statically linked nozzle copies do not share the C++ mutex;
+POSIX process-owned file locks alone do not synchronize their threads.
+Zero-length or unpublished state is reported as `SenderNotFound` (not ready).
+Sender state and directory magic are published after initialization.
+
 Sender/receiver creation preserves a clear version-mismatch error when the
 stable header prefix is readable, including older layouts smaller than the
 current structure. Discovery's list-only API returns no entries for an invalid
-directory and skips malformed entries. Align core versions across applications;
-do not remove an active application's shared state to bypass a mismatch.
+directory and skips malformed entries, as does receiver lookup. The directory
+layout version is independent of the sender-state version. Historical directory
+versions 2 through 6 share the same layout and remain accepted; sender layouts
+still require an exact version match. Align core versions across applications.
+For an incompatible persistent directory on macOS/Linux, quit all nozzle apps
+and reboot. Do not remove an active application's state to bypass a mismatch.
 
 These checks are compatibility/corruption defenses, not authentication or a
 guarantee against malicious concurrent mutation/truncation. Crash cleanup,

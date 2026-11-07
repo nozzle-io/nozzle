@@ -28,6 +28,9 @@ using pid_type = uint64_t;
 
 // Existing objects are opened unchanged; created is true only on successful creation.
 Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created = nullptr);
+// POSIX only: allocate an existing zero-length object without replacing it.
+// Caller holds the exclusive directory lock and process mutex through initialization.
+Result<void> shm_initialize_empty(shm_handle &h, std::size_t size);
 Result<shm_handle> shm_open_ro(const char *name);
 Result<shm_handle> shm_open_rw(const char *name);
 Result<void *> shm_map(shm_handle &h, std::size_t size, bool read_only);

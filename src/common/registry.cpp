@@ -83,6 +83,19 @@ struct ScopedDirLock {
     }
 };
 
+bool recoverable_directory_initialization(const void *mapped, std::size_t size) {
+    const auto &header = *static_cast<const DirectoryHeader *>(mapped);
+    if (header.magic != 0 || header.padding != 0 || header.change_counter != 0) return false;
+    if (header.version != 0 && (header.version < kMinimumDirectoryLayoutVersion ||
+        header.version > kDirectoryLayoutVersion)) return false;
+    if (header.capacity != 0 && header.capacity != kMaxSenders) return false;
+    const auto *bytes = static_cast<const unsigned char *>(mapped);
+    for (std::size_t i = sizeof(DirectoryHeader); i < size; ++i) {
+        if (bytes[i] != 0) return false;
+    }
+    return true;
+}
+
 Result<ScopedDirLock> open_directory_locked(bool read_only) {
     ScopedDirLock dir{};
     const auto total_size = sizeof(DirectoryHeader) + sizeof(DirectoryEntry) * kMaxSenders;
@@ -116,9 +129,19 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
         }
         dir.handle = std::move(shm_result.value());
 
+        bool initialize = created;
         if (!created) {
+            auto extent = ipc::shm_get_size(dir.handle);
+            if (extent.ok() && extent.value() == 0) {
+                auto prepared = ipc::shm_initialize_empty(dir.handle, total_size);
+                if (!prepared.ok()) return prepared.error();
+                initialize = true;
+            }
             auto prefix = validate_mapping_prefix(dir.handle, kDirectoryMagic, "directory");
-            if (!prefix.ok()) return prefix.error();
+            if (!prefix.ok()) {
+                if (prefix.error().code != ErrorCode::SenderNotFound) return prefix.error();
+                initialize = true;
+            }
         }
         auto map_result = ipc::shm_map(dir.handle, total_size, false);
         if (!map_result.ok()) {
@@ -129,11 +152,17 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
         dir.mapped_size = total_size;
 
         auto *header = static_cast<DirectoryHeader *>(dir.mapped);
-        if (created) {
+        if (initialize) {
+            // Both the process mutex and interprocess lock are held. A zero
+            // magic with populated entries is corruption, not our startup.
+            if (!created && !recoverable_directory_initialization(dir.mapped, total_size)) {
+                return Error{ErrorCode::BackendError, "unpublished directory contains foreign data"};
+            }
             std::memset(dir.mapped, 0, total_size);
-            header->magic = kDirectoryMagic;
-            header->version = kSharedMemVersion;
+            header->version = kDirectoryLayoutVersion;
             header->capacity = kMaxSenders;
+            ipc::atomic_fence_release();
+            ipc::atomic_store_release_32(&header->magic, kDirectoryMagic);
         }
     }
 
@@ -143,7 +172,7 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
     const auto *entries = reinterpret_cast<const DirectoryEntry *>(
         static_cast<const uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
     for (uint32_t i = 0; i < dir.capacity; ++i) {
-        if (entries[i].valid == entry_valid_flag::valid && !valid_directory_strings(entries[i])) {
+        if (!read_only && entries[i].valid == entry_valid_flag::valid && !valid_directory_strings(entries[i])) {
             return Error{ErrorCode::BackendError, "nozzle directory has unterminated entry fields"};
         }
     }
@@ -153,7 +182,21 @@ Result<ScopedDirLock> open_directory_locked(bool read_only) {
 
 } // anonymous namespace
 
+Result<DirectorySnapshot> read_directory_snapshot() {
+    std::lock_guard<std::mutex> lock(process_mutex_);
+    auto dir_result = open_directory_locked(true);
+    if (!dir_result.ok()) return dir_result.error();
+    const auto &dir = dir_result.value();
+    DirectorySnapshot snapshot{};
+    snapshot.capacity = dir.capacity;
+    const auto *entries = reinterpret_cast<const DirectoryEntry *>(
+        static_cast<const uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
+    std::memcpy(snapshot.entries.data(), entries, dir.capacity * sizeof(DirectoryEntry));
+    return snapshot;
+}
+
 void cleanup_stale_entries() {
+    std::lock_guard<std::mutex> lock(process_mutex_);
     auto dir_result = open_directory_locked(false);
     if (!dir_result.ok()) {
         return;
@@ -233,18 +276,6 @@ Result<Registration> register_sender(
     }
 
     auto &entry = entries[slot_index];
-    std::memset(&entry, 0, sizeof(entry));
-    std::memcpy(entry.sender_name, name, sender_name.size());
-    std::memcpy(entry.application_name, app_name, application_length);
-    std::memcpy(entry.uuid, reg.uuid, sizeof(entry.uuid));
-    std::memcpy(entry.shm_name, reg.shm_name, sizeof(entry.shm_name));
-    entry.backend = backend;
-    entry.pid = ipc::current_pid();
-    entry.valid = entry_valid_flag::valid;
-
-    ipc::atomic_store_relaxed(&header->change_counter,
-        ipc::atomic_load_relaxed(&header->change_counter) + 1);
-
     bool created = false;
     auto sender_shm = ipc::shm_create(reg.shm_name, sizeof(SenderSharedState), &created);
     if (!sender_shm.ok()) {
@@ -267,7 +298,6 @@ Result<Registration> register_sender(
 
     auto *state = static_cast<SenderSharedState *>(sender_map.value());
     std::memset(state, 0, sizeof(SenderSharedState));
-    state->magic = kSenderMagic;
     state->version = kSharedMemVersion;
     std::memcpy(state->name, name, sender_name.size());
     std::memcpy(state->application_name, app_name, application_length);
@@ -277,6 +307,21 @@ Result<Registration> register_sender(
     state->height = height;
     state->format = format;
     state->ring_size = ring_size < kMinimumRingSize ? kMinimumRingSize : (ring_size > kMaxRingSlots ? kMaxRingSlots : ring_size);
+    ipc::atomic_fence_release();
+    ipc::atomic_store_release_32(&state->magic, kSenderMagic);
+
+    // Publish the directory entry only after the complete state is readable.
+    std::memset(&entry, 0, sizeof(entry));
+    std::memcpy(entry.sender_name, name, sender_name.size());
+    std::memcpy(entry.application_name, app_name, application_length);
+    std::memcpy(entry.uuid, reg.uuid, sizeof(entry.uuid));
+    std::memcpy(entry.shm_name, reg.shm_name, sizeof(entry.shm_name));
+    entry.backend = backend;
+    entry.pid = ipc::current_pid();
+    ipc::atomic_fence_release();
+    entry.valid = entry_valid_flag::valid;
+    ipc::atomic_store_relaxed(&header->change_counter,
+        ipc::atomic_load_relaxed(&header->change_counter) + 1);
 
     ipc::shm_unmap(sender_map.value(), sizeof(SenderSharedState));
     ipc::shm_close(sender_shm.value());

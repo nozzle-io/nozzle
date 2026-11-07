@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 
 namespace nozzle {
 namespace detail {
@@ -20,6 +21,10 @@ constexpr uint32_t kSenderMagic = 0x4E5A5331;
 constexpr uint32_t kMaxSenders = 64;
 constexpr uint32_t kMaxRingSlots = 8;
 constexpr uint64_t kSharedMemVersion = 6;
+// Directory bytes have been unchanged across historical protocol versions 2..6.
+// Sender-only version changes must not invalidate the persistent directory.
+constexpr uint32_t kDirectoryLayoutVersion = 6;
+constexpr uint32_t kMinimumDirectoryLayoutVersion = 2;
 
 constexpr resource_id64 kInvalidSharedResourceId = 0;
 constexpr process_id64 kInvalidPid = 0;
@@ -51,6 +56,20 @@ struct DirectoryEntry {
 };
 
 static_assert(sizeof(DirectoryEntry) == 280, "unexpected DirectoryEntry size");
+static_assert(sizeof(DirectoryHeader) == 24, "unexpected DirectoryHeader size");
+static_assert(offsetof(DirectoryHeader, magic) == 0 &&
+              offsetof(DirectoryHeader, version) == 4 &&
+              offsetof(DirectoryHeader, capacity) == 8 &&
+              offsetof(DirectoryHeader, padding) == 12 &&
+              offsetof(DirectoryHeader, change_counter) == 16, "directory header layout changed");
+static_assert(offsetof(DirectoryEntry, sender_name) == 0 &&
+              offsetof(DirectoryEntry, application_name) == 64 &&
+              offsetof(DirectoryEntry, uuid) == 128 &&
+              offsetof(DirectoryEntry, shm_name) == 165 &&
+              offsetof(DirectoryEntry, backend) == 261 &&
+              offsetof(DirectoryEntry, valid) == 264 &&
+              offsetof(DirectoryEntry, _pad) == 268 &&
+              offsetof(DirectoryEntry, pid) == 272, "directory entry layout changed");
 
 struct SenderSharedState {
     uint32_t magic{0};

@@ -6,6 +6,7 @@
 #include "shared_state.hpp"
 
 #include <cstddef>
+#include <array>
 
 namespace nozzle {
 namespace detail {
@@ -22,6 +23,13 @@ struct SenderStateView {
     void *mapped{nullptr};
     std::size_t mapped_size{0};
 };
+
+struct DirectorySnapshot {
+    std::array<DirectoryEntry, kMaxSenders> entries{};
+    uint32_t capacity{0};
+};
+
+Result<DirectorySnapshot> read_directory_snapshot();
 
 Result<Registration> register_sender(
     const char *name,

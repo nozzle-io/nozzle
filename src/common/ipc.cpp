@@ -19,6 +19,7 @@
 #else
 
 #include <fcntl.h>
+#include <limits>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -152,6 +153,11 @@ Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created)
         *created = create_error != ERROR_ALREADY_EXISTS;
     }
     return shm_handle{h};
+}
+
+Result<void> shm_initialize_empty(shm_handle &, std::size_t) {
+    return Error{ErrorCode::UnsupportedBackend,
+                 "zero-length shared memory initialization is not supported on Windows"};
 }
 
 Result<shm_handle> shm_open_ro(const char *name) {
@@ -322,6 +328,32 @@ Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created)
         *created = true;
     }
     return shm_handle{fd};
+}
+
+Result<void> shm_initialize_empty(shm_handle &h, std::size_t size) {
+    if (size == 0 || static_cast<std::uintmax_t>(size) >
+                         static_cast<std::uintmax_t>((std::numeric_limits<off_t>::max)())) {
+        return Error{ErrorCode::InvalidArgument, "invalid shared memory initialization size"};
+    }
+
+    struct stat st{};
+    if (fstat(h.fd, &st) != 0) {
+        return Error{ErrorCode::ResourceCreationFailed,
+                     "fstat failed before shared memory initialization"};
+    }
+    if (st.st_size != 0) {
+        return Error{ErrorCode::InvalidArgument,
+                     "shared memory initialization requires a zero-length object"};
+    }
+
+    // The caller's locks exclude cooperating writers between this check and allocation.
+    if (ftruncate(h.fd, static_cast<off_t>(size)) != 0) {
+        const int saved = errno;
+        char buf[128]{};
+        std::snprintf(buf, sizeof(buf), "shared memory initialization failed: errno=%d", saved);
+        return Error{ErrorCode::ResourceCreationFailed, buf};
+    }
+    return {};
 }
 
 Result<shm_handle> shm_open_ro(const char *name) {

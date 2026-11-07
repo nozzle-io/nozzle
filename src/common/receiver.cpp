@@ -39,49 +39,19 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         return Error{ErrorCode::InvalidArgument, "sender name must not be empty"};
     }
 
-    auto shm_result = detail::ipc::shm_open_ro(detail::kDirectoryShmName);
-    if (!shm_result.ok()) {
-        return Error{ErrorCode::SenderNotFound, "no nozzle directory found"};
-    }
-
-    auto prefix = detail::validate_mapping_prefix(shm_result.value(), detail::kDirectoryMagic, "directory");
-    if (!prefix.ok()) {
-        detail::ipc::shm_close(shm_result.value());
-        return prefix.error();
-    }
-    const auto total_size = sizeof(detail::DirectoryHeader) +
-                            sizeof(detail::DirectoryEntry) * detail::kMaxSenders;
-
-    auto map_result = detail::ipc::shm_map(shm_result.value(), total_size, true);
-    if (!map_result.ok()) {
-        detail::ipc::shm_close(shm_result.value());
-        return Error{ErrorCode::SenderNotFound, "failed to map nozzle directory"};
-    }
-    void *mapped = map_result.value();
-
-    auto *header = static_cast<const detail::DirectoryHeader *>(mapped);
-    auto capacity = detail::validate_directory_header(*header);
-    if (!capacity.ok()) {
-        detail::ipc::shm_unmap(mapped, total_size);
-        detail::ipc::shm_close(shm_result.value());
-        return capacity.error();
-    }
-
-    auto *entries = reinterpret_cast<const detail::DirectoryEntry *>(
-        static_cast<const uint8_t *>(mapped) + sizeof(detail::DirectoryHeader));
+    auto snapshot = detail::registry::read_directory_snapshot();
+    if (!snapshot.ok()) return snapshot.error();
 
     SenderDirectoryEntry found{};
     bool found_entry = false;
 
-    for (uint32_t i = 0; i < capacity.value(); ++i) {
-        const auto entry = entries[i];
+    for (uint32_t i = 0; i < snapshot.value().capacity; ++i) {
+        const auto &entry = snapshot.value().entries[i];
         if (entry.valid != detail::entry_valid_flag::valid) {
             continue;
         }
         if (!detail::valid_directory_strings(entry)) {
-            detail::ipc::shm_unmap(mapped, total_size);
-            detail::ipc::shm_close(shm_result.value());
-            return Error{ErrorCode::BackendError, "nozzle directory has unterminated entry fields"};
+            continue;
         }
         if (entry.pid == detail::kInvalidPid) {
             continue;
@@ -101,9 +71,6 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         found_entry = true;
         break;
     }
-
-    detail::ipc::shm_unmap(mapped, total_size);
-    detail::ipc::shm_close(shm_result.value());
 
     if (!found_entry) {
         return Error{ErrorCode::SenderNotFound, "sender not found: " + std::string(name)};
