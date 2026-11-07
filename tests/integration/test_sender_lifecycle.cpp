@@ -29,6 +29,10 @@ nozzle::sender make_sender(const nozzle::sender_desc &desc) {
     REQUIRE(result.value().native_device().device != nullptr);
     REQUIRE(result.value().native_device().backend == expected_backend);
     REQUIRE(result.value().info().backend == expected_backend);
+    // Explicit publication keeps this lifecycle test independent of initial metadata setup.
+    auto metadata = result.value().set_metadata(desc.metadata);
+    INFO(metadata.error().message);
+    REQUIRE(metadata.ok());
     return std::move(result.value());
 }
 
