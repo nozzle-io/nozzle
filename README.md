@@ -219,6 +219,31 @@ ObjC++ code is isolated in `.mm` files. All public headers are pure C++. ARC and
 
 Textures are created with `D3D11_RESOURCE_MISC_SHARED` for cross-process sharing via `HANDLE`. Sender creates shared textures in a ring buffer. Receiver opens the shared handle and creates its own texture view. Keyed mutex synchronizes access.
 
+### Backend: Linux DMA-BUF peer policy
+
+The FD broker admits only peers whose connection-time effective UID matches
+the sender's effective UID captured at initialization. Receivers also check the
+broker's effective UID before requesting an FD. Credential-query failures are
+rejected, with no allow-anyone fallback or implicit root bypass. These are
+same-user checks, not authentication of a particular sender or its UUID.
+
+**Compatibility change (nozzle-dev#206):** sharing between different Linux users
+is rejected, including a service account and a desktop session. There is no
+opt-out. Different login sessions under the same user remain supported.
+
+The supported boundary is ordinary unprivileged desktop processes in the same
+user namespace. Cross-user-namespace isolation, root/setuid/capability-bearing
+hosts, and credential changes during a sender's lifetime are not supported
+security configurations. Credentials are a connection-time snapshot; an FD
+already delivered cannot be revoked and can be forwarded by its recipient.
+Cached FDs are not continuously reauthorized.
+
+This policy does not protect against malicious same-user peers or privileged
+processes, and does not authenticate or make discovery/shared-memory metadata
+private. UUIDs and discovery PIDs are identifiers, not credentials. Shared-memory
+permissions, ownership and namespace design are tracked separately in
+[nozzle-dev#250](https://github.com/nozzle-io/nozzle-dev/issues/250).
+
 ### OpenGL Interop
 
 OpenGL integration uses backend-native GPU interop where the platform exposes a

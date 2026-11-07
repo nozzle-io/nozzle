@@ -31,6 +31,36 @@ namespace detail {
 // Share state within one linked binary, never across independently loaded plugins.
 namespace backend __attribute__((visibility("hidden"))) {
 
+#if NOZZLE_ENABLE_TEST_HOOKS
+using test_peer_query_function = int (*)(int, struct ucred *, socklen_t *, void *);
+#endif
+
+inline auto peer_has_effective_uid(int socket_fd, uid_t expected_uid
+#if NOZZLE_ENABLE_TEST_HOOKS
+    , test_peer_query_function query = nullptr, void *context = nullptr
+#endif
+) -> bool {
+    if (expected_uid == static_cast<uid_t>(-1) || geteuid() != expected_uid) {
+        return false;
+    }
+    struct ucred credentials{};
+    socklen_t length = sizeof(credentials);
+    int result;
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (query) {
+        result = query(socket_fd, &credentials, &length, context);
+    } else
+#endif
+    {
+        result = getsockopt(socket_fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length);
+    }
+    // SO_PEERCRED is a connection-time snapshot, not continuous authentication.
+    return result == 0 && length == sizeof(credentials) &&
+        0 < credentials.pid && credentials.uid != static_cast<uid_t>(-1) &&
+        credentials.gid != static_cast<gid_t>(-1) &&
+        credentials.uid == expected_uid && geteuid() == expected_uid;
+}
+
 enum class sender_accept_error_kind : uint8_t {
     none,
     interrupted,
@@ -40,6 +70,7 @@ enum class sender_accept_error_kind : uint8_t {
 };
 
 struct linux_sender_state {
+    const uid_t owner_uid_{geteuid()};
     std::array<int, 8> slot_fds_{};
     std::array<bool, 8> slot_fd_owned_by_state_{};
     std::array<uint32_t, 8> slot_generations_{};
@@ -61,6 +92,8 @@ struct linux_sender_state {
     using test_accept_function = int (*)(int, void *);
     test_accept_function test_accept_{nullptr};
     void *test_accept_context_{nullptr};
+    test_peer_query_function test_peer_query_{nullptr};
+    void *test_peer_query_context_{nullptr};
 #endif
 
     linux_sender_state() {
@@ -74,6 +107,10 @@ inline std::atomic<linux_sender_state *> g_sender_state{nullptr};
 struct linux_receiver_cache {
     linux_backend::dmabuf_texture_cache cache_{};
     std::mutex mutex_;
+#if NOZZLE_ENABLE_TEST_HOOKS
+    test_peer_query_function test_peer_query_{nullptr};
+    void *test_peer_query_context_{nullptr};
+#endif
 };
 
 inline linux_receiver_cache &get_receiver_cache() {
@@ -95,6 +132,13 @@ struct abstract_socket_addr {
 };
 
 inline void handle_fd_request(int client_fd, linux_sender_state *state) {
+    if (!peer_has_effective_uid(client_fd, state->owner_uid_
+#if NOZZLE_ENABLE_TEST_HOOKS
+        , state->test_peer_query_, state->test_peer_query_context_
+#endif
+    )) {
+        return;
+    }
     uint32_t slot_index = 0;
     ssize_t n = recv(client_fd, &slot_index, sizeof(slot_index), 0);
     if (n != sizeof(slot_index)) {
@@ -312,6 +356,11 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
     if (!state) {
         return Error{ErrorCode::BackendError,
             "DMA-BUF sender state allocation failed"};
+    }
+
+    if (geteuid() != state->owner_uid_) {
+        return Error{ErrorCode::BackendError,
+            "DMA-BUF fd broker identity changed since initialization"};
     }
 
     std::string name = "nozzle_fd_";
@@ -679,6 +728,7 @@ inline void release_texture_resources(void *native_texture, void *native_surface
 inline auto lookup_texture(
     void * /*device*/, uint64_t shared_id, uint32_t width, uint32_t height, uint32_t format, uint8_t, uint32_t semantic_format, uint8_t native_format_kind_value, uint32_t native_format_value, uint64_t native_modifier, uint32_t native_plane_count, const uint32_t *native_plane_strides, const uint32_t *native_plane_offsets, uint64_t /*sender_pid*/, const char *sender_uuid
 ) -> Result<texture> {
+    const uid_t receiver_uid = geteuid();
     uint32_t slot_index = static_cast<uint32_t>(shared_id & 0xFFFFFFFF);
     uint32_t generation = static_cast<uint32_t>(shared_id >> 32);
     if (slot_index >= 8) {
@@ -706,7 +756,12 @@ inline auto lookup_texture(
 
                     abstract_socket_addr addr(socket_name);
 
-                    if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) == 0) {
+                    if (::connect(sock_fd, reinterpret_cast<struct sockaddr *>(&addr.addr), addr.len) == 0 &&
+                        peer_has_effective_uid(sock_fd, receiver_uid
+#if NOZZLE_ENABLE_TEST_HOOKS
+                            , cache.test_peer_query_, cache.test_peer_query_context_
+#endif
+                        )) {
                         ssize_t sent = ::send(sock_fd, &slot_index, sizeof(slot_index), 0);
                         if (sent == static_cast<ssize_t>(sizeof(slot_index))) {
                             int fd = linux_backend::recv_fd_response(sock_fd);
