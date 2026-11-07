@@ -85,6 +85,12 @@ struct ConnectionSetup {
     uint64_t sender_pid{0};
 };
 
+bool sender_is_closed(const detail::SenderSharedState &state) {
+    const auto lifecycle = detail::ipc::atomic_load_relaxed(&state.lifecycle_state);
+    detail::ipc::atomic_fence_acquire();
+    return lifecycle == detail::sender_state_closed;
+}
+
 Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     auto dir_entry = find_sender_in_directory(sender_name.c_str());
     if (!dir_entry.ok()) {
@@ -101,6 +107,10 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
     setup.sender_pid = dir_entry.value().pid;
 
     auto *state = setup.state_view.state;
+    if (sender_is_closed(*state)) {
+        detail::registry::close_sender_state(setup.state_view);
+        return Error{ErrorCode::SenderNotFound, "sender closed during lookup"};
+    }
     if (sender_name != state->name ||
         std::strncmp(state->uuid, dir_entry.value().uuid, sizeof(state->uuid)) != 0) {
         detail::registry::close_sender_state(setup.state_view);
@@ -207,7 +217,6 @@ struct receiver::Impl {
     std::string sender_name_{};
     detail::registry::SenderStateView state_view_{};
     uint64_t last_frame_{0};
-    uint64_t last_change_counter_{0};
     connected_sender_info connected_info_{};
     bool connected_{false};
     uint64_t sender_pid_{0};
@@ -275,6 +284,12 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
     std::lock_guard<std::mutex> lock(impl_->mutex_);
 
+    const auto disconnect = [&](const char *message) -> Error {
+        impl_->connected_ = false;
+        detail::registry::close_sender_state(impl_->state_view_);
+        return {ErrorCode::SenderClosed, message};
+    };
+
 #if NOZZLE_DEBUG
     {
         static std::atomic<std::uint64_t> call_count{0};
@@ -306,17 +321,12 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
     }
 
     if (impl_->sender_pid_ > 0 && !detail::ipc::is_pid_alive(impl_->sender_pid_)) {
-        impl_->connected_ = false;
-        if (impl_->state_view_.state) {
-            detail::registry::close_sender_state(impl_->state_view_);
-        }
-        return Error{ErrorCode::SenderClosed, "sender process is no longer alive"};
+        return disconnect("sender process is no longer alive");
     }
 
     auto *state = impl_->state_view_.state;
     if (!state) {
-        impl_->connected_ = false;
-        return Error{ErrorCode::SenderClosed, "sender state is null"};
+        return disconnect("sender state is null");
     }
 
     uint64_t deadline = 0;
@@ -327,6 +337,9 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
     while (true) {
         auto ring_size = detail::validate_sender_layout(*state);
         if (!ring_size.ok()) return ring_size.error();
+        if (sender_is_closed(*state)) {
+            return disconnect("sender was destroyed");
+        }
         uint64_t frame = detail::ipc::atomic_load_relaxed(&state->committed_frame);
         detail::ipc::atomic_fence_acquire();
         uint32_t slot = detail::ipc::atomic_load_relaxed(&state->committed_slot);
@@ -376,6 +389,9 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
 
         auto tex_result = create_texture_from_slot_snapshot(state, slot_snapshot, impl_->sender_pid_);
         if (!tex_result.ok()) {
+            if (sender_is_closed(*state)) {
+                return disconnect("sender closed during texture import");
+            }
 #if NOZZLE_DEBUG
             {
                 std::FILE *dbg = std::fopen("/tmp/nozzle_receiver_debug.log", "a");
@@ -396,6 +412,12 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
             native_texture,
             slot,
             sync_timeout_ms);
+        if (sender_is_closed(*state)) {
+            if (wait_result.ok()) {
+                detail::backend::release_texture_sync(native_texture, slot);
+            }
+            return disconnect("sender closed during frame acquisition");
+        }
         if (!wait_result.ok()) {
             return wait_result.error();
         }

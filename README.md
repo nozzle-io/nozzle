@@ -268,6 +268,30 @@ still require an exact version match. Align core versions across applications.
 For an incompatible persistent directory on macOS/Linux, quit all nozzle apps
 and reboot. Do not remove an active application's state to bypass a mismatch.
 
+The open/closed lifecycle marker uses existing zeroed padding at offset 208;
+sender-state and directory versions both remain 6, with no size or field-offset
+change. Older v6 senders initialize the entire mapping to zero and therefore read
+as open, but do not publish closure. With an older sender, only the existing PID
+check detects destruction when its process exits; same-process destruction can
+still time out. Older receivers likewise ignore the marker, even with a new
+sender. Normal frame sharing remains compatible, but both peers must be updated
+for the new same-process closure behavior.
+
+Destroying an updated sender publishes closure before
+resource cleanup, even while its process stays alive. A receiver that observes
+closure during acquisition returns `SenderClosed`, releases its old mapping, and
+reports disconnected. Call acquisition again to resolve the original name:
+`SenderNotFound` means no open replacement yet, including a closed sender still
+visible during teardown. Initial `receiver::create` also returns `SenderNotFound`
+for that state; `SenderClosed` describes the end of an existing connection.
+A same-name replacement uses its new
+UUID, metadata, and frame sequence. This is a retryable lifecycle event, not a
+reason for an interactive receiver to permanently stop polling. Process-death
+detection remains a fallback; it does not solve PID reuse. Backend waits retain
+their existing timeouts and are not asynchronously cancelled by closure.
+Connection snapshots and `is_connected()` describe the last observed state, not
+an independent liveness probe. Frames already returned retain their ownership.
+
 These checks are compatibility/corruption defenses, not authentication or a
 guarantee against malicious concurrent mutation/truncation. Crash cleanup,
 PID-reuse-safe liveness, and publication timestamp semantics are separate work:

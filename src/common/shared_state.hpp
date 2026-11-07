@@ -32,6 +32,8 @@ constexpr frame_number64 kInitialFrameNumber = 0;
 constexpr ring_size32 kMinimumRingSize = 1;
 constexpr int32_t kSlotNotFound = -1;
 constexpr uint32_t kMetadataSize = 512;
+constexpr uint32_t sender_state_open = 0;
+constexpr uint32_t sender_state_closed = 1;
 
 constexpr const char kDirectoryShmName[] = "/nozzle_dir";
 constexpr const char kSenderShmPrefix[] = "/nozzle_";
@@ -88,6 +90,9 @@ struct SenderSharedState {
     uint32_t format{0};
     uint32_t semantic_format{0};
     ring_size32 ring_size{0};
+    // Uses existing v6 padding. Older senders zero the entire mapping, so zero
+    // means open; they do not publish closure when destroyed in a live process.
+    uint32_t lifecycle_state{sender_state_open};
 
     alignas(64) frame_number64 committed_frame{0};
     alignas(64) uint32_t committed_slot{0};
@@ -118,6 +123,8 @@ struct SenderSharedState {
 };
 
 static_assert(sizeof(SenderSharedState::SlotInfo) == 96, "unexpected SlotInfo size");
+static_assert(offsetof(SenderSharedState, lifecycle_state) == 208,
+              "unexpected sender lifecycle offset");
 static_assert(sizeof(SenderSharedState) == 1664, "unexpected SenderSharedState size");
 
 } // namespace detail

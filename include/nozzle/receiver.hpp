@@ -15,6 +15,7 @@ struct receiver_connection_snapshot {
 
 class receiver {
 public:
+    // A sender already closed during lookup is unavailable (SenderNotFound).
     static Result<receiver> create(const receiver_desc &desc);
 
     ~receiver();
@@ -25,7 +26,10 @@ public:
     receiver(receiver &&) noexcept;
     receiver &operator=(receiver &&) noexcept;
 
-    // Frame acquisition
+    // Observed sender destruction returns SenderClosed and disconnects this handle.
+    // The next acquisition looks up the original name again (SenderNotFound if absent
+    // or already closed). SenderClosed describes the end of an existing connection.
+    // Already returned frames retain their ownership; destruction does not revoke them.
     Result<frame> acquire_frame();
     Result<frame> acquire_frame(const acquire_desc &desc);
 
@@ -34,6 +38,7 @@ public:
     // Coherent last-observed state and identity; does not probe current liveness.
     receiver_connection_snapshot connection_snapshot() const;
     metadata_list sender_metadata() const;
+    // Last observed connection state; acquisition performs liveness checks.
     bool is_connected() const;
 
     bool valid() const;
