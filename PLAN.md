@@ -791,7 +791,7 @@ nozzle/
       metal/
         metal_backend.mm
         metal_texture.mm
-        metal_sync.mm
+        metal_backend_dispatch.hpp  # No implicit Metal GPU synchronization
 
     helpers/
       opengl/

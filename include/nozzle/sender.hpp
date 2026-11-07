@@ -74,6 +74,14 @@ public:
     Result<void> publish_metal_texture_direct(const metal::direct_publish_desc &desc);
 
     Result<writable_frame> acquire_writable_frame(const texture_desc &desc);
+
+    // Publish an already-prepared writable frame. On Metal, all GPU writes to
+    // the frame must have successfully completed BEFORE this call. This call
+    // neither submits nor waits for a Metal command buffer; receiver acquisition
+    // does not insert a GPU wait either. Submission or waitUntilScheduled alone
+    // is insufficient. See the README Metal writable-frame example.
+    // Ring rotation does not acknowledge receiver GPU completion or prevent
+    // later reuse of a surface still being sampled by a receiver.
     Result<void> commit_frame(writable_frame &frame);
     Result<void> discard_frame(writable_frame &frame);
 

@@ -91,6 +91,8 @@ auto frame = sender.acquire_writable_frame({
     .format = nozzle::texture_format::rgba8_unorm
 }).value();
 // ... write GPU data ...
+// Metal: wait for successful completion of ALL GPU writes before publishing.
+// Merely submitting commands is insufficient; see the Metal example below.
 sender.commit_frame(frame);
 
 // Receiver
@@ -118,8 +120,60 @@ nozzle_sender_create(&desc, &sender);
 
 NozzleFrame *frame;
 nozzle_sender_acquire_writable_frame(sender, 1920, 1080, NOZZLE_FORMAT_RGBA8_UNORM, &frame);
+/* Prepare the pixels. On Metal, complete all GPU writes before this call. */
 nozzle_sender_commit_frame(sender, frame);
 ```
+
+### Metal writable-frame completion
+
+For GPU writes into a frame returned by `acquire_writable_frame`, the caller must
+ensure **all writes have successfully completed before `commit_frame`** (also
+`nozzle_sender_commit_frame` in C). Publishing makes the frame discoverable; it
+does not submit a command buffer, wait for GPU completion, or communicate a GPU
+fence to receivers. `acquire_frame` does not insert a Metal GPU wait either.
+
+Here is a synchronous Objective-C++ (`.mm`) example. The command buffer must be
+newly encoded, not yet committed, and cover every producer write to this frame;
+any writes from other command buffers or queues must also finish first.
+
+```objective-c++
+#import <Metal/Metal.h>
+#include <nozzle/nozzle.hpp>
+
+nozzle::Result<void> finish_and_publish(
+    nozzle::sender &sender, nozzle::writable_frame &frame,
+    id<MTLCommandBuffer> command_buffer) {
+    if (command_buffer) {
+        [command_buffer commit];
+        [command_buffer waitUntilCompleted];
+    }
+    if (!command_buffer ||
+        command_buffer.status != MTLCommandBufferStatusCompleted) {
+        auto discarded = sender.discard_frame(frame);
+        if (!discarded.ok()) return discarded.error();
+        return nozzle::Error{nozzle::ErrorCode::BackendError,
+                             "Metal producer commands did not complete successfully"};
+    }
+    return sender.commit_frame(frame);
+}
+```
+
+[`waitUntilCompleted`](https://developer.apple.com/documentation/metal/mtlcommandbuffer/waituntilcompleted())
+blocks the calling thread. Command submission or `waitUntilScheduled` alone is
+not completion. An asynchronous integration can instead publish after successful
+completion notification for all producer writes, keeping the sender and writable
+frame alive and reserved until then. Do not discard or recycle a frame while GPU
+work may still be writing it. CPU-mapped writes still require a successful
+checked unlock before publishing; an IOSurface CPU lock is not a GPU fence.
+
+Writable acquisition scans from the next ring slot, and successful commits
+advance that slot; it is **not fixed to slot 0**. Ring rotation is not receiver
+completion tracking: retaining an acquired frame keeps its resource alive but
+does not freeze its pixels or prevent a later producer write on slot reuse.
+This producer-completion contract does not supply consumer acknowledgments,
+immutable snapshots, or cross-process Metal GPU synchronization. Integrations
+needing stable contents throughout consumer GPU work require additional
+coordination; a larger ring alone is not such a guarantee.
 
 ### Names and UTF-8
 

@@ -382,6 +382,11 @@ NOZZLE_C_API NozzleErrorCode nozzle_sender_acquire_writable_frame(
 // Commits a writable frame acquired from this sender. On success, this returns
 // the reserved ring-buffer slot to the sender. The NozzleFrame wrapper still
 // belongs to the caller and must be released with nozzle_frame_release.
+// On Metal, all GPU writes to the frame must have successfully completed BEFORE
+// this call. Neither commit nor receiver acquisition submits/waits for a Metal
+// command buffer. Submission or waitUntilScheduled alone is insufficient.
+// Ring rotation does not acknowledge receiver GPU completion or prevent later
+// reuse of a surface still being sampled by a receiver.
 NOZZLE_C_API NozzleErrorCode nozzle_sender_commit_frame(
     NozzleSender *sender,
     NozzleFrame *frame

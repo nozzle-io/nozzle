@@ -294,6 +294,21 @@ jobs:
             exit 1
           fi
 
+      # This records handshake limitations; green does not certify fan-out.
+      - name: D3D11 multi-receiver measurements
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/Debug/nozzle_integration_tests.exe "[d3d11_multi_receiver]" --reporter console --success | tee d3d11-multi-receiver.log
+          if grep -qi "skipped" d3d11-multi-receiver.log; then
+            echo "::error::D3D11 measurement must execute, not skip"
+            exit 1
+          fi
+          grep -q "D3D11_MEASUREMENT complete ring_size=1 " d3d11-multi-receiver.log
+          grep -q "D3D11_MEASUREMENT complete ring_size=3 " d3d11-multi-receiver.log
+
       - name: Windows IPC lifetime and abandoned mutex regression
         timeout-minutes: 2
         run: ./build/tests/Debug/nozzle_tests.exe "[windows_ipc]" --reporter console --success
