@@ -20,7 +20,7 @@ The API/ABI may change in v0.x; the `stable` branch does not mean the API is fro
 ### Known limitations
 
 - **D3D11 ([#187](https://github.com/nozzle-io/nozzle-dev/issues/187)):** the key-0 protocol permits sequential acquisition of the same publication by multiple receivers. This is latest-frame sharing, not guaranteed delivery of every frame: readers may skip overwritten publications and a busy ring returns `Timeout`. CI evidence and physical-Windows verification are tracked separately in the issue.
-- **Names ([#252](https://github.com/nozzle-io/nozzle-dev/issues/252)):** JNI wrappers reject names containing non-BMP characters because they pass modified UTF-8. Windows programs using narrow `argv` can reject non-ASCII names when the bytes are not UTF-8. Use ASCII names through these paths until the wrappers convert correctly.
+- **Names ([#252](https://github.com/nozzle-io/nozzle-dev/issues/252)):** standard UTF-8 is required at the core boundary. The Java, Kotlin and Processing JNI wrappers and the Windows CLI entry points in viewer, mixer, tester, uvc-nozzle and the Spout/Syphon bridge now convert correctly on their `main` branches; older releases may still need these fixes. Third-party callers must also convert host strings to standard UTF-8: Windows narrow `argv` in an ANSI code page and JNI modified UTF-8 are not valid substitutes. See [Names and UTF-8](#names-and-utf-8) for byte limits and validation rules.
 
 ## Features
 
