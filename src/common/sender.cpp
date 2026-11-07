@@ -23,6 +23,9 @@
 #include <plog/Log.h>
 
 #include "backends/backend_dispatch.hpp"
+#if NOZZLE_HAS_D3D11
+#include "backends/d3d11/d3d11_helpers.hpp"
+#endif
 #include "frame_helpers.hpp"
 #include "ipc.hpp"
 #include "metadata.hpp"
@@ -99,6 +102,8 @@ struct sender::Impl {
 	bool owns_native_device_{false};
 	std::array<texture, detail::kMaxRingSlots> ring_textures_{};
 	std::array<bool, detail::kMaxRingSlots> slot_in_use_{};
+	std::array<detail::writable_cpu_mapping_state_ref, detail::kMaxRingSlots> reservations_{};
+	std::array<format_fallback_info, detail::kMaxRingSlots> slot_fallback_{};
 	uint32_t next_slot_{0};
 	uint64_t frame_counter_{0};
 	sender_info info_{};
@@ -296,6 +301,10 @@ Result<void> sender::publish_external_texture(const texture &tex) {
 	if (!tex.valid()) {
 		return Error{ErrorCode::InvalidArgument, "texture is not valid"};
 	}
+#if NOZZLE_HAS_D3D11
+	return Error{ErrorCode::UnsupportedBackend,
+		"D3D11 external publication cannot establish write ownership; use writable or native publication"};
+#endif
 	auto broker_status = detail::backend::sender_broker_status();
 	if (!broker_status.ok()) {
 		return broker_status.error();
@@ -362,12 +371,40 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	}
 
 	int32_t free_slot = detail::kSlotNotFound;
+#if NOZZLE_HAS_D3D11
+	d3d11::keyed_mutex_lease write_lease;
+#endif
 	for (uint32_t attempt = 0; attempt < ring_size; ++attempt) {
 		uint32_t candidate = (impl_->next_slot_ + attempt) % ring_size;
-		if (!impl_->slot_in_use_[candidate]) {
-			free_slot = static_cast<int32_t>(candidate);
-			break;
+#if NOZZLE_HAS_D3D11
+		if (impl_->slot_in_use_[candidate]) {
+			auto reservation = impl_->reservations_[candidate];
+			if (reservation) {
+				std::lock_guard<std::mutex> mapping_lock(reservation.get()->mutex);
+				if (!reservation.get()->owner_alive && !reservation.get()->active) {
+					// The mapping releases the old lease before making this reservation reclaimable.
+					impl_->reservations_[candidate].reset();
+					impl_->slot_in_use_[candidate] = false;
+				}
+			}
 		}
+#endif
+		if (impl_->slot_in_use_[candidate]) continue;
+#if NOZZLE_HAS_D3D11
+		if (impl_->ring_textures_[candidate].valid()) {
+			auto acquired = write_lease.acquire(
+				detail::backend::get_native_texture(impl_->ring_textures_[candidate]), 0);
+			if (acquired == d3d11::mutex_acquire_result::timeout) continue;
+			if (acquired == d3d11::mutex_acquire_result::abandoned) {
+				detail::ipc::atomic_store_release_64(&impl_->state->slots[candidate].frame_number, 0);
+				impl_->ring_textures_[candidate] = texture{};
+			} else if (acquired != d3d11::mutex_acquire_result::acquired) {
+				return Error{ErrorCode::BackendError, "failed to acquire ring texture writer lease"};
+			}
+		}
+#endif
+		free_slot = static_cast<int32_t>(candidate);
+		break;
 	}
 	if (free_slot == detail::kSlotNotFound) {
 		return Error{ErrorCode::Timeout,
@@ -432,6 +469,20 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			return tex_result.error();
 		}
 
+#if NOZZLE_HAS_D3D11
+		d3d11::keyed_mutex_lease new_lease;
+		if (new_lease.acquire(detail::backend::get_native_texture(tex_result.value()), 0)
+			!= d3d11::mutex_acquire_result::acquired) {
+			return Error{ErrorCode::BackendError, "failed to acquire new ring texture writer lease"};
+		}
+		detail::ipc::atomic_store_release_64(&impl_->state->slots[slot].frame_number, 0);
+		auto release_old = write_lease.release();
+		if (!release_old.ok()) {
+			impl_->ring_textures_[slot] = texture{};
+			return release_old.error();
+		}
+		write_lease = std::move(new_lease);
+#endif
 			impl_->ring_textures_[slot] = std::move(tex_result.value());
 
 			texture_format observed_format = impl_->ring_textures_[slot].desc().format;
@@ -465,6 +516,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			return fb_result.error();
 		}
 		detail::write_global_metadata(*impl_->state, tdesc.width, tdesc.height, fb_result.value());
+		impl_->slot_fallback_[slot] = fb_result.value();
+#if NOZZLE_HAS_D3D11
+		detail::ipc::atomic_store_release_64(&impl_->state->slots[slot].frame_number, 0);
+#endif
 
 		auto writable_result = detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
@@ -475,6 +530,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			impl_->slot_in_use_[slot] = false;
 			return writable_result.error();
 		}
+		impl_->reservations_[slot] = detail::get_writable_frame_mapping_state(writable_result.value());
+#if NOZZLE_HAS_D3D11
+		impl_->reservations_[slot].get()->write_lease = std::move(write_lease);
+#endif
 		return writable_result;
 	}
 
@@ -510,6 +569,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		return fb_result.error();
 	}
 	detail::write_global_metadata(*impl_->state, tdesc.width, tdesc.height, fb_result.value());
+	impl_->slot_fallback_[slot] = fb_result.value();
+#if NOZZLE_HAS_D3D11
+	detail::ipc::atomic_store_release_64(&impl_->state->slots[slot].frame_number, 0);
+#endif
 
 	texture_desc actual_desc{tdesc.width, tdesc.height, reused_format, tdesc.semantic_format, tdesc.swizzle, tdesc.usage};
 
@@ -522,6 +585,10 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		impl_->slot_in_use_[slot] = false;
 		return writable_result.error();
 	}
+	impl_->reservations_[slot] = detail::get_writable_frame_mapping_state(writable_result.value());
+#if NOZZLE_HAS_D3D11
+	impl_->reservations_[slot].get()->write_lease = std::move(write_lease);
+#endif
 	return writable_result;
 }
 
@@ -547,68 +614,80 @@ Result<void> sender::commit_frame(writable_frame &f) {
 		return Error{ErrorCode::InvalidArgument,
 			"frame slot index out of range"};
 	}
-	if (detail::writable_frame_cpu_mapping_active(f)) {
+	auto reservation = detail::get_writable_frame_mapping_state(f);
+	if (!impl_->slot_in_use_[slot] || !reservation ||
+		impl_->reservations_[slot].get() != reservation.get()) {
+		return Error{ErrorCode::InvalidArgument, "frame does not belong to this sender reservation"};
+	}
+	std::unique_lock<std::mutex> mapping_lock(reservation.get()->mutex);
+	if (reservation.get()->active) {
 		return Error{ErrorCode::InvalidArgument,
 			"writable frame has active CPU pixel mapping"};
 	}
-	if (detail::writable_frame_cpu_unlock_failed(f)) {
+	if (reservation.get()->unlock_failed) {
 		frame_to_release = std::move(f);
 		impl_->slot_in_use_[slot] = false;
+		impl_->reservations_[slot].reset();
 		return Error{ErrorCode::BackendError,
 			"writable frame CPU unlock failed"};
 	}
+#if NOZZLE_HAS_D3D11
+	if (!reservation.get()->write_lease.held() || !reservation.get()->owner_alive || reservation.get()->sealed) {
+		return Error{ErrorCode::InvalidArgument, "frame has no active writer lease"};
+	}
+	reservation.get()->sealed = true;
+#endif
 
 	uint64_t resource_id = detail::backend::get_shared_resource_id(f.get_texture());
 	if (resource_id == detail::kInvalidSharedResourceId) {
 		frame_to_release = std::move(f);
 		impl_->slot_in_use_[slot] = false;
+		impl_->reservations_[slot].reset();
 		return Error{ErrorCode::BackendError,
 			"frame texture has no shared resource"};
 	}
 
 	uint64_t frame_number = ++impl_->frame_counter_;
 
+#if !NOZZLE_HAS_D3D11
 	void *native_texture = detail::backend::get_native_texture(f.get_texture());
 	auto signal_result = detail::backend::signal_texture_ready(native_texture, slot);
 	if (!signal_result.ok()) {
 		frame_to_release = std::move(f);
 		impl_->slot_in_use_[slot] = false;
+		impl_->reservations_[slot].reset();
 		return signal_result.error();
 	}
+#endif
 
-	impl_->state->slots[slot].frame_number = frame_number;
-	impl_->state->slots[slot].shared_resource_id = resource_id;
-	impl_->state->slots[slot].width = impl_->state->width;
-	impl_->state->slots[slot].height = impl_->state->height;
-	impl_->state->slots[slot].format = impl_->state->format;
-	impl_->state->slots[slot].semantic_format = impl_->state->semantic_format;
-	impl_->state->slots[slot].channel_swizzle = impl_->state->channel_swizzle;
-	impl_->state->slots[slot].fallback_target = impl_->state->fallback_target;
-	impl_->state->slots[slot].fallback_category = impl_->state->fallback_category;
-	impl_->state->slots[slot].fallback_quality_loss = impl_->state->fallback_quality_loss;
-
-		const auto &committed_texture = f.get_texture();
-		if (committed_texture.valid()) {
-			const auto &resolved = committed_texture.resolved();
-			impl_->state->slots[slot].native_format_kind = static_cast<uint8_t>(resolved.native.kind);
-			impl_->state->slots[slot].format_source = static_cast<uint8_t>(resolved.source);
-			impl_->state->slots[slot].native_format_value = resolved.native.value;
-			impl_->state->slots[slot].native_format_modifier = resolved.native.modifier;
-			impl_->state->slots[slot].plane_count = resolved.native.plane_count;
-			for (uint32_t i = 0; i < resolved.native.plane_count && i < 4; ++i) {
-				impl_->state->slots[slot].plane_strides[i] = resolved.native.plane_strides[i];
-				impl_->state->slots[slot].plane_offsets[i] = resolved.native.plane_offsets[i];
-			}
-		}
+	const auto &desc = f.desc();
+	detail::write_slot_metadata(impl_->state->slots[slot],
+		frame_number, resource_id, desc.width, desc.height,
+		f.get_texture().resolved(), impl_->slot_fallback_[slot]);
+	detail::write_global_metadata(*impl_->state,
+		desc.width, desc.height, impl_->slot_fallback_[slot]);
 
 	detail::ipc::atomic_store_release_64(&impl_->state->committed_frame, frame_number);
 	detail::ipc::atomic_store_release_32(&impl_->state->committed_slot, slot);
+#if NOZZLE_HAS_D3D11
+	// Readers may acquire key 0 only after pixels and matching metadata are published.
+	auto released = reservation.get()->write_lease.release();
+	if (!released.ok()) {
+		reservation.get()->unlock_failed = true;
+		detail::ipc::atomic_store_release_64(&impl_->state->slots[slot].frame_number, 0);
+		frame_to_release = std::move(f);
+		impl_->slot_in_use_[slot] = false;
+		impl_->reservations_[slot].reset();
+		return released.error();
+	}
+#endif
 
 	if (f.valid()) {
 		impl_->ring_textures_[slot] = std::move(f.get_texture());
 	}
 	frame_to_release = std::move(f);
 	impl_->slot_in_use_[slot] = false;
+	impl_->reservations_[slot].reset();
 	impl_->next_slot_ = (slot + 1) % ring_size;
 
 	return {};
@@ -632,16 +711,31 @@ Result<void> sender::discard_frame(writable_frame &f) {
 		return Error{ErrorCode::InvalidArgument,
 			"frame slot index out of range"};
 	}
-	if (detail::writable_frame_cpu_mapping_active(f)) {
+	auto reservation = detail::get_writable_frame_mapping_state(f);
+	if (!impl_->slot_in_use_[slot] || !reservation ||
+		impl_->reservations_[slot].get() != reservation.get()) {
+		return Error{ErrorCode::InvalidArgument, "frame does not belong to this sender reservation"};
+	}
+	std::unique_lock<std::mutex> mapping_lock(reservation.get()->mutex);
+	if (reservation.get()->active) {
 		return Error{ErrorCode::InvalidArgument,
 			"writable frame has active CPU pixel mapping"};
 	}
 
-	if (f.valid() && !detail::writable_frame_cpu_unlock_failed(f)) {
+#if NOZZLE_HAS_D3D11
+	reservation.get()->sealed = true;
+	auto released = reservation.get()->write_lease.release();
+	if (!released.ok()) reservation.get()->unlock_failed = true;
+#endif
+	if (!reservation.get()->unlock_failed) {
 		impl_->ring_textures_[slot] = std::move(f.get_texture());
 	}
 	frame_to_release = std::move(f);
 	impl_->slot_in_use_[slot] = false;
+	impl_->reservations_[slot].reset();
+#if NOZZLE_HAS_D3D11
+	if (!released.ok()) return released.error();
+#endif
 
 	return {};
 }
@@ -707,6 +801,25 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 		impl_->native_device_, native_texture);
 	if (!validate_result.ok()) return validate_result.error();
 
+#if NOZZLE_HAS_D3D11
+	auto acquired = acquire_writable_frame(texture_desc{width, height, storage_format});
+	if (!acquired.ok()) return acquired.error();
+	auto writable = std::move(acquired.value());
+	if (writable.get_texture().desc().format != storage_format) {
+		auto discarded = discard_frame(writable);
+		if (!discarded.ok()) return discarded.error();
+		return Error{ErrorCode::UnsupportedFormat,
+			"GPU blit requires exact format match between source and ring texture"};
+	}
+	auto copied = d3d11::blit_to_texture_with_write_lease(
+		native_texture, detail::backend::get_native_texture(writable.get_texture()));
+	if (!copied.ok()) {
+		auto discarded = discard_frame(writable);
+		if (!discarded.ok()) return discarded.error();
+		return copied.error();
+	}
+	return commit_frame(writable);
+#else
 	std::lock_guard<std::mutex> lock(impl_->mutex_);
 
 	uint32_t ring_size = impl_->state->ring_size;
@@ -786,6 +899,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 	}
 
 	return last_timeout;
+#endif
 }
 
 Result<void> sender::publish_metal_texture_direct(const metal::direct_publish_desc &desc) {

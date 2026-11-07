@@ -122,7 +122,7 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	REQUIRE(hr == S_OK);
 	sender_context->UpdateSubresource(sender_texture, 0, nullptr, pixels, 4 * sizeof(uint32_t), 0);
 	sender_context->Flush();
-	hr = sender_mutex->ReleaseSync(1);
+	hr = sender_mutex->ReleaseSync(0);
 	REQUIRE(hr == S_OK);
 	sender_mutex->Release();
 
@@ -158,7 +158,8 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	staging->Release();
 
 	nozzle::d3d11::release_slot(receiver_texture, 0);
-	REQUIRE_FALSE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1));
+	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 0));
+	nozzle::d3d11::release_slot(receiver_texture, 0);
 
 	REQUIRE(nozzle::d3d11::signal_slot_ready(sender_texture, 0));
 	REQUIRE(nozzle::d3d11::wait_for_slot(receiver_texture, 0, 1000));

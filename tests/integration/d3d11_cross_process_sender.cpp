@@ -109,7 +109,7 @@ int run_raw_sender(const char *ready_file) {
         return 14;
     }
     fill_texture(context, texture);
-    hr = mutex->ReleaseSync(1);
+    hr = mutex->ReleaseSync(0);
     mutex->Release();
     if (hr != S_OK) {
         context->Release();

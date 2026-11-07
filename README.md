@@ -19,7 +19,7 @@ The API/ABI may change in v0.x; the `stable` branch does not mean the API is fro
 
 ### Known limitations
 
-- **D3D11 ([#187](https://github.com/nozzle-io/nozzle-dev/issues/187)):** frames are not broadcast to every receiver. In the two-receiver CI measurement, B could not acquire the frame A had released; default `timeout_ms = 0` waited about 1.00 s, and commit onto a held slot waited about 1.00 s, for both ring sizes 1 and 3. The synchronization fix is pending.
+- **D3D11 ([#187](https://github.com/nozzle-io/nozzle-dev/issues/187)):** the key-0 protocol permits sequential acquisition of the same publication by multiple receivers. This is latest-frame sharing, not guaranteed delivery of every frame: readers may skip overwritten publications and a busy ring returns `Timeout`. CI evidence and physical-Windows verification are tracked separately in the issue.
 - **Names ([#252](https://github.com/nozzle-io/nozzle-dev/issues/252)):** JNI wrappers reject names containing non-BMP characters because they pass modified UTF-8. Windows programs using narrow `argv` can reject non-ASCII names when the bytes are not UTF-8. Use ASCII names through these paths until the wrappers convert correctly.
 
 ## Features
@@ -276,10 +276,12 @@ acquire_writable_frame -> lock writable mapping handle -> write pixels -> checke
 `commit_frame()` publishes an already-prepared writable frame; it is not a
 replacement for a successful checked unlock.
 
-For the C API, `nozzle_frame_release(frame)` only releases the frame wrapper. A
-writable frame acquired with `nozzle_sender_acquire_writable_frame(...)` must be
-committed or discarded before release; releasing it alone does not publish,
-discard, or return the reserved sender ring-buffer slot.
+For the C API, prefer committing or discarding a writable frame before
+`nozzle_frame_release(frame)`. Release alone never publishes. On D3D11,
+destroying a writable frame makes its reservation reclaimable only after any
+independent active CPU mapping finishes; the mapping retains the writer lease
+and texture even if the frame or sender is destroyed. On other backends,
+release alone does not return the reserved sender ring-buffer slot.
 
 ## Architecture
 
@@ -336,14 +338,12 @@ still require an exact version match. Align core versions across applications.
 For an incompatible persistent directory on macOS/Linux, quit all nozzle apps
 and reboot. Do not remove an active application's state to bypass a mismatch.
 
-The open/closed lifecycle marker uses existing zeroed padding at offset 208;
-sender-state and directory versions both remain 6, with no size or field-offset
-change. Older v6 senders initialize the entire mapping to zero and therefore read
-as open, but do not publish closure. With an older sender, only the existing PID
-check detects destruction when its process exits; same-process destruction can
-still time out. Older receivers likewise ignore the marker, even with a new
-sender. Normal frame sharing remains compatible, but both peers must be updated
-for the new same-process closure behavior.
+The open/closed lifecycle marker remains at offset 208. Sender-state version is
+now **7 on all backends**, with no structure size or field-offset change; the
+directory version remains **6**. Version 6 sender states are rejected, including
+Metal and DMA-BUF states. This intentionally separates peers using the D3D11
+key-0 ownership protocol from the old key-0/key-1 protocol. Update both peers;
+changing a version field manually does not make old synchronization compatible.
 
 Destroying an updated sender publishes closure before
 resource cleanup, even while its process stays alive. A receiver that observes
@@ -375,7 +375,21 @@ ObjC++ code is isolated in `.mm` files. All public headers are pure C++. ARC and
 
 ### Backend: Windows D3D11
 
-Textures are created with `D3D11_RESOURCE_MISC_SHARED` for cross-process sharing via `HANDLE`. Sender creates shared textures in a ring buffer. Receiver opens the shared handle and creates its own texture view. Keyed mutex synchronizes access.
+Ring textures use `D3D11_RESOURCE_MISC_SHARED_NTHANDLE` and
+`D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX`. A writer acquires key 0 before exposing
+the writable texture, invalidates that slot's previous publication, and holds
+ownership through GPU/CPU writes and matching metadata publication. Commit
+then releases key 0. Receivers acquire/release key 0 and validate the slot again
+after acquiring ownership; one receiver does not consume another's publication.
+
+Writer acquisition probes ring slots without waiting. Receiver `timeout_ms=0`
+is nonblocking; positive timeouts use the remaining acquisition budget. Held
+slots are never overwritten. Abandoned keyed mutex resources are retired and
+recreated by their sender, not treated as successfully acquired. Discard does
+not restore the previous publication after its storage has been overwritten.
+`publish_external_texture` returns `UnsupportedBackend` on D3D11 because it
+cannot retroactively protect writes to a borrowed texture. Use a writable frame
+or `publish_native_texture`, which copies into a sender-owned leased slot.
 
 Windows registry shared-memory mappings retain one owned handle per normalized
 name in each loaded nozzle library instance. Closing a caller's mapping handle

@@ -55,10 +55,7 @@ inline auto signal_texture_ready(void *native_texture, uint32_t slot_index) -> R
 }
 
 inline auto wait_for_texture(void *native_texture, uint32_t slot_index, uint32_t timeout_ms) -> Result<void> {
-    if (!d3d11::wait_for_slot(native_texture, slot_index, timeout_ms)) {
-        return Error{ErrorCode::Timeout, "timeout waiting for D3D11 shared texture"};
-    }
-    return {};
+    return d3d11::wait_for_slot_checked(native_texture, slot_index, timeout_ms);
 }
 
 inline void release_texture_sync(void *native_texture, uint32_t slot_index) {

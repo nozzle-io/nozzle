@@ -5,6 +5,10 @@
 #include <nozzle/result.hpp>
 #include <nozzle/types.hpp>
 
+#if NOZZLE_HAS_D3D11
+#include "backends/d3d11/d3d11_helpers.hpp"
+#endif
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -19,6 +23,11 @@ struct writable_cpu_mapping_state {
     bool active{false};
     bool unlock_failed{false};
     uint64_t generation{0};
+#if NOZZLE_HAS_D3D11
+    d3d11::keyed_mutex_lease write_lease{};
+    bool owner_alive{true};
+    bool sealed{false};
+#endif
 };
 
 class writable_cpu_mapping_state_ref {
@@ -44,12 +53,14 @@ frame make_frame(texture tex, frame_info info, uint32_t slot_index);
 Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index);
 uint32_t get_writable_frame_slot(const writable_frame &f);
 const void *get_writable_frame_state_token(const writable_frame &f);
+writable_cpu_mapping_state_ref get_writable_frame_mapping_state(const writable_frame &f) noexcept;
 bool writable_frame_cpu_mapping_active(const writable_frame &f);
 bool writable_frame_cpu_unlock_failed(const writable_frame &f);
 void mark_writable_frame_cpu_mapping_active(writable_frame &f);
 void mark_writable_frame_cpu_mapping_unlocked(writable_frame &f);
 void mark_writable_frame_cpu_unlock_failed(writable_frame &f);
 Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &f);
+Result<void> complete_writable_cpu_mapping(writable_cpu_mapping_state_ref &state_ref);
 void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &state_ref);
 void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &state_ref);
 Result<mapped_pixels> lock_legacy_frame_pixels_with_origin(const frame &f, texture_origin desired_origin);

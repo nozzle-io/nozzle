@@ -11,6 +11,33 @@ struct IDXGIKeyedMutex;
 
 namespace nozzle::d3d11 {
 
+enum class mutex_acquire_result {
+    acquired,
+    timeout,
+    abandoned,
+    failed,
+};
+
+class keyed_mutex_lease {
+public:
+    keyed_mutex_lease() noexcept = default;
+    ~keyed_mutex_lease() noexcept;
+    keyed_mutex_lease(const keyed_mutex_lease &) = delete;
+    keyed_mutex_lease &operator=(const keyed_mutex_lease &) = delete;
+    keyed_mutex_lease(keyed_mutex_lease &&other) noexcept;
+    keyed_mutex_lease &operator=(keyed_mutex_lease &&other) noexcept;
+
+    // An already-held lease is unchanged and returns failed.
+    mutex_acquire_result acquire(void *texture, uint32_t timeout_ms = 0) noexcept;
+    // Consumes ownership even on failure; an empty lease releases successfully.
+    Result<void> release() noexcept;
+    bool held() const noexcept;
+
+private:
+    long release_native() noexcept;
+    IDXGIKeyedMutex *mutex_{nullptr};
+};
+
 Result<texture> create_shared_texture(
     void *d3d11_device,
     uint32_t width,
@@ -36,11 +63,14 @@ bool d3d11_supports_format(void *device, uint32_t format, uint32_t usage);
 
 bool signal_slot_ready(void *shared_texture, uint32_t slot_index);
 void signal_slot_done(void *shared_texture, uint32_t slot_index);
+// Success leaves the mutex held until release_slot, not merely until return.
+Result<void> wait_for_slot_checked(void *shared_texture, uint32_t slot_index, uint32_t timeout_ms);
 bool wait_for_slot(void *shared_texture, uint32_t slot_index, uint32_t timeout_ms);
 void release_slot(void *shared_texture, uint32_t slot_index);
-long acquire_publish_mutex(IDXGIKeyedMutex *mutex);
-
 Result<void> blit_to_texture(void *src_texture, void *dst_texture);
+// Caller owns the destination lease through subsequent metadata publication.
+// This helper never acquires or releases synchronization on either texture.
+Result<void> blit_to_texture_with_write_lease(void *src_texture, void *dst_texture);
 Result<void> blit_from_texture(void *src_texture, void *dst_texture);
 
 } // namespace nozzle::d3d11

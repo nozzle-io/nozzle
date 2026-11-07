@@ -438,9 +438,10 @@ NOZZLE_C_API NozzleErrorCode nozzle_receiver_acquire_frame(
 
 // Releases the C frame wrapper. For writable frames acquired with
 // nozzle_sender_acquire_writable_frame, this does not commit, discard, publish,
-// or return the reserved sender ring-buffer slot. Writable frames must be
-// passed to nozzle_sender_commit_frame or nozzle_sender_discard_frame before
-// release.
+// or publish. Prefer explicit commit/discard before release. On D3D11 an
+// abandoned writable reservation becomes reclaimable after its last active CPU
+// mapping completes; the mapping retains write ownership until then. On other
+// backends release alone does not return the reserved sender ring-buffer slot.
 NOZZLE_C_API void nozzle_frame_release(NozzleFrame *frame);
 
 // Deprecated borrowed-pointer getter. Calls to this function and all reads from

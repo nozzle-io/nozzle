@@ -261,24 +261,26 @@ void release_d3d11_texture_resources(void *texture_ptr, void *shared_handle_ptr)
     }
 }
 
-Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
+Result<void> blit_to_texture_with_write_lease(void *src_texture_ptr, void *dst_texture_ptr) {
     if (!src_texture_ptr || !dst_texture_ptr) {
         return Error{ErrorCode::InvalidArgument, "blit_to_texture: null texture"};
     }
 
     auto *src = static_cast<ID3D11Texture2D *>(src_texture_ptr);
     auto *dst = static_cast<ID3D11Texture2D *>(dst_texture_ptr);
-    IDXGIKeyedMutex *dst_mutex = nullptr;
-    HRESULT mutex_hr = dst->QueryInterface(
-        __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&dst_mutex));
-
     ID3D11Device *device = nullptr;
     src->GetDevice(&device);
     if (!device) {
-        if (dst_mutex) {
-            dst_mutex->Release();
-        }
         return Error{ErrorCode::BackendError, "failed to get D3D11 device from source texture"};
+    }
+
+    ID3D11Device *destination_device = nullptr;
+    dst->GetDevice(&destination_device);
+    const bool same_device = destination_device == device;
+    if (destination_device) destination_device->Release();
+    if (!same_device) {
+        device->Release();
+        return Error{ErrorCode::DeviceMismatch, "D3D11 copy textures belong to different devices"};
     }
 
     ID3D11DeviceContext *ctx = nullptr;
@@ -286,35 +288,52 @@ Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
     device->Release();
 
     if (!ctx) {
-        if (dst_mutex) {
-            dst_mutex->Release();
-        }
         return Error{ErrorCode::BackendError, "failed to get D3D11 device context"};
-    }
-
-    if (SUCCEEDED(mutex_hr) && dst_mutex) {
-        HRESULT acquire_hr = acquire_publish_mutex(dst_mutex);
-        if (acquire_hr != S_OK) {
-            dst_mutex->Release();
-            ctx->Release();
-            return Error{ErrorCode::Timeout, "timeout acquiring D3D11 destination keyed mutex"};
-        }
     }
 
     ctx->CopySubresourceRegion(dst, 0, 0, 0, 0, src, 0, nullptr);
     ctx->Flush();
-
-    if (dst_mutex) {
-        HRESULT release_hr = dst_mutex->ReleaseSync(1);
-        dst_mutex->Release();
-        if (release_hr != S_OK) {
-            ctx->Release();
-            return Error{ErrorCode::BackendError, "failed to release D3D11 destination keyed mutex"};
-        }
-    }
     ctx->Release();
 
     return {};
+}
+
+Result<void> blit_to_texture(void *src_texture_ptr, void *dst_texture_ptr) {
+    if (!src_texture_ptr || !dst_texture_ptr) {
+        return Error{ErrorCode::InvalidArgument, "blit_to_texture: null texture"};
+    }
+
+    auto *dst = static_cast<ID3D11Texture2D *>(dst_texture_ptr);
+    IDXGIKeyedMutex *mutex = nullptr;
+    const HRESULT mutex_hr = dst->QueryInterface(
+        __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&mutex));
+    const bool has_mutex = mutex_hr == S_OK && mutex != nullptr;
+    if (mutex) mutex->Release();
+    if (!has_mutex) {
+        D3D11_TEXTURE2D_DESC desc{};
+        dst->GetDesc(&desc);
+        if (mutex_hr == E_NOINTERFACE &&
+            (desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX) == 0) {
+            return blit_to_texture_with_write_lease(src_texture_ptr, dst_texture_ptr);
+        }
+        return Error{ErrorCode::BackendError, "failed to query D3D11 destination keyed mutex"};
+    }
+
+    keyed_mutex_lease lease;
+    switch (lease.acquire(dst_texture_ptr)) {
+    case mutex_acquire_result::acquired:
+        break;
+    case mutex_acquire_result::timeout:
+        return Error{ErrorCode::Timeout, "timeout acquiring D3D11 destination keyed mutex"};
+    case mutex_acquire_result::abandoned:
+        return Error{ErrorCode::BackendError, "D3D11 destination keyed mutex abandoned; resource is invalid"};
+    case mutex_acquire_result::failed:
+        return Error{ErrorCode::BackendError, "failed to acquire D3D11 destination keyed mutex"};
+    }
+    auto copied = blit_to_texture_with_write_lease(src_texture_ptr, dst_texture_ptr);
+    auto released = lease.release();
+    if (!released.ok()) return released.error();
+    return copied;
 }
 
 Result<void> blit_from_texture(void *src_texture_ptr, void *dst_texture_ptr) {

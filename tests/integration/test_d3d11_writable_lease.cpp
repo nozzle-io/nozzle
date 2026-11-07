@@ -42,11 +42,11 @@ nozzle::texture_desc texture_desc() {
     return desc;
 }
 
-nozzle::sender make_sender() {
+nozzle::sender make_sender(uint32_t ring_size = 1) {
     nozzle::sender_desc desc{};
     desc.name = "writable_lease_" + std::to_string(GetCurrentProcessId()) + "_" +
         std::to_string(steady_clock::now().time_since_epoch().count());
-    desc.ring_buffer_size = 1;
+    desc.ring_buffer_size = ring_size;
     auto result = nozzle::sender::create(desc);
     INFO(result.error().message);
     REQUIRE(result.ok());
@@ -189,6 +189,56 @@ struct imported_probe {
 };
 
 } // namespace
+
+TEST_CASE("D3D11 writable lease: outstanding reservations retain their own metadata",
+          "[.][integration][d3d11][writable_lease]") {
+    auto sender = make_sender(2);
+    auto first = sender.acquire_writable_frame(texture_desc());
+    REQUIRE(first.ok());
+    write_pixels(first.value(), 6);
+    auto other_desc = texture_desc();
+    other_desc.width = 7;
+    other_desc.height = 5;
+    auto second = sender.acquire_writable_frame(other_desc);
+    REQUIRE(second.ok());
+    REQUIRE(sender.commit_frame(first.value()).ok());
+    nozzle::receiver_desc desc{};
+    desc.name = sender.info().name;
+    auto receiver = nozzle::receiver::create(desc);
+    REQUIRE(receiver.ok());
+    nozzle::acquire_desc acquire{};
+    acquire.timeout_ms = 100;
+    auto received = receiver.value().acquire_frame(acquire);
+    INFO(received.error().message);
+    REQUIRE(received.ok());
+    CHECK(received.value().info().width == width);
+    CHECK(received.value().info().height == height);
+    CHECK(matches_pixels(received.value(), 6));
+    REQUIRE(sender.discard_frame(second.value()).ok());
+}
+
+TEST_CASE("D3D11 writable lease: external publication and foreign reservations are rejected",
+          "[.][integration][d3d11][writable_lease]") {
+    auto owner = make_sender();
+    auto other = make_sender();
+    auto writable = owner.acquire_writable_frame(texture_desc());
+    REQUIRE(writable.ok());
+    auto other_writable = other.acquire_writable_frame(texture_desc());
+    REQUIRE(other_writable.ok());
+    auto external = owner.publish_external_texture(writable.value().get_texture());
+    REQUIRE_FALSE(external.ok());
+    CHECK(external.error().code == nozzle::ErrorCode::UnsupportedBackend);
+    auto foreign_commit = other.commit_frame(writable.value());
+    REQUIRE_FALSE(foreign_commit.ok());
+    CHECK(foreign_commit.error().code == nozzle::ErrorCode::InvalidArgument);
+    auto foreign_discard = other.discard_frame(writable.value());
+    REQUIRE_FALSE(foreign_discard.ok());
+    CHECK(foreign_discard.error().code == nozzle::ErrorCode::InvalidArgument);
+    CHECK(writable.value().valid());
+    write_pixels(writable.value(), 7);
+    REQUIRE(owner.commit_frame(writable.value()).ok());
+    REQUIRE(other.discard_frame(other_writable.value()).ok());
+}
 
 TEST_CASE("D3D11 writable lease: rewrite and discard invalidate an old ring1 publication",
           "[.][integration][d3d11][writable_lease]") {
