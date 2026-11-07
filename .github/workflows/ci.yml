@@ -308,6 +308,9 @@ jobs:
       - name: SIMD parity tests (compiled-path report)
         run: ./build/tests/nozzle_tests "[simd_parity]" --reporter console
 
+      - name: DMA-BUF real cross-user peer policy
+        run: sudo -n timeout 45s ./build/tests/nozzle_c_api_tests "[peer_policy_privileged]" --reporter console --success
+
       - name: DMA-BUF fd broker retry regression
         run: ./build/tests/nozzle_c_api_tests "[fd_broker]" --reporter console --success
 
