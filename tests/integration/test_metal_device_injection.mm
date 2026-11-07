@@ -159,3 +159,44 @@ TEST_CASE("C API: Metal sender with safe fallbacks can acquire, map, and commit 
     nozzle_frame_release(frame);
     nozzle_sender_destroy(sender);
 }
+
+TEST_CASE("C API: Metal policy rejection reports unsupported format", "[c_api][metal][fallback_policy]") {
+    id<MTLDevice> mtl_device = MTLCreateSystemDefaultDevice();
+    if (mtl_device == nil) {
+        SKIP("Metal device is not available on this runner");
+    }
+    [mtl_device release];
+
+    NozzleSenderDesc desc{};
+    desc.name = "test_metal_no_fallback_rgba8";
+    desc.application_name = "test";
+    desc.ring_buffer_size = 2;
+    desc.fallback_flags_valid = 1;
+    desc.fallback_flags = NOZZLE_FALLBACK_NONE;
+
+    NozzleSender *sender = nullptr;
+    NozzleErrorCode error = nozzle_sender_create(&desc, &sender);
+    if (error == NOZZLE_ERROR_BACKEND_ERROR ||
+        error == NOZZLE_ERROR_RESOURCE_CREATION_FAILED ||
+        error == NOZZLE_ERROR_UNSUPPORTED_BACKEND) {
+        SKIP("default Metal sender creation is not available on this runner");
+    }
+    REQUIRE(error == NOZZLE_OK);
+    REQUIRE(sender != nullptr);
+
+    NozzleFrame *frame = nullptr;
+    error = nozzle_sender_acquire_writable_frame(
+        sender,
+        4,
+        4,
+        NOZZLE_FORMAT_RGBA8_UNORM,
+        &frame);
+
+    CHECK(error == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
+    CHECK(frame == nullptr);
+    if (frame != nullptr) {
+        (void)nozzle_sender_discard_frame(sender, frame);
+        nozzle_frame_release(frame);
+    }
+    nozzle_sender_destroy(sender);
+}

@@ -76,6 +76,17 @@ jobs:
             exit 1
           fi
 
+      - name: C API fallback-policy regression must run
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/nozzle_integration_tests "[fallback_policy]" --reporter console --success | tee fallback-policy.log
+          if grep -qi "skipped" fallback-policy.log; then
+            echo "::error::[fallback_policy] test was skipped on this macOS runner"
+            exit 1
+          fi
+
       - name: C API snapshot identity transition
         run: ./build/tests/nozzle_integration_tests "[info_snapshot][cross_process]" --reporter console --success
 

@@ -331,6 +331,9 @@ const char *fallback_category_name(fallback_category cat) noexcept {
 }
 
 bool is_allowed_storage_fallback(texture_format a, texture_format b) {
+    if (a == texture_format::unknown || b == texture_format::unknown) {
+        return false;
+    }
     return get_storage_compatible_fallback(a) == b
         || get_storage_compatible_fallback(b) == a;
 }
@@ -372,15 +375,21 @@ Result<fallback_category> classify_observed_format(
         if (observed == fallback_target) {
             return attempted_category;
         }
-        if ((fallback_flags & fallback_allow_storage_compatible) != 0
-            && is_allowed_storage_fallback(fallback_target, observed)) {
-            return attempted_category;
+        if (is_allowed_storage_fallback(fallback_target, observed)) {
+            if ((fallback_flags & fallback_allow_storage_compatible) != 0) {
+                return attempted_category;
+            }
+            return Error{ErrorCode::UnsupportedFormat,
+                "observed storage-compatible format is disallowed by fallback policy"};
         }
     }
 
-    if ((fallback_flags & fallback_allow_storage_compatible) != 0
-        && is_allowed_storage_fallback(requested, observed)) {
-        return fallback_category::storage_compatible;
+    if (is_allowed_storage_fallback(requested, observed)) {
+        if ((fallback_flags & fallback_allow_storage_compatible) != 0) {
+            return fallback_category::storage_compatible;
+        }
+        return Error{ErrorCode::UnsupportedFormat,
+            "observed storage-compatible format is disallowed by fallback policy"};
     }
 
     return Error{ErrorCode::BackendError,

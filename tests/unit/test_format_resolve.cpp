@@ -591,6 +591,16 @@ TEST_CASE("classify_observed_format: backend returns unexpected format -> error"
         fallback_category::none, texture_format::unknown,
         fallback_safe_defaults);
     REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::BackendError);
+}
+
+TEST_CASE("classify_observed_format: unknown observation is a backend error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::r8_unorm, texture_format::unknown,
+        fallback_category::none, texture_format::unknown,
+        fallback_none);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::BackendError);
 }
 
 TEST_CASE("classify_observed_format: fallback target mismatch -> error", "[format_resolve]") {
@@ -599,6 +609,16 @@ TEST_CASE("classify_observed_format: fallback target mismatch -> error", "[forma
         fallback_category::storage_compatible, texture_format::bgra8_unorm,
         fallback_safe_defaults);
     REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::BackendError);
+}
+
+TEST_CASE("classify_observed_format: unknown observation after attempted fallback is a backend error", "[format_resolve]") {
+    auto r = classify_observed_format(
+        texture_format::r16_unorm, texture_format::unknown,
+        fallback_category::quality_loss, texture_format::r8_unorm,
+        fallback_allow_quality_loss);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::BackendError);
 }
 
 TEST_CASE("classify_observed_format: storage not allowed when flag absent -> error", "[format_resolve]") {
@@ -607,6 +627,7 @@ TEST_CASE("classify_observed_format: storage not allowed when flag absent -> err
         fallback_category::none, texture_format::unknown,
         fallback_allow_channel_expansion);
     REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
 }
 
 TEST_CASE("classify_observed_format: channel expansion with storage-compatible observed (rgb8->rgba8->bgra8)", "[format_resolve]") {
@@ -624,6 +645,7 @@ TEST_CASE("classify_observed_format: channel expansion with storage-incompatible
         fallback_category::channel_expansion, texture_format::rgba8_unorm,
         fallback_safe_defaults);
     REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::BackendError);
 }
 
 TEST_CASE("classify_observed_format: channel expansion with storage-compatible observed but storage flag absent -> error", "[format_resolve]") {
@@ -632,6 +654,7 @@ TEST_CASE("classify_observed_format: channel expansion with storage-compatible o
         fallback_category::channel_expansion, texture_format::rgba8_unorm,
         fallback_allow_channel_expansion);
     REQUIRE_FALSE(r.ok());
+    REQUIRE(r.error().code == ErrorCode::UnsupportedFormat);
 }
 
 // ---------- resolve_fallback_metadata ----------
