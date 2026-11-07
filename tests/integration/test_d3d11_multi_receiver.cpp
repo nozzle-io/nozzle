@@ -33,6 +33,7 @@ nozzle::Result<nozzle::frame> measure_acquire(
 
 struct publication {
     bool ok;
+    bool acquired;
     uint32_t slot;
 };
 
@@ -41,14 +42,21 @@ publication measure_publish(nozzle::sender &sender, const char *phase) {
     desc.width = 64;
     desc.height = 64;
     desc.format = nozzle::texture_format::rgba8_unorm;
+    const auto acquire_start = clock_type::now();
     auto writable = sender.acquire_writable_frame(desc);
-    REQUIRE(writable.ok());
+    const auto acquire_duration = elapsed_ms(acquire_start);
+    std::cout << "D3D11_MEASUREMENT phase=" << phase << " stage=acquire"
+              << " elapsed_ms=" << acquire_duration
+              << " code=" << static_cast<int>(writable.ok() ? nozzle::ErrorCode::Ok : writable.error().code)
+              << " message=" << (writable.ok() ? "OK" : writable.error().message) << std::endl;
+    REQUIRE((writable.ok() || writable.error().code == nozzle::ErrorCode::Timeout));
+    if (!writable.ok()) return {false, false, UINT32_MAX};
     const auto slot = nozzle::detail::get_writable_frame_slot(writable.value());
     // No pixel writes: this measures the publication/ownership handshake only.
     const auto start = clock_type::now();
     auto result = sender.commit_frame(writable.value());
     const auto duration = elapsed_ms(start);
-    std::cout << "D3D11_MEASUREMENT phase=" << phase << " slot=" << slot
+    std::cout << "D3D11_MEASUREMENT phase=" << phase << " stage=commit slot=" << slot
               << " elapsed_ms=" << duration
               << " code=" << static_cast<int>(result.ok() ? nozzle::ErrorCode::Ok : result.error().code)
               << " message=" << (result.ok() ? "OK" : result.error().message) << std::endl;
@@ -57,7 +65,7 @@ publication measure_publish(nozzle::sender &sender, const char *phase) {
     if (!result.ok() && writable.value().valid()) {
         REQUIRE(sender.discard_frame(writable.value()).ok());
     }
-    return {result.ok(), slot};
+    return {result.ok(), true, slot};
 }
 
 } // namespace
@@ -124,14 +132,15 @@ TEST_CASE("D3D11 multi-receiver handshake measurements", "[.][d3d11_multi_receiv
         const auto held_frame = held.value().info().frame_index;
         uint32_t successful_commits = 0;
         uint32_t timed_out_commits = 0;
+        uint32_t timed_out_acquires = 0;
         bool visited_held_slot = false;
         for (uint32_t i = 0; i < ring_size; ++i) {
             const auto published = measure_publish(sender, "publish_while_a_holds");
             visited_held_slot = visited_held_slot || published.slot == held_publication.slot;
-            if (published.ok) ++successful_commits;
+            if (!published.acquired) ++timed_out_acquires;
+            else if (published.ok) ++successful_commits;
             else ++timed_out_commits;
         }
-        REQUIRE(visited_held_slot);
         held.value().release();
         REQUIRE(measure_publish(sender, "publish_after_a_release").ok);
         {
@@ -144,6 +153,8 @@ TEST_CASE("D3D11 multi-receiver handshake measurements", "[.][d3d11_multi_receiv
                   << " held_frame=" << held_frame
                   << " held_successful_commits=" << successful_commits
                   << " held_timed_out_commits=" << timed_out_commits
+                  << " held_timed_out_acquires=" << timed_out_acquires
+                  << " held_slot_selected=" << visited_held_slot
                   << " broadcast_correctness_claim=0" << std::endl;
     }
 }

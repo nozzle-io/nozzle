@@ -154,7 +154,7 @@ struct layout_fixture {
         state.close();
         ipc::shm_unlink(registration.shm_name);
         if (wrong_version) {
-            const uint32_t prefix[]{nd::kSenderMagic, static_cast<uint32_t>(nd::kSharedMemVersion + 1)};
+            const uint32_t prefix[]{nd::kSenderMagic, 8}; // Beyond the intended sender protocol v7.
             if (!state.create(registration.shm_name, sizeof(prefix))) return false;
             std::memcpy(state.data, prefix, sizeof(prefix));
         } else {
@@ -629,6 +629,41 @@ TEST_CASE("Shared layout: directory versions 2 5 and 6 keep existing live entrie
     }
 }
 
+TEST_CASE("Shared layout: registration publishes sender v7 without bumping directory v6",
+          "[shared_layout][integration][sender_version]") {
+    layout_fixture fixture;
+    require_setup(fixture, fixture.create());
+    const auto sender_version = fixture.sender_state().version;
+    const auto directory_version = fixture.header().version;
+    REQUIRE(fixture.restore());
+    CHECK(sender_version == 7u);
+    CHECK(directory_version == 6u);
+}
+
+TEST_CASE("Shared layout: receiver lookup requires sender v7 for every backend",
+          "[shared_layout][integration][sender_version]") {
+    for (const auto backend : {nozzle::backend_type::d3d11,
+                              nozzle::backend_type::metal,
+                              nozzle::backend_type::dma_buf}) {
+        for (const uint32_t version : {6u, 7u}) {
+            DYNAMIC_SECTION(static_cast<int>(backend) << " / sender v" << version) {
+                layout_fixture fixture;
+                require_setup(fixture, fixture.create());
+                fixture.sender_state().backend = static_cast<uint8_t>(backend);
+                fixture.entry().backend = static_cast<uint8_t>(backend);
+                fixture.sender_state().version = version;
+                // Lookup requires no GPU device. Literal versions make old v6
+                // acceptance and v7 rejection behavioral failures, not setup failures.
+                const auto result = run_probe(version == 7u ? "control" : "connect_version", fixture);
+                const auto directory_version = fixture.header().version;
+                REQUIRE(fixture.restore());
+                check_probe(result);
+                CHECK(directory_version == 6u);
+            }
+        }
+    }
+}
+
 TEST_CASE("Shared layout: unterminated directory fields are rejected", "[shared_layout][integration]") {
     for (const char *field : {"name", "application", "uuid", "shm_name"}) {
         for (const char *operation : {"enumerate", "register", "connect"}) {
@@ -671,7 +706,7 @@ TEST_CASE("Shared layout: receiver validates sender fields before connecting", "
             const bool version = std::strncmp(field, "version_", 8) == 0;
             if (std::strcmp(field, "version_2") == 0) state.version = 2;
             if (std::strcmp(field, "version_5") == 0) state.version = 5;
-            if (std::strcmp(field, "version_future") == 0) state.version = nd::kSharedMemVersion + 1;
+            if (std::strcmp(field, "version_future") == 0) state.version = 8;
             if (std::strcmp(field, "lifecycle") == 0) state.lifecycle_state = nd::sender_state_closed + 1;
             if (std::strcmp(field, "ring_zero") == 0) state.ring_size = 0;
             if (std::strcmp(field, "ring_large") == 0) state.ring_size = nd::kMaxRingSlots + 1;
@@ -727,7 +762,7 @@ TEST_CASE("Shared layout: mapping beyond one page of backing is rejected", "[sha
     check_probe(result);
 }
 
-TEST_CASE("Shared layout: small old layouts retain explicit version diagnostics", "[shared_layout][integration]") {
+TEST_CASE("Shared layout: small incompatible layouts retain explicit version diagnostics", "[shared_layout][integration]") {
     for (const char *operation : {"enumerate", "register_version", "connect_version", "open_state_version", "connect_state_version"}) {
         DYNAMIC_SECTION(operation) {
             layout_fixture fixture;

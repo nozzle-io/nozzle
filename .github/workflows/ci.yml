@@ -294,6 +294,18 @@ jobs:
             exit 1
           fi
 
+      - name: D3D11 cross-process fan-out and writable lease regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/Debug/nozzle_integration_tests.exe "[d3d11_fanout],[writable_lease]" --reporter console --success | tee d3d11-fanout.log
+          if grep -qi "skipped" d3d11-fanout.log; then
+            echo "::error::D3D11 cross-process fan-out tests must execute"
+            exit 1
+          fi
+
       # This records handshake limitations; green does not certify fan-out.
       - name: D3D11 multi-receiver measurements
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -327,6 +339,7 @@ jobs:
         run: ./build/tests/Debug/nozzle_integration_tests.exe --reporter compact
 
       - name: Receiver threading regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ./build/tests/Debug/nozzle_integration_tests.exe "[integration][threading]" --reporter console --success
 
       - name: C API snapshot identity transition

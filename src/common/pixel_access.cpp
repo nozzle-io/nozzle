@@ -529,7 +529,6 @@ struct windows_write_mapping final : pixel_mapping::Impl {
     ID3D11Texture2D *staging{nullptr};
     ID3D11DeviceContext *context{nullptr};
     ID3D11Device *device{nullptr};
-    IDXGIKeyedMutex *publish_mutex{nullptr};
     ID3D10Multithread *multithread{nullptr};
     detail::writable_cpu_mapping_state_ref mapping_state{};
 
@@ -538,7 +537,6 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         ID3D11Texture2D *staging_texture,
         ID3D11DeviceContext *device_context,
         ID3D11Device *d3d_device,
-        IDXGIKeyedMutex *keyed_mutex,
         ID3D10Multithread *multithread_guard,
         detail::writable_cpu_mapping_state_ref state_ref
     ) noexcept
@@ -546,7 +544,6 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         , staging{staging_texture}
         , context{device_context}
         , device{d3d_device}
-        , publish_mutex{keyed_mutex}
         , multithread{multithread_guard}
         , mapping_state{std::move(state_ref)}
     {
@@ -562,16 +559,12 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         ID3D11Texture2D *staging_texture = staging;
         ID3D11DeviceContext *device_context = context;
         ID3D11Device *d3d_device = device;
-        IDXGIKeyedMutex *keyed_mutex = publish_mutex;
         ID3D10Multithread *multithread_guard = multithread;
         source = nullptr;
         staging = nullptr;
         context = nullptr;
         device = nullptr;
-        publish_mutex = nullptr;
         multithread = nullptr;
-
-        HRESULT release_hr = S_OK;
 
         enter_multithread(multithread_guard);
         device_context->Unmap(staging_texture, 0);
@@ -581,10 +574,7 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         device_context->Flush();
         leave_multithread(multithread_guard);
 
-        if (keyed_mutex) {
-            release_hr = keyed_mutex->ReleaseSync(1);
-            keyed_mutex->Release();
-        }
+        auto completion = detail::complete_writable_cpu_mapping(mapping_state);
         if (multithread_guard) {
             multithread_guard->Release();
         }
@@ -595,12 +585,7 @@ struct windows_write_mapping final : pixel_mapping::Impl {
         }
         source_texture->Release();
 
-        if (FAILED(release_hr)) {
-            detail::mark_writable_cpu_mapping_unlock_failed(mapping_state);
-            return Error{ErrorCode::BackendError, "failed to release D3D11 writable keyed mutex"};
-        }
-        detail::mark_writable_cpu_mapping_unlocked(mapping_state);
-        return {};
+        return completion;
     }
 };
 
@@ -775,38 +760,13 @@ Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &f
         return Error{ErrorCode::BackendError, "failed to map staging texture"};
     }
 
-    IDXGIKeyedMutex *mutex = nullptr;
-    HRESULT mutex_hr = d3d_tex->QueryInterface(
-        __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&mutex));
-    if (SUCCEEDED(mutex_hr) && mutex) {
-        HRESULT acquire_hr = d3d11::acquire_publish_mutex(mutex);
-        if (acquire_hr != S_OK) {
-            mutex->Release();
-            enter_multithread(multithread);
-            ctx->Unmap(staging, 0);
-            leave_multithread(multithread);
-            staging->Release();
-            if (multithread) {
-                multithread->Release();
-            }
-            ctx->Release();
-            device->Release();
-            detail::mark_writable_cpu_mapping_unlocked(mapping_state);
-            return Error{ErrorCode::Timeout, "timeout acquiring D3D11 writable keyed mutex"};
-        }
-    }
-
     d3d_tex->AddRef();
     auto *mapping_impl = new (std::nothrow) windows_write_mapping(
-        d3d_tex, staging, ctx, device, mutex, multithread, std::move(mapping_state));
+        d3d_tex, staging, ctx, device, multithread, std::move(mapping_state));
     if (!mapping_impl) {
         enter_multithread(multithread);
         ctx->Unmap(staging, 0);
         leave_multithread(multithread);
-        if (mutex) {
-            (void)mutex->ReleaseSync(1);
-            mutex->Release();
-        }
         d3d_tex->Release();
         staging->Release();
         if (multithread) {

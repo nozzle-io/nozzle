@@ -1,5 +1,9 @@
 #if NOZZLE_HAS_D3D11
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <nozzle/nozzle.hpp>
 #include <nozzle/backends/d3d11.hpp>
 #include "backends/d3d11/d3d11_helpers.hpp"
@@ -13,6 +17,9 @@
 #include <cstdio>
 #include <cstring>
 #include <utility>
+#include <cstdlib>
+
+#include "d3d11_fanout_actor.hpp"
 
 namespace {
 
@@ -102,7 +109,7 @@ int run_raw_sender(const char *ready_file) {
         return 14;
     }
     fill_texture(context, texture);
-    hr = mutex->ReleaseSync(1);
+    hr = mutex->ReleaseSync(0);
     mutex->Release();
     if (hr != S_OK) {
         context->Release();
@@ -171,6 +178,10 @@ int run_public_sender(const char *sender_name, const char *ready_file) {
 } // namespace
 
 int main(int argc, char **argv) {
+    if (argc == 6 && std::strcmp(argv[1], "actor") == 0) {
+        return fanout_test::run_actor(argv[2], argv[3],
+            static_cast<uint32_t>(std::strtoul(argv[4], nullptr, 10)), argv[5]);
+    }
     if (argc == 3 && std::strcmp(argv[1], "raw") == 0) {
         return run_raw_sender(argv[2]);
     }

@@ -407,7 +407,16 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         }
 
         void *native_texture = detail::backend::get_native_texture(tex_result.value());
+#if NOZZLE_HAS_D3D11
+        uint32_t sync_timeout_ms = desc.timeout_ms;
+        if (desc.timeout_ms > 0) {
+            const uint64_t now = detail::ipc::monotonic_ns();
+            sync_timeout_ms = now >= deadline ? 0 : static_cast<uint32_t>(
+                (deadline - now) / 1000000ULL);
+        }
+#else
         uint32_t sync_timeout_ms = desc.timeout_ms == 0 ? 1000 : desc.timeout_ms;
+#endif
         auto wait_result = detail::backend::wait_for_texture(
             native_texture,
             slot,

@@ -24,6 +24,7 @@ void mark_writable_frame_cpu_mapping_active(writable_frame &);
 void mark_writable_frame_cpu_mapping_unlocked(writable_frame &);
 void mark_writable_frame_cpu_unlock_failed(writable_frame &);
 class writable_cpu_mapping_state_ref;
+writable_cpu_mapping_state_ref get_writable_frame_mapping_state(const writable_frame &) noexcept;
 Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &);
 void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &);
 void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &);
@@ -83,6 +84,7 @@ private:
     friend Result<writable_frame> detail::make_writable_frame(texture, texture_desc, uint32_t);
     friend uint32_t detail::get_writable_frame_slot(const writable_frame &);
     friend const void *detail::get_writable_frame_state_token(const writable_frame &);
+    friend detail::writable_cpu_mapping_state_ref detail::get_writable_frame_mapping_state(const writable_frame &) noexcept;
     friend bool detail::writable_frame_cpu_mapping_active(const writable_frame &);
     friend bool detail::writable_frame_cpu_unlock_failed(const writable_frame &);
     friend void detail::mark_writable_frame_cpu_mapping_active(writable_frame &);

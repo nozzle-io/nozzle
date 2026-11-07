@@ -546,51 +546,6 @@ struct scoped_windows_fbos {
     }
 };
 
-struct scoped_d3d11_publish_mutex {
-    IDXGIKeyedMutex *mutex{nullptr};
-    bool acquired{false};
-
-    ~scoped_d3d11_publish_mutex() {
-        if (mutex) {
-            if (acquired) {
-                (void)mutex->ReleaseSync(0);
-            }
-            mutex->Release();
-        }
-    }
-
-    Result<void> acquire(ID3D11Texture2D *texture) {
-        HRESULT hr = texture->QueryInterface(
-            __uuidof(IDXGIKeyedMutex), reinterpret_cast<void **>(&mutex));
-        if (FAILED(hr) || !mutex) {
-            return Error{ErrorCode::UnsupportedBackend,
-                "D3D11 texture has no keyed mutex for WGL_NV_DX_interop2 publish"};
-        }
-
-        hr = d3d11::acquire_publish_mutex(mutex);
-        if (hr != S_OK) {
-            return Error{ErrorCode::Timeout,
-                "timeout acquiring D3D11 publish keyed mutex for WGL_NV_DX_interop2"};
-        }
-        acquired = true;
-        return {};
-    }
-
-    Result<void> release_unpublished() {
-        if (!mutex || !acquired) {
-            return Error{ErrorCode::BackendError,
-                "D3D11 publish keyed mutex was not acquired"};
-        }
-        HRESULT hr = mutex->ReleaseSync(0);
-        acquired = false;
-        if (FAILED(hr)) {
-            return Error{ErrorCode::BackendError,
-                "failed to release D3D11 publish keyed mutex after OpenGL write"};
-        }
-        return {};
-    }
-};
-
 void log_windows_gl_cpu_fallback_once(const Error &error) {
     static std::mutex mutex;
     static bool logged = false;
@@ -607,12 +562,7 @@ Result<void> copy_gl_texture_to_d3d11_staging(
     const gl_texture_desc &gl_desc,
     const gl_format_mapping &gl_fmt,
     ID3D11Texture2D *d3d_tex) {
-    scoped_d3d11_publish_mutex publish_mutex;
-    auto mutex_result = publish_mutex.acquire(d3d_tex);
-    if (!mutex_result.ok()) {
-        return mutex_result.error();
-    }
-
+    // The sender writable frame owns the D3D11 writer lease through commit/discard.
     uint32_t bpp = gl_format_components(gl_fmt.format) * gl_type_size(gl_fmt.type);
     uint32_t row_bytes = gl_desc.width * bpp;
     std::vector<uint8_t> pixel_data(static_cast<size_t>(row_bytes) * gl_desc.height);
@@ -682,7 +632,7 @@ Result<void> copy_gl_texture_to_d3d11_staging(
     d3d_ctx->Release();
     d3d_device->Release();
 
-    return publish_mutex.release_unpublished();
+    return {};
 }
 
 Result<void> publish_gl_texture_wgl_dx_interop2(
@@ -723,12 +673,7 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
             "D3D11 texture is not compatible with WGL_NV_DX_interop2 publish"};
     }
 
-    scoped_d3d11_publish_mutex publish_mutex;
-    auto mutex_result = publish_mutex.acquire(d3d_tex);
-    if (!mutex_result.ok()) {
-        return mutex_result.error();
-    }
-
+    // Keep the sender lease held; WGL object locking below protects the GL copy separately.
     HANDLE interop_device = interop_functions.open_device(d3d_device.ptr);
     if (!interop_device) {
         return Error{ErrorCode::UnsupportedBackend,
@@ -982,7 +927,7 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
     d3d_context.ptr->CopyResource(d3d_tex, interop_target.ptr);
     d3d_context.ptr->Flush();
 
-    return publish_mutex.release_unpublished();
+    return {};
 }
 
 #endif // NOZZLE_PLATFORM_WINDOWS

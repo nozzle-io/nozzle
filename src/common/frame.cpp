@@ -79,10 +79,34 @@ Result<void> frame::copy_to_native_texture(void *native_texture, uint32_t width,
     return detail::backend::blit_textures(dev_ptr, src_native, native_texture, width, height);
 }
 
+#if NOZZLE_HAS_D3D11
+namespace {
+
+void retire_writable_owner(detail::writable_cpu_mapping_state_ref &state_ref) {
+    auto *state = state_ref.get();
+    if (!state) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(state->mutex);
+    state->owner_alive = false;
+    if (!state->active && state->write_lease.held()) {
+        auto released = state->write_lease.release();
+        if (!released.ok()) {
+            state->unlock_failed = true;
+        }
+    }
+}
+
+} // anonymous namespace
+#endif
+
 writable_frame::writable_frame() noexcept = default;
 writable_frame::~writable_frame() {
     if (impl_) {
         std::lock_guard<std::mutex> lock(impl_->legacy_mutex_);
+#if NOZZLE_HAS_D3D11
+        retire_writable_owner(impl_->cpu_mapping_state_);
+#endif
         impl_->legacy_writable_mapping_.unlock();
         impl_->valid_ = false;
         impl_->tex_ = texture{};
@@ -94,6 +118,9 @@ writable_frame &writable_frame::operator=(writable_frame &&other) noexcept {
     if (this != &other) {
         if (impl_) {
             std::lock_guard<std::mutex> lock(impl_->legacy_mutex_);
+#if NOZZLE_HAS_D3D11
+            retire_writable_owner(impl_->cpu_mapping_state_);
+#endif
             impl_->legacy_writable_mapping_.unlock();
             impl_->valid_ = false;
             impl_->tex_ = texture{};
@@ -198,18 +225,35 @@ Result<writable_cpu_mapping_state_ref> make_writable_cpu_mapping_state_ref() {
     return writable_cpu_mapping_state_ref{state};
 }
 
-void set_writable_cpu_mapping_state(
+Result<void> finish_writable_cpu_mapping(
     writable_cpu_mapping_state_ref &state_ref,
-    bool active,
     bool unlock_failed
 ) {
     auto *state = state_ref.get();
     if (!state) {
-        return;
+        return {};
     }
     std::lock_guard<std::mutex> lock(state->mutex);
-    state->active = active;
+#if NOZZLE_HAS_D3D11
+    state->unlock_failed = state->unlock_failed || unlock_failed;
+    // Reclamation must not observe an inactive mapping before its lease is released.
+    if (!state->owner_alive && state->write_lease.held()) {
+        auto released = state->write_lease.release();
+        if (!released.ok()) {
+            state->unlock_failed = true;
+            state->active = false;
+            return released.error();
+        }
+    }
+    state->active = false;
+    if (state->unlock_failed) {
+        return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
+    }
+#else
+    state->active = false;
     state->unlock_failed = unlock_failed;
+#endif
+    return {};
 }
 
 } // anonymous namespace
@@ -260,6 +304,10 @@ const void *get_writable_frame_state_token(const writable_frame &f) {
     return f.impl_.get();
 }
 
+writable_cpu_mapping_state_ref get_writable_frame_mapping_state(const writable_frame &f) noexcept {
+    return f.impl_ ? f.impl_->cpu_mapping_state_ : writable_cpu_mapping_state_ref{};
+}
+
 bool writable_frame_cpu_mapping_active(const writable_frame &f) {
     if (!f.impl_ || !f.impl_->cpu_mapping_state_) {
         return false;
@@ -284,6 +332,14 @@ void mark_writable_frame_cpu_mapping_active(writable_frame &f) {
     }
     auto *state = f.impl_->cpu_mapping_state_.get();
     std::lock_guard<std::mutex> lock(state->mutex);
+#if NOZZLE_HAS_D3D11
+    if (state->active || state->unlock_failed || !state->owner_alive || state->sealed || !state->write_lease.held()) {
+        return;
+    }
+    if (backend::get_native_texture(f.impl_->tex_) != state->reserved_native_texture) {
+        return;
+    }
+#endif
     state->active = true;
     state->unlock_failed = false;
     state->generation += 1;
@@ -293,14 +349,14 @@ void mark_writable_frame_cpu_mapping_unlocked(writable_frame &f) {
     if (!f.impl_) {
         return;
     }
-    set_writable_cpu_mapping_state(f.impl_->cpu_mapping_state_, false, false);
+    (void)complete_writable_cpu_mapping(f.impl_->cpu_mapping_state_);
 }
 
 void mark_writable_frame_cpu_unlock_failed(writable_frame &f) {
     if (!f.impl_) {
         return;
     }
-    set_writable_cpu_mapping_state(f.impl_->cpu_mapping_state_, false, true);
+    (void)finish_writable_cpu_mapping(f.impl_->cpu_mapping_state_, true);
 }
 
 Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable_frame &f) {
@@ -317,18 +373,33 @@ Result<writable_cpu_mapping_state_ref> begin_writable_frame_cpu_mapping(writable
     if (state->unlock_failed) {
         return Error{ErrorCode::BackendError, "writable frame CPU unlock previously failed"};
     }
+#if NOZZLE_HAS_D3D11
+    if (!state->owner_alive || state->sealed) {
+        return Error{ErrorCode::InvalidArgument, "writable frame is no longer open for CPU mapping"};
+    }
+    if (!state->write_lease.held()) {
+        return Error{ErrorCode::BackendError, "writable frame does not hold its D3D11 writer lease"};
+    }
+    if (backend::get_native_texture(f.impl_->tex_) != state->reserved_native_texture) {
+        return Error{ErrorCode::InvalidArgument, "writable frame texture does not match its reserved D3D11 resource"};
+    }
+#endif
     state->active = true;
     state->unlock_failed = false;
     state->generation += 1;
     return state_ref;
 }
 
+Result<void> complete_writable_cpu_mapping(writable_cpu_mapping_state_ref &state_ref) {
+    return finish_writable_cpu_mapping(state_ref, false);
+}
+
 void mark_writable_cpu_mapping_unlocked(writable_cpu_mapping_state_ref &state_ref) {
-    set_writable_cpu_mapping_state(state_ref, false, false);
+    (void)complete_writable_cpu_mapping(state_ref);
 }
 
 void mark_writable_cpu_mapping_unlock_failed(writable_cpu_mapping_state_ref &state_ref) {
-    set_writable_cpu_mapping_state(state_ref, false, true);
+    (void)finish_writable_cpu_mapping(state_ref, true);
 }
 
 Result<mapped_pixels> lock_legacy_frame_pixels_with_origin(

@@ -743,7 +743,7 @@ TEST_CASE("C API: discard writable frame releases sender slot without publishing
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 }
 
-TEST_CASE("C API: releasing writable frame wrapper does not return sender slot", "[integration][c_api][pixel_access][writable_frame]") {
+TEST_CASE("C API: writable wrapper release follows backend reservation lifetime", "[integration][c_api][pixel_access][writable_frame]") {
     SenderHandle sender;
     NozzleSenderDesc sdesc = make_safe_fallback_sender_desc();
     sdesc.name = "writable_release_does_not_return_slot";
@@ -774,9 +774,16 @@ TEST_CASE("C API: releasing writable frame wrapper does not return sender slot",
     first.p = nullptr;
 
     NozzleFrame *raw_third = nullptr;
+#if NOZZLE_HAS_D3D11
+    REQUIRE(nozzle_sender_acquire_writable_frame(
+        sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_third) == NOZZLE_OK);
+    FrameHandle third{raw_third};
+    CHECK(nozzle_sender_discard_frame(sender.p, third.p) == NOZZLE_OK);
+#else
     CHECK(nozzle_sender_acquire_writable_frame(
         sender.p, 4, 4, NOZZLE_FORMAT_RGBA8_UNORM, &raw_third) == NOZZLE_ERROR_TIMEOUT);
     CHECK(raw_third == nullptr);
+#endif
 
     CHECK(nozzle_sender_discard_frame(sender.p, second.p) == NOZZLE_OK);
 
