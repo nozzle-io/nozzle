@@ -447,23 +447,6 @@ TEST_CASE("Stale cleanup: incomplete or mismatched dead-owner evidence preserves
     SECTION("zero owner PID") {
         edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.owner_pid = 0; });
     }
-    SECTION("verified unavailable native query") {
-        errno = 0;
-        const int result = ::kill(1, 0);
-        const int error = errno;
-        if (result != -1 || error != EPERM) {
-            SKIP("PID 1 did not produce verified native permission denial on this host");
-        }
-        auto unavailable = ipc::process_instance_token(1);
-        REQUIRE_FALSE(unavailable.ok());
-        REQUIRE(unavailable.error().code == nozzle::ErrorCode::BackendError);
-        edit.change([](nd::DirectoryEntry &entry, nd::SenderSharedState &state) {
-            // This is our fixture's backing, not a mapping belonging to PID 1.
-            entry.pid = 1;
-            state.owner_pid = 1;
-            state.owner_instance = 1;
-        });
-    }
     SECTION("invalid state magic") {
         edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.magic = 0x12345678; });
     }
@@ -507,6 +490,33 @@ TEST_CASE("Stale cleanup: incomplete or mismatched dead-owner evidence preserves
     check_backing(live, true);
     CHECK(directory_contains(live.identity.uuid));
     CHECK(visible(live.identity.uuid));
+}
+
+TEST_CASE("Stale cleanup: unavailable native owner query preserves backing",
+          "[registry][stale_cleanup][process_instance]") {
+    errno = 0;
+    const int result = ::kill(1, 0);
+    const int error = errno;
+    if (result != -1 || error != EPERM) {
+        SKIP("PID 1 did not produce verified native permission denial on this host");
+    }
+    auto unavailable = ipc::process_instance_token(1);
+    REQUIRE_FALSE(unavailable.ok());
+    REQUIRE(unavailable.error().code == nozzle::ErrorCode::BackendError);
+    owned_sender uncertain;
+    uncertain.create();
+    edited_sender edit{uncertain};
+    edit.open();
+    edit.change([](nd::DirectoryEntry &entry, nd::SenderSharedState &state) {
+        // Only our fixture is changed, not an object owned by PID 1.
+        entry.pid = 1;
+        state.owner_pid = 1;
+        state.owner_instance = 1;
+    });
+    registry::cleanup_stale_entries();
+    check_backing(uncertain, true);
+    CHECK(directory_contains(uncertain.identity.uuid));
+    CHECK_FALSE(visible(uncertain.identity.uuid));
 }
 
 #endif
