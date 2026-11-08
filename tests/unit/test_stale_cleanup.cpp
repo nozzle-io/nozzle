@@ -16,6 +16,8 @@ TEST_CASE("Stale cleanup: POSIX owner crash regression", "[registry][stale_clean
 #include <string>
 #include <thread>
 
+#include <nozzle/discovery.hpp>
+
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -280,6 +282,59 @@ struct replaced_pid {
         changed = true;
     }
 };
+
+struct edited_sender {
+    const owned_sender &sender;
+    ipc::shm_handle handle{};
+    nd::SenderSharedState *state{nullptr};
+    std::array<unsigned char, sizeof(nd::SenderSharedState)> original_state{};
+    nd::DirectoryEntry original_entry{};
+
+    ~edited_sender() {
+        if (state) {
+            directory_access directory;
+            if (directory.open()) {
+                // Only restore this fixture's entry if it has not been reused.
+                auto *entry = directory.find(sender.identity.uuid);
+                if (entry) *entry = original_entry;
+                std::memcpy(state, original_state.data(), original_state.size());
+            }
+            ipc::shm_unmap(state, sizeof(*state));
+        }
+        ipc::shm_close(handle);
+    }
+
+    void open() {
+        directory_access directory;
+        REQUIRE(directory.open());
+        auto *entry = directory.find(sender.identity.uuid);
+        REQUIRE(entry != nullptr);
+        original_entry = *entry;
+        auto opened = ipc::shm_open_rw(sender.identity.shm_name);
+        REQUIRE(opened.ok());
+        handle = opened.value();
+        auto mapped = ipc::shm_map(handle, sizeof(nd::SenderSharedState), false);
+        REQUIRE(mapped.ok());
+        state = static_cast<nd::SenderSharedState *>(mapped.value());
+        std::memcpy(original_state.data(), state, original_state.size());
+    }
+
+    template <typename F>
+    void change(F mutation) {
+        directory_access directory;
+        REQUIRE(directory.open());
+        auto *entry = directory.find(sender.identity.uuid);
+        REQUIRE(entry != nullptr);
+        mutation(*entry, *state);
+    }
+};
+
+bool visible(const char *uuid) {
+    for (const auto &sender : nozzle::enumerate_senders()) {
+        if (sender.id == uuid) return true;
+    }
+    return false;
+}
 } // namespace
 
 TEST_CASE("Stale cleanup: reaped owner is unlinked without revoking retained views",
@@ -293,6 +348,9 @@ TEST_CASE("Stale cleanup: reaped owner is unlinked without revoking retained vie
     REQUIRE(directory_contains(dead.sender.identity.uuid));
     REQUIRE(dead.kill_and_reap());
     REQUIRE_FALSE(ipc::is_pid_alive(static_cast<uint64_t>(dead.pid)));
+    auto exited_token = ipc::process_instance_token(static_cast<uint64_t>(dead.pid));
+    REQUIRE_FALSE(exited_token.ok());
+    CHECK(exited_token.error().code == nozzle::ErrorCode::SenderClosed);
 
     SECTION("registration sweeps") {
         owned_sender trigger;
@@ -338,6 +396,117 @@ TEST_CASE("Stale cleanup: directory PID alone cannot authorize unlinking a live 
     check_backing(live, true);
     CHECK(directory_contains(live.identity.uuid));
     CHECK(std::memcmp(live.view.state, before.data(), before.size()) == 0);
+}
+
+TEST_CASE("Stale cleanup: deliberately mismatched instance is hidden and reclaimed",
+          "[registry][stale_cleanup][process_instance]") {
+    owned_sender live;
+    live.create();
+    owned_sender stale;
+    stale.create();
+    REQUIRE(visible(live.identity.uuid));
+    REQUIRE(visible(stale.identity.uuid));
+    edited_sender edit{stale};
+    edit.open();
+    auto token = ipc::process_instance_token(ipc::current_pid());
+    REQUIRE(token.ok());
+    REQUIRE(edit.state->owner_pid == ipc::current_pid());
+    REQUIRE(edit.state->owner_instance == token.value());
+    edit.change([&](nd::DirectoryEntry &, nd::SenderSharedState &state) {
+        // Deliberately corrupt only our fixture; this does not cause PID reuse.
+        state.owner_instance = token.value() == 1 ? 2 : 1;
+    });
+    CHECK_FALSE(visible(stale.identity.uuid));
+    CHECK(visible(live.identity.uuid));
+    SECTION("registration reclaims a different instance") {
+        owned_sender trigger;
+        trigger.create();
+    }
+    SECTION("explicit cleanup reclaims a different instance") {
+        registry::cleanup_stale_entries();
+    }
+    check_backing(stale, false);
+    CHECK_FALSE(directory_contains(stale.identity.uuid));
+    check_backing(live, true);
+    CHECK(directory_contains(live.identity.uuid));
+    CHECK(visible(live.identity.uuid));
+}
+
+TEST_CASE("Stale cleanup: incomplete or mismatched dead-owner evidence preserves backing",
+          "[registry][stale_cleanup][process_instance]") {
+    owned_sender live;
+    live.create();
+    child_owner dead;
+    dead.start();
+    REQUIRE(dead.kill_and_reap());
+    edited_sender edit{dead.sender};
+    edit.open();
+    SECTION("zero token") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.owner_instance = 0; });
+    }
+    SECTION("zero owner PID") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.owner_pid = 0; });
+    }
+    SECTION("verified unavailable native query") {
+        errno = 0;
+        const int result = ::kill(1, 0);
+        const int error = errno;
+        if (result != -1 || error != EPERM) {
+            SKIP("PID 1 did not produce verified native permission denial on this host");
+        }
+        auto unavailable = ipc::process_instance_token(1);
+        REQUIRE_FALSE(unavailable.ok());
+        REQUIRE(unavailable.error().code == nozzle::ErrorCode::BackendError);
+        edit.change([](nd::DirectoryEntry &entry, nd::SenderSharedState &state) {
+            // This is our fixture's backing, not a mapping belonging to PID 1.
+            entry.pid = 1;
+            state.owner_pid = 1;
+            state.owner_instance = 1;
+        });
+    }
+    SECTION("invalid state magic") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.magic = 0x12345678; });
+    }
+    SECTION("old version 7 has no required owner identity") {
+        REQUIRE(edit.state->version != 7);
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.version = 7; });
+    }
+    SECTION("full UUID differs beyond canonical name prefix") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) {
+            state.uuid[35] = state.uuid[35] == '0' ? '1' : '0';
+        });
+    }
+    SECTION("sender name differs") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.name[0] = 'X'; });
+    }
+    SECTION("application name differs") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.application_name[0] = 'X'; });
+    }
+    SECTION("backend differs") {
+        edit.change([](nd::DirectoryEntry &, nd::SenderSharedState &state) { state.backend ^= 1; });
+    }
+    SECTION("directory points to another owned live backing") {
+        edit.change([&](nd::DirectoryEntry &entry, nd::SenderSharedState &) {
+            std::memcpy(entry.shm_name, live.identity.shm_name, sizeof(entry.shm_name));
+        });
+    }
+    SECTION("noncanonical shared-memory name") {
+        edit.change([](nd::DirectoryEntry &entry, nd::SenderSharedState &) { entry.shm_name[1] = 'X'; });
+    }
+    SECTION("unterminated directory name") {
+        edit.change([](nd::DirectoryEntry &entry, nd::SenderSharedState &) {
+            std::memset(entry.sender_name, 'X', sizeof(entry.sender_name));
+        });
+    }
+    std::array<unsigned char, sizeof(nd::SenderSharedState)> mutated{};
+    std::memcpy(mutated.data(), edit.state, mutated.size());
+    registry::cleanup_stale_entries();
+    check_backing(dead.sender, true);
+    CHECK(directory_contains(dead.sender.identity.uuid));
+    CHECK(std::memcmp(edit.state, mutated.data(), mutated.size()) == 0);
+    check_backing(live, true);
+    CHECK(directory_contains(live.identity.uuid));
+    CHECK(visible(live.identity.uuid));
 }
 
 #endif
