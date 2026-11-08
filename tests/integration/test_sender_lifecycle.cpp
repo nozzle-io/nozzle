@@ -176,7 +176,7 @@ void require_frame(nozzle::receiver &receiver, uint64_t index, uint32_t width, u
 
 } // namespace
 
-TEST_CASE("Sender lifecycle: sender v7 compatibility with actual texture acquisition",
+TEST_CASE("Sender lifecycle: sender v8 compatibility with actual texture acquisition",
     "[integration][sender_lifecycle][sender_version]") {
     const auto desc = unique_sender_desc();
     auto sender = make_sender(desc);
@@ -184,8 +184,8 @@ TEST_CASE("Sender lifecycle: sender v7 compatibility with actual texture acquisi
     writable_sender_mapping mapping;
     mapping.open(sender);
 
-    SECTION("current writer publishes v7 regardless of backend") {
-        CHECK(mapping.state->version == 7u);
+    SECTION("current writer publishes v8 regardless of backend") {
+        CHECK(mapping.state->version == 8u);
         nozzle::receiver_desc receiver_desc{};
         receiver_desc.name = desc.name;
         auto created = nozzle::receiver::create(receiver_desc);
@@ -204,9 +204,18 @@ TEST_CASE("Sender lifecycle: sender v7 compatibility with actual texture acquisi
         REQUIRE(created.error().code == nozzle::ErrorCode::BackendError);
         REQUIRE(created.error().message.find("version") != std::string::npos);
     }
-    SECTION("literal v7 mapping permits actual texture acquisition") {
-        // This tests the reader independently of the writer's current constant.
+    SECTION("literal v7 mapping is rejected") {
         mapping.state->version = 7;
+        nozzle::receiver_desc receiver_desc{};
+        receiver_desc.name = desc.name;
+        auto created = nozzle::receiver::create(receiver_desc);
+        REQUIRE_FALSE(created.ok());
+        CHECK(created.error().code == nozzle::ErrorCode::BackendError);
+        CHECK(created.error().message.find("version") != std::string::npos);
+    }
+    SECTION("literal v8 mapping permits actual texture acquisition") {
+        // This tests the reader independently of the writer's current constant.
+        mapping.state->version = 8;
         nozzle::receiver_desc receiver_desc{};
         receiver_desc.name = desc.name;
         auto created = nozzle::receiver::create(receiver_desc);

@@ -46,6 +46,9 @@ Result<void> unregister_sender(const char *uuid);
 
 void cleanup_stale_entries();
 
+bool sender_matches_entry(const SenderSharedState &state, const DirectoryEntry &entry);
+Result<bool> owner_is_current(const SenderSharedState &state);
+
 Result<SenderStateView> open_sender_state(const char *shm_name);
 
 void close_sender_state(SenderStateView &view);

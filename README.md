@@ -339,11 +339,12 @@ For an incompatible persistent directory on macOS/Linux, quit all nozzle apps
 and reboot. Do not remove an active application's state to bypass a mismatch.
 
 The open/closed lifecycle marker remains at offset 208. Sender-state version is
-now **7 on all backends**, with no structure size or field-offset change; the
-directory version remains **6**. Version 6 sender states are rejected, including
-Metal and DMA-BUF states. This intentionally separates peers using the D3D11
-key-0 ownership protocol from the old key-0/key-1 protocol. Update both peers;
-changing a version field manually does not make old synchronization compatible.
+now **8 on all backends**; the directory version remains **6**. Owner PID and
+native process-start token occupy previously unused sender-state padding, without
+moving existing fields or changing the structure size. Sender versions 6 and 7
+are rejected, including Metal and DMA-BUF states. Update both peers: changing a
+version field manually does not provide owner identity or make old D3D11
+synchronization compatible. There is no legacy fallback in this v0.x protocol.
 
 Destroying an updated sender publishes closure before
 resource cleanup, even while its process stays alive. A receiver that observes
@@ -355,17 +356,39 @@ for that state; `SenderClosed` describes the end of an existing connection.
 A same-name replacement uses its new
 UUID, metadata, and frame sequence. This is a retryable lifecycle event, not a
 reason for an interactive receiver to permanently stop polling. Process-death
-detection remains a fallback; it does not solve PID reuse. Backend waits retain
+detection verifies the owner's process instance, not PID existence alone. Backend waits retain
 their existing timeouts and are not asynchronously cancelled by closure.
 Connection snapshots and `is_connected()` describe the last observed state, not
 an independent liveness probe. Frames already returned retain their ownership.
 
-These checks are compatibility/corruption defenses, not authentication or a
-guarantee against malicious concurrent mutation/truncation. Crash cleanup,
-PID-reuse-safe liveness, and publication timestamp semantics are separate work:
-[nozzle-dev#253](https://github.com/nozzle-io/nozzle-dev/issues/253),
-[nozzle-dev#254](https://github.com/nozzle-io/nozzle-dev/issues/254), and
-[nozzle-dev#255](https://github.com/nozzle-io/nozzle-dev/issues/255).
+Registration performs a bounded sweep of at most 64 directory entries while
+holding the existing directory lock; no background maintenance thread is added.
+On POSIX, a stale sender's name is unlinked only after canonical name, complete
+state/directory identity, effective-UID ownership, and a dead or different owner
+instance are verified. Existing receiver mappings remain valid until released.
+Live, unknown, aliased, malformed, foreign and incompatible states are retained;
+unterminated directory fields still fail writers closed rather than resetting
+the directory. A missing backing object permits removal of its directory slot
+only when the recorded PID is provably dead. Unlink errors retain the entry for
+a later sweep. Read-only discovery/acquisition never perform cleanup.
+
+Process identity uses Linux `/proc/PID/stat` start ticks, macOS native process
+start timestamp, or Windows creation `FILETIME`. Unavailable metadata is not
+proof of death: discovery omits unverified senders and connection/acquisition
+returns an error. A different or exited instance disconnects an existing
+receiver with `SenderClosed`. Linux peers must share compatible PID/proc/time
+namespaces; cross-namespace sharing is unsupported. Tokens are observations,
+not process-lifetime locks or authentication. On Windows stale directory slots
+can be reclaimed, but mapping names remain subject to OS handle lifetime;
+cleanup cannot release another library instance's pins or receiver handles.
+
+These checks assume cooperating processes using the directory lock, not
+malicious concurrent mutation/truncation or unlink/recreate. In particular,
+macOS POSIX shm does not supply meaningful device/inode identity through
+`fstat`; locking and full protocol identity provide the cooperating-writer
+boundary, not atomic unlink-by-handle. Namespace/security enforcement remains
+[nozzle-dev#250](https://github.com/nozzle-io/nozzle-dev/issues/250); publication
+timestamp semantics remain [nozzle-dev#255](https://github.com/nozzle-io/nozzle-dev/issues/255).
 
 ### Backend: macOS Metal
 
@@ -558,7 +581,7 @@ Packaging allowlists must include `sources/`, for example `include` in `Cargo.to
 | Error handling | `Result<T>` — no exceptions across API boundaries |
 | Thread safety | Object-level (same sender/receiver callable from multiple threads; calls on one object are serialized, so a blocking `acquire_frame` holds that receiver until it returns) |
 | Logging | plog (header-only, submodule) |
-| Crash cleanup | Lazy — receiver detects dead sender on access failure |
+| Crash cleanup | Instance-aware receiver checks; bounded stale-state sweep on registration |
 
 ## Acknowledgments
 

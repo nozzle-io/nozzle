@@ -45,6 +45,10 @@ struct state_mapping {
         *state = nd::SenderSharedState{};
         state->magic = nd::kSenderMagic;
         state->version = nd::kSharedMemVersion;
+        state->owner_pid = ipc::current_pid();
+        auto instance = ipc::process_instance_token(state->owner_pid);
+        REQUIRE(instance.ok());
+        state->owner_instance = instance.value();
         state->ring_size = 2;
         std::memcpy(state->name, "shared_layout_control", sizeof("shared_layout_control"));
         std::memcpy(state->application_name, "layout_tests", sizeof("layout_tests"));
@@ -87,7 +91,7 @@ TEST_CASE("Shared layout: mapped sender headers and strings are validated", "[sh
         version_mismatch = true;
     }
     SECTION("future sender version") {
-        mapping.state->version = 8; // Beyond the intended sender protocol v7.
+        mapping.state->version = 9; // Beyond the intended sender protocol v8.
         version_mismatch = true;
     }
     SECTION("invalid lifecycle") { mapping.state->lifecycle_state = nd::sender_state_closed + 1; }
@@ -126,12 +130,12 @@ TEST_CASE("Shared layout: unpublished sender state is not ready", "[shared_layou
     if (!accepted) CHECK(opened.error().code == nozzle::ErrorCode::SenderNotFound);
 }
 
-TEST_CASE("Shared layout: all backends reject sender v6 and accept sender v7",
+TEST_CASE("Shared layout: all backends reject sender v6/v7 and accept sender v8",
           "[shared_layout][sender_version]") {
     for (const auto backend : {nozzle::backend_type::d3d11,
                               nozzle::backend_type::metal,
                               nozzle::backend_type::dma_buf}) {
-        for (const uint32_t version : {6u, 7u}) {
+        for (const uint32_t version : {6u, 7u, 8u}) {
             INFO("backend=" << static_cast<int>(backend) << " version=" << version);
             state_mapping mapping;
             mapping.create();
@@ -139,7 +143,7 @@ TEST_CASE("Shared layout: all backends reject sender v6 and accept sender v7",
             mapping.state->version = version;
             // Literal wire versions keep this fail-first oracle independent of
             // the production constant and of the advertised backend.
-            const bool expected = version == 7u;
+            const bool expected = version == 8u;
             auto opened = registry::open_sender_state(mapping.name.c_str());
             const bool accepted = opened.ok();
             if (accepted) registry::close_sender_state(opened.value());

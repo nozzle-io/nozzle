@@ -20,7 +20,7 @@ constexpr uint32_t kDirectoryMagic = 0x4E5A4431;
 constexpr uint32_t kSenderMagic = 0x4E5A5331;
 constexpr uint32_t kMaxSenders = 64;
 constexpr uint32_t kMaxRingSlots = 8;
-constexpr uint64_t kSharedMemVersion = 7;
+constexpr uint64_t kSharedMemVersion = 8;
 // Directory bytes have been unchanged across historical protocol versions 2..6.
 // Sender-only version changes must not invalidate the persistent directory.
 constexpr uint32_t kDirectoryLayoutVersion = 6;
@@ -93,6 +93,9 @@ struct SenderSharedState {
     // Uses existing v6 padding. Older senders zero the entire mapping, so zero
     // means open; they do not publish closure when destroyed in a live process.
     uint32_t lifecycle_state{sender_state_open};
+    // Immutable after magic publication; native creation time identifies the process instance.
+    process_id64 owner_pid{0};
+    uint64_t owner_instance{0};
 
     alignas(64) frame_number64 committed_frame{0};
     alignas(64) uint32_t committed_slot{0};
@@ -125,6 +128,9 @@ struct SenderSharedState {
 static_assert(sizeof(SenderSharedState::SlotInfo) == 96, "unexpected SlotInfo size");
 static_assert(offsetof(SenderSharedState, lifecycle_state) == 208,
               "unexpected sender lifecycle offset");
+static_assert(offsetof(SenderSharedState, owner_pid) == 216 &&
+              offsetof(SenderSharedState, owner_instance) == 224,
+              "unexpected sender process identity offsets");
 static_assert(sizeof(SenderSharedState) == 1664, "unexpected SenderSharedState size");
 
 } // namespace detail

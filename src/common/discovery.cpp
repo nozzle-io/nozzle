@@ -36,9 +36,15 @@ std::vector<sender_info> enumerate_senders() {
             continue;
         }
 
-        if (!detail::ipc::is_pid_alive(entry.pid)) {
-            continue;
-        }
+        auto opened = detail::registry::open_sender_state(entry.shm_name);
+        if (!opened.ok()) continue;
+        auto &view = opened.value();
+        auto current = detail::registry::owner_is_current(*view.state);
+        const bool visible = detail::registry::sender_matches_entry(*view.state, entry) &&
+            current.ok() && current.value() &&
+            detail::ipc::atomic_load_relaxed(&view.state->lifecycle_state) == detail::sender_state_open;
+        detail::registry::close_sender_state(view);
+        if (!visible) continue;
 
         sender_info info{};
         info.name = entry.sender_name;
