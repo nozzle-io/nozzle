@@ -26,6 +26,29 @@ struct shm_handle {
 
 using pid_type = uint64_t;
 
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+// Internal, calling-thread-only overrides. Zero native_probe_error delegates
+// to the OS; nonzero injects errno/GetLastError at kill/OpenProcess.
+struct process_test_hooks {
+    void *context{nullptr};
+    Result<uint64_t> (*token)(pid_type, void *){nullptr};
+    uint64_t (*clock_ns)(void *) noexcept{nullptr};
+    uint32_t (*native_probe_error)(pid_type, void *) noexcept{nullptr};
+};
+
+class scoped_process_test_hooks {
+public:
+    explicit scoped_process_test_hooks(process_test_hooks hooks) noexcept;
+    ~scoped_process_test_hooks();
+    scoped_process_test_hooks(const scoped_process_test_hooks &) = delete;
+    scoped_process_test_hooks &operator=(const scoped_process_test_hooks &) = delete;
+
+private:
+    process_test_hooks hooks_;
+    const process_test_hooks *previous_;
+};
+#endif
+
 // Existing objects are opened unchanged; created is true only on successful creation.
 Result<shm_handle> shm_create(const char *name, std::size_t size, bool *created = nullptr);
 // POSIX only: allocate an existing zero-length object without replacing it.

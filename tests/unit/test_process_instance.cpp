@@ -39,7 +39,7 @@ TEST_CASE("Process instance: invalid PID is not classified as an exited owner", 
     }
 }
 
-TEST_CASE("Process instance: verified native permission denial remains unknown", "[process_instance]") {
+TEST_CASE("Process instance: verified native permission denial is not death", "[process_instance]") {
 #if defined(_WIN32)
     const uint64_t protected_pid = 4;
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
@@ -59,8 +59,11 @@ TEST_CASE("Process instance: verified native permission denial remains unknown",
     }
 #endif
     auto token = ipc::process_instance_token(protected_pid);
-    REQUIRE_FALSE(token.ok());
-    CHECK(token.error().code == nozzle::ErrorCode::BackendError);
+    if (token.ok()) {
+        CHECK(token.value() != 0);
+    } else {
+        CHECK(token.error().code == nozzle::ErrorCode::BackendError);
+    }
 }
 
 #if defined(_WIN32)

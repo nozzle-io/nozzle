@@ -501,6 +501,10 @@ TEST_CASE("Stale cleanup: unavailable native owner query preserves backing",
         SKIP("PID 1 did not produce verified native permission denial on this host");
     }
     auto unavailable = ipc::process_instance_token(1);
+    if (unavailable.ok()) {
+        REQUIRE(unavailable.value() != 0);
+        SKIP("PID 1 metadata is readable despite kill permission denial; query is not unavailable");
+    }
     REQUIRE_FALSE(unavailable.ok());
     REQUIRE(unavailable.error().code == nozzle::ErrorCode::BackendError);
     owned_sender uncertain;
@@ -516,7 +520,6 @@ TEST_CASE("Stale cleanup: unavailable native owner query preserves backing",
     registry::cleanup_stale_entries();
     check_backing(uncertain, true);
     CHECK(directory_contains(uncertain.identity.uuid));
-    CHECK_FALSE(visible(uncertain.identity.uuid));
 }
 
 #endif

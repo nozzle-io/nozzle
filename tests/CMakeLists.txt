@@ -171,6 +171,9 @@ endif()
 
 if(NOT BUILD_SHARED_LIBS)
     add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
+    if(NOZZLE_ENABLE_TEST_HOOKS)
+        target_compile_definitions(nozzle_integration_tests PRIVATE NOZZLE_ENABLE_TEST_HOOKS=1)
+    endif()
 
     add_executable(nozzle_shared_layout_probe helpers/shared_layout_probe.cpp)
     target_link_libraries(nozzle_shared_layout_probe PRIVATE nozzle)

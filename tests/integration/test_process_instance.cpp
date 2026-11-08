@@ -1,8 +1,18 @@
 #include <nozzle/receiver.hpp>
+#include <nozzle/discovery.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 #include "ipc.hpp"
 #include "registry.hpp"
@@ -136,3 +146,233 @@ TEST_CASE("Process instance: unusable same-name entries do not hide a healthy re
     REQUIRE(connected.ok());
     CHECK(connected.value().connected_info().id == healthy.identity.uuid);
 }
+
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+namespace {
+struct scripted_probe {
+    enum class answer { matching, unavailable, closed, different, invalid };
+    ipc::pid_type pid{ipc::current_pid()};
+    uint64_t token{};
+    uint64_t now{10000000000ULL};
+    uint64_t queries{0};
+    uint32_t native_error{0};
+    answer response{answer::matching};
+
+    static nozzle::Result<uint64_t> query(ipc::pid_type pid, void *context) {
+        auto &self = *static_cast<scripted_probe *>(context);
+        if (pid != self.pid) {
+            // Never supply death evidence for unrelated entries during cleanup.
+            return nozzle::Error{nozzle::ErrorCode::BackendError, "unrelated owner not scripted"};
+        }
+        ++self.queries;
+        switch (self.response) {
+        case answer::matching: return self.token;
+        case answer::unavailable: return nozzle::Error{nozzle::ErrorCode::BackendError, "scripted unavailable query"};
+        case answer::closed: return nozzle::Error{nozzle::ErrorCode::SenderClosed, "scripted departed owner"};
+        case answer::different: return self.token == 1 ? uint64_t{2} : uint64_t{1};
+        case answer::invalid: return nozzle::Error{nozzle::ErrorCode::InvalidArgument, "scripted invalid owner"};
+        }
+        return nozzle::Error{nozzle::ErrorCode::Unknown, "invalid test response"};
+    }
+
+    static uint64_t clock(void *context) noexcept {
+        return static_cast<scripted_probe *>(context)->now;
+    }
+
+    static uint32_t native_probe(ipc::pid_type pid, void *context) noexcept {
+        const auto &self = *static_cast<scripted_probe *>(context);
+        return pid == self.pid ? self.native_error : 0;
+    }
+
+    ipc::process_test_hooks hooks() {
+        return {this, query, clock, native_probe};
+    }
+};
+
+void check_empty_connected(nozzle::receiver &receiver) {
+    nozzle::acquire_desc poll{};
+    poll.timeout_ms = 0;
+    auto result = receiver.acquire_frame(poll);
+    CHECK_FALSE(result.ok());
+    if (!result.ok()) CHECK(result.error().code == nozzle::ErrorCode::Timeout);
+    CHECK(receiver.is_connected());
+}
+
+bool sender_visible(const char *uuid) {
+    for (const auto &sender : nozzle::enumerate_senders()) {
+        if (sender.id == uuid) return true;
+    }
+    return false;
+}
+} // namespace
+
+TEST_CASE("Process readers: native permission denial preserves conservative liveness",
+          "[integration][process_reader_policy][shared_layout]") {
+    const auto pid = ipc::current_pid();
+    auto actual = ipc::process_instance_token(pid);
+    REQUIRE(actual.ok());
+    REQUIRE(actual.value() != 0);
+    ipc::process_test_hooks hooks{};
+    hooks.native_probe_error = [](ipc::pid_type, void *) noexcept -> uint32_t {
+#if defined(_WIN32)
+        return ERROR_ACCESS_DENIED;
+#else
+        return EPERM;
+#endif
+    };
+    {
+        ipc::scoped_process_test_hooks scope{hooks};
+        CHECK(ipc::is_pid_alive(pid));
+        // No token-result callback: POSIX really reads this process's metadata
+        // before the injected EPERM from its final kill(pid, 0) probe.
+        auto queried = ipc::process_instance_token(pid);
+#if defined(_WIN32)
+        REQUIRE_FALSE(queried.ok());
+        CHECK(queried.error().code == nozzle::ErrorCode::BackendError);
+#else
+        CHECK(queried.ok());
+        if (queried.ok()) CHECK(queried.value() == actual.value());
+#endif
+    }
+    auto restored = ipc::process_instance_token(pid);
+    REQUIRE(restored.ok());
+    CHECK(restored.value() == actual.value());
+}
+
+TEST_CASE("Process readers: unavailable token remains visible connectable and retained",
+          "[integration][process_reader_policy][shared_layout]") {
+    registered_state owner;
+    owner.create();
+    REQUIRE(sender_visible(owner.identity.uuid));
+    std::array<unsigned char, sizeof(nd::SenderSharedState)> original{};
+    std::memcpy(original.data(), owner.state, original.size());
+    scripted_probe probe;
+    probe.token = owner.original_token;
+    probe.response = scripted_probe::answer::unavailable;
+#if defined(_WIN32)
+    probe.native_error = ERROR_ACCESS_DENIED;
+#else
+    probe.native_error = EPERM;
+#endif
+    ipc::scoped_process_test_hooks scope{probe.hooks()};
+    CHECK(sender_visible(owner.identity.uuid));
+    nozzle::receiver_desc desc{};
+    desc.name = owner.state->name;
+    auto connected = nozzle::receiver::create(desc);
+    CHECK(connected.ok());
+    if (connected.ok()) check_empty_connected(connected.value());
+
+    registry::cleanup_stale_entries();
+    auto snapshot = registry::read_directory_snapshot();
+    REQUIRE(snapshot.ok());
+    bool retained = false;
+    for (uint32_t i = 0; i < snapshot.value().capacity; ++i) {
+        const auto &entry = snapshot.value().entries[i];
+        if (entry.valid == nd::entry_valid_flag::valid
+            && std::memcmp(entry.uuid, owner.identity.uuid, sizeof(entry.uuid)) == 0) retained = true;
+    }
+    CHECK(retained);
+    auto backing = registry::open_sender_state(owner.identity.shm_name);
+    CHECK(backing.ok());
+    if (backing.ok()) registry::close_sender_state(backing.value());
+    CHECK(std::memcmp(owner.state, original.data(), original.size()) == 0);
+    CHECK(probe.queries > 0);
+}
+
+TEST_CASE("Process readers: token queries are throttled per receiver including unavailable replies",
+          "[integration][process_reader_policy][shared_layout]") {
+    registered_state owner;
+    owner.create();
+    scripted_probe probe;
+    probe.token = owner.original_token;
+    ipc::scoped_process_test_hooks scope{probe.hooks()};
+    nozzle::receiver_desc desc{};
+    desc.name = owner.state->name;
+    auto first = nozzle::receiver::create(desc);
+    auto second = nozzle::receiver::create(desc);
+    REQUIRE(first.ok());
+    REQUIRE(second.ok());
+    REQUIRE(probe.queries >= 2);
+    probe.queries = 0;
+    SECTION("matching tokens") {}
+    SECTION("unavailable replies consume the same retry budget") {
+        probe.response = scripted_probe::answer::unavailable;
+    }
+
+    // Fixed calling-thread clock; all polls are zero-timeout, never waits.
+    for (unsigned i = 0; i < 8; ++i) {
+        check_empty_connected(first.value());
+        check_empty_connected(second.value());
+    }
+    CHECK(probe.queries == 0);
+    probe.now += 999999999ULL;
+    check_empty_connected(first.value());
+    check_empty_connected(second.value());
+    CHECK(probe.queries == 0);
+    ++probe.now;
+    check_empty_connected(first.value());
+    CHECK(probe.queries == 1);
+    check_empty_connected(first.value());
+    CHECK(probe.queries == 1);
+    check_empty_connected(second.value());
+    CHECK(probe.queries == 2);
+    for (unsigned i = 0; i < 8; ++i) check_empty_connected(second.value());
+    CHECK(probe.queries == 2);
+    probe.now += 1000000000ULL;
+    check_empty_connected(first.value());
+    CHECK(probe.queries == 3);
+    check_empty_connected(second.value());
+    CHECK(probe.queries == 4);
+}
+
+TEST_CASE("Process readers: positive owner evidence still rejects while unknown alone does not",
+          "[integration][process_reader_policy][shared_layout]") {
+    registered_state owner;
+    owner.create();
+    scripted_probe probe;
+    probe.token = owner.original_token;
+    ipc::scoped_process_test_hooks scope{probe.hooks()};
+    nozzle::receiver_desc desc{};
+    desc.name = owner.state->name;
+    auto connected = nozzle::receiver::create(desc);
+    REQUIRE(connected.ok());
+    probe.queries = 0;
+    nozzle::ErrorCode expected = nozzle::ErrorCode::SenderClosed;
+    bool cheap_probe = false;
+    SECTION("different token after refresh deadline") {
+        probe.response = scripted_probe::answer::different;
+        probe.now += 1000000000ULL;
+    }
+    SECTION("departed token after refresh deadline") {
+        probe.response = scripted_probe::answer::closed;
+        probe.now += 1000000000ULL;
+    }
+    SECTION("invalid query is not reader fail-open") {
+        probe.response = scripted_probe::answer::invalid;
+        probe.now += 1000000000ULL;
+        expected = nozzle::ErrorCode::InvalidArgument;
+    }
+    SECTION("cheap liveness detects departure before refresh deadline") {
+        cheap_probe = true;
+#if defined(_WIN32)
+        probe.native_error = ERROR_INVALID_PARAMETER;
+#else
+        probe.native_error = ESRCH;
+#endif
+    }
+    nozzle::acquire_desc poll{};
+    poll.timeout_ms = 0;
+    auto result = connected.value().acquire_frame(poll);
+    REQUIRE_FALSE(result.ok());
+    CHECK(result.error().code == expected);
+    if (expected == nozzle::ErrorCode::SenderClosed) CHECK_FALSE(connected.value().is_connected());
+    CHECK(probe.queries == (cheap_probe ? 0 : 1));
+    if (!cheap_probe) {
+        CHECK_FALSE(sender_visible(owner.identity.uuid));
+        auto fresh = nozzle::receiver::create(desc);
+        REQUIRE_FALSE(fresh.ok());
+        CHECK(fresh.error().code == (expected == nozzle::ErrorCode::InvalidArgument
+            ? nozzle::ErrorCode::InvalidArgument : nozzle::ErrorCode::SenderNotFound));
+    }
+}
+#endif

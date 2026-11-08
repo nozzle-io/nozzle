@@ -40,11 +40,56 @@ namespace ipc {
 
 namespace {
 
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+thread_local const process_test_hooks *active_process_test_hooks = nullptr;
+#endif
+
 Error native_error(ErrorCode code, const char *operation, uint64_t native_code) {
     return Error{code, std::string(operation) + ": native error " + std::to_string(native_code)};
 }
 
+#if defined(_WIN32)
+HANDLE open_process_for_probe(DWORD access, pid_type pid) {
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+    if (active_process_test_hooks && active_process_test_hooks->native_probe_error) {
+        const auto error = active_process_test_hooks->native_probe_error(
+            pid, active_process_test_hooks->context);
+        if (error) {
+            SetLastError(error);
+            return nullptr;
+        }
+    }
+#endif
+    return OpenProcess(access, FALSE, static_cast<DWORD>(pid));
+}
+#else
+int probe_pid(pid_type pid) {
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+    if (active_process_test_hooks && active_process_test_hooks->native_probe_error) {
+        const auto error = active_process_test_hooks->native_probe_error(
+            pid, active_process_test_hooks->context);
+        if (error) {
+            errno = static_cast<int>(error);
+            return -1;
+        }
+    }
+#endif
+    return ::kill(static_cast<pid_t>(pid), 0);
+}
+#endif
+
 } // namespace
+
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+scoped_process_test_hooks::scoped_process_test_hooks(process_test_hooks hooks) noexcept
+    : hooks_{hooks}, previous_{active_process_test_hooks} {
+    active_process_test_hooks = &hooks_;
+}
+
+scoped_process_test_hooks::~scoped_process_test_hooks() {
+    active_process_test_hooks = previous_;
+}
+#endif
 
 #if defined(_WIN32)
 
@@ -284,7 +329,7 @@ bool is_pid_alive(pid_type pid) noexcept {
     if (pid == 0) {
         return false;
     }
-    void *h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    void *h = open_process_for_probe(PROCESS_QUERY_LIMITED_INFORMATION, pid);
     if (!h) {
         return false;
     }
@@ -301,8 +346,12 @@ Result<uint64_t> process_instance_token(pid_type pid) {
     if (pid == 0 || pid > (std::numeric_limits<DWORD>::max)()) {
         return Error{ErrorCode::InvalidArgument, "invalid process ID"};
     }
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
-                                 FALSE, static_cast<DWORD>(pid));
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+    if (active_process_test_hooks && active_process_test_hooks->token) {
+        return active_process_test_hooks->token(pid, active_process_test_hooks->context);
+    }
+#endif
+    HANDLE process = open_process_for_probe(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, pid);
     if (!process) {
         const DWORD error = GetLastError();
         return native_error(error == ERROR_INVALID_PARAMETER ? ErrorCode::SenderClosed
@@ -339,6 +388,11 @@ void random_bytes(void *buf, std::size_t len) noexcept {
 }
 
 uint64_t monotonic_ns() noexcept {
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+    if (active_process_test_hooks && active_process_test_hooks->clock_ns) {
+        return active_process_test_hooks->clock_ns(active_process_test_hooks->context);
+    }
+#endif
     LARGE_INTEGER freq{};
     LARGE_INTEGER counter{};
     QueryPerformanceFrequency(&freq);
@@ -547,13 +601,18 @@ bool is_pid_alive(pid_type pid) noexcept {
     if (pid == 0) {
         return false;
     }
-    return kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH;
+    return probe_pid(pid) == 0 || errno != ESRCH;
 }
 
 Result<uint64_t> process_instance_token(pid_type pid) {
     if (pid == 0 || pid > static_cast<uint64_t>((std::numeric_limits<pid_t>::max)())) {
         return Error{ErrorCode::InvalidArgument, "invalid process ID"};
     }
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+    if (active_process_test_hooks && active_process_test_hooks->token) {
+        return active_process_test_hooks->token(pid, active_process_test_hooks->context);
+    }
+#endif
     const auto native_pid = static_cast<pid_t>(pid);
 #if NOZZLE_PLATFORM_LINUX
     char path[64]{};
@@ -562,7 +621,7 @@ Result<uint64_t> process_instance_token(pid_type pid) {
     if (fd < 0) {
         const int error = errno;
         // A missing/hidden procfs record alone does not prove process death.
-        if (error == ENOENT && ::kill(native_pid, 0) != 0 && errno == ESRCH) {
+        if (error == ENOENT && probe_pid(native_pid) != 0 && errno == ESRCH) {
             return Error{ErrorCode::SenderClosed, "process no longer exists"};
         }
         return native_error(ErrorCode::BackendError, "open process stat", error);
@@ -638,7 +697,7 @@ Result<uint64_t> process_instance_token(pid_type pid) {
     return Error{ErrorCode::BackendError, "native process start time is unavailable"};
 #endif
 #if NOZZLE_PLATFORM_LINUX || defined(__APPLE__)
-    if (::kill(native_pid, 0) != 0) {
+    if (probe_pid(native_pid) != 0) {
         const int error = errno;
         return native_error(error == ESRCH ? ErrorCode::SenderClosed : ErrorCode::BackendError,
                             "process existence check", error);
@@ -665,6 +724,11 @@ void random_bytes(void *buf, std::size_t len) noexcept {
 }
 
 uint64_t monotonic_ns() noexcept {
+#if defined(NOZZLE_ENABLE_TEST_HOOKS) && NOZZLE_ENABLE_TEST_HOOKS
+    if (active_process_test_hooks && active_process_test_hooks->clock_ns) {
+        return active_process_test_hooks->clock_ns(active_process_test_hooks->context);
+    }
+#endif
     struct timespec ts{};
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL +
