@@ -37,6 +37,11 @@ Result<void *> shm_map(shm_handle &h, std::size_t size, bool read_only);
 void shm_unmap(void *ptr, std::size_t size) noexcept;
 void shm_close(shm_handle &h) noexcept;
 void shm_unlink(const char *name) noexcept;
+// POSIX only. Ownership is an effective-UID check, not object authentication.
+Result<bool> shm_owned_by_current_user(const shm_handle &handle);
+// Caller holds the directory lock and has revalidated the sender identity.
+// An absent name returns SenderNotFound; other unlink failures remain errors.
+Result<void> shm_unlink_checked(const char *name);
 Result<std::size_t> shm_get_size(const shm_handle &h);
 
 struct dir_lock {
@@ -54,6 +59,10 @@ void dir_lock_release(dir_lock &lock) noexcept;
 
 pid_type current_pid() noexcept;
 bool is_pid_alive(pid_type pid) noexcept;
+// Native start token: SenderClosed means observed absence/exit, BackendError
+// means unknown, and InvalidArgument means an invalid PID. Never returns zero.
+// Linux comparisons require compatible PID/proc/time namespaces.
+Result<uint64_t> process_instance_token(pid_type pid);
 
 void random_bytes(void *buf, std::size_t len) noexcept;
 

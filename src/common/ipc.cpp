@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 #if defined(_WIN32)
 
@@ -19,14 +20,16 @@
 #else
 
 #include <fcntl.h>
-#include <limits>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 #if NOZZLE_PLATFORM_LINUX
+#include <charconv>
 #include <sys/random.h>
+#elif defined(__APPLE__)
+#include <libproc.h>
 #endif
 
 #endif
@@ -34,6 +37,14 @@
 namespace nozzle {
 namespace detail {
 namespace ipc {
+
+namespace {
+
+Error native_error(ErrorCode code, const char *operation, uint64_t native_code) {
+    return Error{code, std::string(operation) + ": native error " + std::to_string(native_code)};
+}
+
+} // namespace
 
 #if defined(_WIN32)
 
@@ -164,7 +175,10 @@ Result<shm_handle> shm_open_ro(const char *name) {
     const char *wname = win_shm_name(name);
     void *h = OpenFileMappingA(FILE_MAP_READ, FALSE, wname);
     if (!h) {
-        return Error{ErrorCode::SenderNotFound, "OpenFileMappingA failed (read-only)"};
+        const DWORD error = GetLastError();
+        return native_error(error == ERROR_FILE_NOT_FOUND ? ErrorCode::SenderNotFound
+                                                         : ErrorCode::BackendError,
+                            "OpenFileMappingA (read-only)", error);
     }
     return shm_handle{h};
 }
@@ -220,6 +234,14 @@ Result<std::size_t> shm_get_size(const shm_handle &) {
     return Error{ErrorCode::UnsupportedBackend, "shm_get_size not supported on Windows"};
 }
 
+Result<bool> shm_owned_by_current_user(const shm_handle &) {
+    return Error{ErrorCode::UnsupportedBackend, "POSIX shared memory ownership is unavailable on Windows"};
+}
+
+Result<void> shm_unlink_checked(const char *) {
+    return Error{ErrorCode::UnsupportedBackend, "POSIX shared memory unlink is unavailable on Windows"};
+}
+
 bool dir_lock::valid() const noexcept {
     return handle != nullptr;
 }
@@ -273,6 +295,39 @@ bool is_pid_alive(pid_type pid) noexcept {
     }
     CloseHandle(h);
     return exit_code == STILL_ACTIVE;
+}
+
+Result<uint64_t> process_instance_token(pid_type pid) {
+    if (pid == 0 || pid > (std::numeric_limits<DWORD>::max)()) {
+        return Error{ErrorCode::InvalidArgument, "invalid process ID"};
+    }
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+                                 FALSE, static_cast<DWORD>(pid));
+    if (!process) {
+        const DWORD error = GetLastError();
+        return native_error(error == ERROR_INVALID_PARAMETER ? ErrorCode::SenderClosed
+                                                            : ErrorCode::BackendError,
+                            "OpenProcess", error);
+    }
+    FILETIME creation{}, exit{}, kernel{}, user{};
+    const BOOL queried = GetProcessTimes(process, &creation, &exit, &kernel, &user);
+    const DWORD query_error = queried ? ERROR_SUCCESS : GetLastError();
+    const DWORD wait = WaitForSingleObject(process, 0);
+    const DWORD wait_error = wait == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+    CloseHandle(process);
+    if (wait == WAIT_OBJECT_0) {
+        return Error{ErrorCode::SenderClosed, "process has exited"};
+    }
+    if (wait != WAIT_TIMEOUT) {
+        return native_error(ErrorCode::BackendError, "process wait", wait_error);
+    }
+    if (!queried) {
+        return native_error(ErrorCode::BackendError, "GetProcessTimes", query_error);
+    }
+    const uint64_t token = (static_cast<uint64_t>(creation.dwHighDateTime) << 32)
+        | creation.dwLowDateTime;
+    if (token == 0) return Error{ErrorCode::BackendError, "process creation time is zero"};
+    return token;
 }
 
 void random_bytes(void *buf, std::size_t len) noexcept {
@@ -359,7 +414,9 @@ Result<void> shm_initialize_empty(shm_handle &h, std::size_t size) {
 Result<shm_handle> shm_open_ro(const char *name) {
     int fd = shm_open(name, O_RDONLY, 0);
     if (fd < 0) {
-        return Error{ErrorCode::SenderNotFound, "shm_open failed (read-only)"};
+        const int error = errno;
+        return native_error(error == ENOENT ? ErrorCode::SenderNotFound : ErrorCode::BackendError,
+                            "shm_open (read-only)", error);
     }
     return shm_handle{fd};
 }
@@ -405,6 +462,25 @@ void shm_close(shm_handle &h) noexcept {
 
 void shm_unlink(const char *name) noexcept {
     ::shm_unlink(name);
+}
+
+Result<bool> shm_owned_by_current_user(const shm_handle &handle) {
+    if (!handle.valid()) return Error{ErrorCode::InvalidArgument, "invalid shared memory handle"};
+    struct stat status{};
+    if (::fstat(handle.fd, &status) != 0) {
+        return native_error(ErrorCode::BackendError, "fstat shared memory ownership", errno);
+    }
+    return status.st_uid == ::geteuid();
+}
+
+Result<void> shm_unlink_checked(const char *name) {
+    if (!name || name[0] != '/' || name[1] == '\0' || std::strchr(name + 1, '/')) {
+        return Error{ErrorCode::InvalidArgument, "invalid POSIX shared memory name"};
+    }
+    if (::shm_unlink(name) == 0) return {};
+    const int error = errno;
+    return native_error(error == ENOENT ? ErrorCode::SenderNotFound : ErrorCode::BackendError,
+                        "shm_unlink", error);
 }
 
 Result<std::size_t> shm_get_size(const shm_handle &h) {
@@ -472,6 +548,103 @@ bool is_pid_alive(pid_type pid) noexcept {
         return false;
     }
     return kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH;
+}
+
+Result<uint64_t> process_instance_token(pid_type pid) {
+    if (pid == 0 || pid > static_cast<uint64_t>((std::numeric_limits<pid_t>::max)())) {
+        return Error{ErrorCode::InvalidArgument, "invalid process ID"};
+    }
+    const auto native_pid = static_cast<pid_t>(pid);
+#if NOZZLE_PLATFORM_LINUX
+    char path[64]{};
+    std::snprintf(path, sizeof(path), "/proc/%llu/stat", static_cast<unsigned long long>(pid));
+    const int fd = ::open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        const int error = errno;
+        // A missing/hidden procfs record alone does not prove process death.
+        if (error == ENOENT && ::kill(native_pid, 0) != 0 && errno == ESRCH) {
+            return Error{ErrorCode::SenderClosed, "process no longer exists"};
+        }
+        return native_error(ErrorCode::BackendError, "open process stat", error);
+    }
+    char buffer[4096]{};
+    std::size_t used = 0;
+    int read_error = 0;
+    while (used < sizeof(buffer) - 1) {
+        const ssize_t count = ::read(fd, buffer + used, sizeof(buffer) - 1 - used);
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            read_error = errno;
+            break;
+        }
+        if (count == 0) break;
+        used += static_cast<std::size_t>(count);
+    }
+    ::close(fd);
+    if (read_error != 0) return native_error(ErrorCode::BackendError, "read process stat", read_error);
+    if (used == 0 || used == sizeof(buffer) - 1 || std::memchr(buffer, '\0', used)) {
+        return Error{ErrorCode::BackendError, "incomplete process stat"};
+    }
+    const char *end = buffer + used;
+    uint64_t reported_pid{};
+    const auto parsed_pid = std::from_chars(buffer, end, reported_pid);
+    if (parsed_pid.ec != std::errc{} || reported_pid != pid || end - parsed_pid.ptr < 3
+        || parsed_pid.ptr[0] != ' ' || parsed_pid.ptr[1] != '(') {
+        return Error{ErrorCode::BackendError, "invalid process stat PID"};
+    }
+    // comm is unescaped and can contain spaces, newlines, and parentheses.
+    const char *cursor = std::strrchr(buffer, ')');
+    if (!cursor || cursor < parsed_pid.ptr + 2 || end - cursor < 4
+        || cursor[1] != ' ' || cursor[3] != ' ') {
+        return Error{ErrorCode::BackendError, "invalid process stat command/state"};
+    }
+    cursor += 4; // Field 4 follows the single-character field 3 (state).
+    uint64_t token{};
+    for (int field = 4; field <= 22; ++field) {
+        const char *start = cursor;
+        while (cursor < end && *cursor != ' ' && *cursor != '\n') ++cursor;
+        const char *digits = start;
+        if (field != 22 && digits < cursor && *digits == '-') ++digits;
+        uint64_t number{};
+        const auto parsed = std::from_chars(digits, cursor, number);
+        if (parsed.ec != std::errc{} || parsed.ptr != cursor || cursor == end) {
+            return Error{ErrorCode::BackendError, "invalid process stat numeric field"};
+        }
+        if (field == 22) token = number;
+        if (field != 22 && *cursor != ' ') {
+            return Error{ErrorCode::BackendError, "truncated process stat fields"};
+        }
+        ++cursor;
+    }
+    if (token == 0) return Error{ErrorCode::BackendError, "process start ticks are zero"};
+#elif defined(__APPLE__)
+    proc_bsdinfo info{};
+    errno = 0;
+    const int size = ::proc_pidinfo(native_pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+    const int error = errno;
+    if (size != sizeof(info)) {
+        return native_error(size <= 0 && error == ESRCH ? ErrorCode::SenderClosed
+                                                       : ErrorCode::BackendError,
+                            "proc_pidinfo", error);
+    }
+    if (info.pbi_pid != pid || info.pbi_start_tvusec >= 1000000
+        || info.pbi_start_tvsec > ((std::numeric_limits<uint64_t>::max)()
+                                  - info.pbi_start_tvusec) / 1000000) {
+        return Error{ErrorCode::BackendError, "invalid process start time"};
+    }
+    const uint64_t token = info.pbi_start_tvsec * 1000000 + info.pbi_start_tvusec;
+    if (token == 0) return Error{ErrorCode::BackendError, "process start time is zero"};
+#else
+    return Error{ErrorCode::BackendError, "native process start time is unavailable"};
+#endif
+#if NOZZLE_PLATFORM_LINUX || defined(__APPLE__)
+    if (::kill(native_pid, 0) != 0) {
+        const int error = errno;
+        return native_error(error == ESRCH ? ErrorCode::SenderClosed : ErrorCode::BackendError,
+                            "process existence check", error);
+    }
+    return token;
+#endif
 }
 
 void random_bytes(void *buf, std::size_t len) noexcept {
