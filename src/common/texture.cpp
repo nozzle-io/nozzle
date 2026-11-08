@@ -91,6 +91,7 @@ texture make_texture_from_backend(
     t.impl_->resolved_.semantic_format = semantic_format_val != 0
         ? static_cast<texture_format>(semantic_format_val)
         : storage_fmt;
+    t.impl_->desc.semantic_format = t.impl_->resolved_.semantic_format;
     t.impl_->valid = (backend_texture != nullptr);
     return t;
 }

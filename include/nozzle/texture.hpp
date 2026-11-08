@@ -24,6 +24,7 @@ public:
     texture(texture &&) noexcept;
     texture &operator=(texture &&) noexcept;
 
+    // Backend construction normalizes semantic_format identically in both views.
     const texture_desc &desc() const;
     const resolved_texture_format &resolved() const;
     texture_layout layout() const;
