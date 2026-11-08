@@ -1,6 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <nozzle/nozzle_c.h>
+#include <nozzle/nozzle.hpp>
+#include <nozzle/pixel_access.hpp>
+
+#include <array>
+#include <cstdint>
+#include <string>
+
+#include <unistd.h>
 
 #import <Metal/Metal.h>
 
@@ -76,5 +84,128 @@ TEST_CASE("C API: connected sender info exposes native format kind and value", "
 		nozzle_sender_destroy(sender);
 		[src release];
 		[device release];
+	}
+}
+
+namespace {
+struct external_receiver_handles {
+	NozzleReceiver *receiver{nullptr};
+	NozzleFrame *frame{nullptr};
+	NozzlePixelMapping *mapping{nullptr};
+	~external_receiver_handles() {
+		if (mapping) nozzle_pixel_mapping_unlock(&mapping);
+		if (frame) nozzle_frame_release(frame);
+		if (receiver) nozzle_receiver_destroy(receiver);
+	}
+};
+
+std::array<uint8_t, 4> external_bgra_pixel(uint32_t x, uint32_t y) {
+	return {static_cast<uint8_t>(193 - 7 * x - 11 * y),
+		static_cast<uint8_t>(41 + 5 * x + 19 * y),
+		static_cast<uint8_t>(17 + 13 * x + 3 * y),
+		static_cast<uint8_t>(23 + 17 * x + 29 * y)};
+}
+} // namespace
+
+TEST_CASE("External texture: public BGRA publication preserves raw semantics and pixels",
+	"[integration][c_api][metal][shared_layout][external_semantics_runtime]") {
+	@autoreleasepool {
+		constexpr uint32_t width = 7;
+		constexpr uint32_t height = 3;
+		nozzle::sender_desc desc{};
+		desc.name = "external_semantics_" + std::to_string(::getpid());
+		desc.application_name = "external_semantics_tests";
+		// Default actual Metal device; missing backend/device is a failure here.
+		auto created = nozzle::sender::create(desc);
+		INFO(created.error().message);
+		REQUIRE(created.ok());
+		auto &sender = created.value();
+		auto acquired = sender.acquire_writable_frame(
+			{width, height, nozzle::texture_format::bgra8_unorm});
+		INFO(acquired.error().message);
+		REQUIRE(acquired.ok());
+		auto &writable = acquired.value();
+		const auto &texture = writable.get_texture();
+		REQUIRE(texture.valid());
+		REQUIRE(texture.desc().format == nozzle::texture_format::bgra8_unorm);
+		// Nonfatal: a descriptor regression must not mask raw receiver evidence.
+		CHECK(texture.desc().semantic_format == nozzle::texture_format::bgra8_unorm);
+		CHECK(texture.resolved().semantic_format == nozzle::texture_format::bgra8_unorm);
+		CHECK(texture.resolved().native.backend == nozzle::backend_type::metal);
+		CHECK(texture.resolved().native.kind == nozzle::native_format_kind::mtl_pixel_format);
+		CHECK(texture.resolved().native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+
+		auto mapped = nozzle::lock_writable_pixels_mapping_with_origin(
+			writable, nozzle::texture_origin::top_left);
+		INFO(mapped.error().message);
+		REQUIRE(mapped.ok());
+		const auto &pixels = mapped.value().pixels();
+		REQUIRE(pixels.data != nullptr);
+		REQUIRE(pixels.width == width);
+		REQUIRE(pixels.height == height);
+		REQUIRE(pixels.format == nozzle::texture_format::bgra8_unorm);
+		REQUIRE(pixels.origin == nozzle::texture_origin::top_left);
+		REQUIRE(pixels.row_stride_bytes >= width * 4);
+		for (uint32_t y = 0; y < height; ++y) {
+			auto *row = static_cast<uint8_t *>(pixels.data) + y * pixels.row_stride_bytes;
+			for (uint32_t x = 0; x < width; ++x) {
+				const auto expected = external_bgra_pixel(x, y);
+				for (std::size_t channel = 0; channel < expected.size(); ++channel) {
+					row[4 * x + channel] = expected[channel];
+				}
+			}
+		}
+		auto unlocked = mapped.value().unlock_checked();
+		INFO(unlocked.error().message);
+		REQUIRE(unlocked.ok());
+		auto published = sender.publish_external_texture(texture);
+		INFO(published.error().message);
+		REQUIRE(published.ok());
+
+		// Independent C API receiver object in this process. Both the sender and
+		// its writable texture remain alive through metadata checks and readback.
+		external_receiver_handles received;
+		NozzleReceiverDesc receiver_desc{};
+		receiver_desc.name = desc.name.c_str();
+		receiver_desc.application_name = "external_semantics_receiver";
+		REQUIRE(nozzle_receiver_create(&receiver_desc, &received.receiver) == NOZZLE_OK);
+		NozzleAcquireDesc acquire_desc{};
+		acquire_desc.timeout_ms = 1000;
+		REQUIRE(nozzle_receiver_acquire_frame(received.receiver, &acquire_desc, &received.frame) == NOZZLE_OK);
+		NozzleFrameInfo info{};
+		REQUIRE(nozzle_frame_get_info(received.frame, &info) == NOZZLE_OK);
+		CHECK(info.frame_index == 1);
+		CHECK(info.width == width);
+		CHECK(info.height == height);
+		CHECK(info.format == NOZZLE_FORMAT_BGRA8_UNORM);
+		CHECK(info.semantic_format == NOZZLE_FORMAT_BGRA8_UNORM);
+		NozzleResolvedTextureFormat resolved{};
+		REQUIRE(nozzle_frame_get_resolved_format(received.frame, &resolved) == NOZZLE_OK);
+		CHECK(resolved.storage_format == NOZZLE_FORMAT_BGRA8_UNORM);
+		CHECK(resolved.semantic_format == NOZZLE_FORMAT_BGRA8_UNORM);
+		CHECK(resolved.native_backend == NOZZLE_BACKEND_METAL);
+		CHECK(resolved.native_kind == NOZZLE_NATIVE_KIND_MTL_PIXEL_FORMAT);
+		CHECK(resolved.native_value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+
+		NozzleMappedPixels readback{};
+		REQUIRE(nozzle_frame_lock_pixels_mapping_with_origin(received.frame,
+			NOZZLE_ORIGIN_TOP_LEFT, &received.mapping, &readback) == NOZZLE_OK);
+		REQUIRE(readback.data != nullptr);
+		REQUIRE(readback.width == width);
+		REQUIRE(readback.height == height);
+		REQUIRE(readback.format == NOZZLE_FORMAT_BGRA8_UNORM);
+		REQUIRE(readback.origin == NOZZLE_ORIGIN_TOP_LEFT);
+		REQUIRE(readback.row_stride_bytes >= width * 4);
+		for (uint32_t y = 0; y < height; ++y) {
+			const auto *row = static_cast<const uint8_t *>(readback.data) + y * readback.row_stride_bytes;
+			for (uint32_t x = 0; x < width; ++x) {
+				const auto expected = external_bgra_pixel(x, y);
+				for (std::size_t channel = 0; channel < expected.size(); ++channel) {
+					CAPTURE(x, y, channel);
+					CHECK(row[4 * x + channel] == expected[channel]);
+				}
+			}
+		}
+		REQUIRE(nozzle_pixel_mapping_unlock_checked(&received.mapping) == NOZZLE_OK);
 	}
 }

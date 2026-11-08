@@ -121,6 +121,7 @@ endif()
 # Links against the full nozzle library (including Metal backend on macOS).
 set(INTEGRATION_TEST_SOURCES
     integration/test_cross_process.cpp
+    integration/test_texture_semantics.cpp
     integration/test_sender_lifecycle.cpp
     integration/test_process_instance.cpp
     integration/test_initial_metadata.cpp
