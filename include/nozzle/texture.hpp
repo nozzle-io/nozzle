@@ -10,6 +10,8 @@ class texture;
 
 namespace detail {
     texture make_texture_from_backend(void *, void *, uint32_t, uint32_t, texture_format, uint8_t = 0, const native_format_desc * = nullptr, texture_format semantic_format_val = texture_format::unknown);
+    // Internal writable-frame handoff; storage/native identity remain unchanged.
+    void set_texture_semantics(texture &, texture_format, channel_swizzle);
     void *get_texture_native(const texture &);
     void *get_surface_native(const texture &);
 }
@@ -32,6 +34,7 @@ public:
 
 private:
     friend texture detail::make_texture_from_backend(void *, void *, uint32_t, uint32_t, texture_format, uint8_t, const native_format_desc *, texture_format);
+    friend void detail::set_texture_semantics(texture &, texture_format, channel_swizzle);
     friend void *detail::get_texture_native(const texture &);
     friend void *detail::get_surface_native(const texture &);
     struct Impl;

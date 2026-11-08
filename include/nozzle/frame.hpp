@@ -15,7 +15,7 @@ struct mapped_pixels;
 namespace detail {
 frame make_frame(texture, frame_info);
 frame make_frame(texture, frame_info, uint32_t);
-Result<writable_frame> make_writable_frame(texture, texture_desc, uint32_t);
+Result<writable_frame> make_writable_frame(texture, texture_desc, const format_fallback_info &, uint32_t);
 uint32_t get_writable_frame_slot(const writable_frame &);
 const void *get_writable_frame_state_token(const writable_frame &);
 bool writable_frame_cpu_mapping_active(const writable_frame &);
@@ -76,12 +76,16 @@ public:
     writable_frame(writable_frame &&) noexcept;
     writable_frame &operator=(writable_frame &&) noexcept;
 
+    // Carries this acquisition's effective semantic format and swizzle in both
+    // desc() and resolved(), including on ring reuse. Storage/native layout and
+    // bytes are unchanged. The reference remains owned by this writable frame;
+    // exporting it does not extend its lifetime or permit concurrent reuse.
     texture &get_texture();
     const texture_desc &desc() const;
     bool valid() const;
 
 private:
-    friend Result<writable_frame> detail::make_writable_frame(texture, texture_desc, uint32_t);
+    friend Result<writable_frame> detail::make_writable_frame(texture, texture_desc, const format_fallback_info &, uint32_t);
     friend uint32_t detail::get_writable_frame_slot(const writable_frame &);
     friend const void *detail::get_writable_frame_state_token(const writable_frame &);
     friend detail::writable_cpu_mapping_state_ref detail::get_writable_frame_mapping_state(const writable_frame &) noexcept;

@@ -272,7 +272,7 @@ frame make_frame(texture tex, frame_info info, uint32_t slot_index) {
     return f;
 }
 
-Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index) {
+Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, const format_fallback_info &intent, uint32_t slot_index) {
     auto state_result = make_writable_cpu_mapping_state_ref();
     if (!state_result.ok()) {
         return state_result.error();
@@ -282,6 +282,12 @@ Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, uint3
     if (!impl) {
         return Error{ErrorCode::ResourceCreationFailed, "failed to allocate writable frame state"};
     }
+
+    // Acquisition has already resolved/validated intent. Apply that one result
+    // on every handoff, including reused ring textures; never re-plan fallback.
+    desc.semantic_format = intent.requested_format;
+    desc.swizzle = intent.swizzle;
+    set_texture_semantics(tex, desc.semantic_format, desc.swizzle);
 
     writable_frame f;
     f.impl_.reset(impl);

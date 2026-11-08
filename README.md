@@ -256,10 +256,15 @@ Native-only imports without a classified storage or semantic format remain
 unknown; normalization does not infer a format from native identifiers.
 External texture publication therefore uses the texture's normalized semantics.
 
-This is a texture construction invariant, not a promise that all requested
-`writable_frame::desc()` overrides have reached its underlying texture.
-Frame-only semantic/swizzle handoff on texture export is tracked separately in
-[nozzle-dev#263](https://github.com/nozzle-io/nozzle-dev/issues/263).
+For writable frames, acquisition resolves the requested interpretation once.
+The common frame handoff copies that effective semantic format and swizzle into
+`writable_frame::desc()` and the exported texture's descriptor/resolved views,
+for both new allocations and reused ring textures. External texture publication
+therefore preserves the same semantic interpretation as normal frame commit.
+This metadata handoff does not change native storage, CPU layout or pixel bytes,
+and does not extend the exported texture's lifetime. Keep its owner alive and
+prevent reuse until receivers have finished; D3D11 external publication remains
+unsupported because it cannot establish write ownership.
 Input `texture_desc` still defaults to unknown semantics. Receivers interoperating
 with older publishers should retain their resolved-format fallback for unknown
 raw semantics, without overriding explicitly supplied semantics.

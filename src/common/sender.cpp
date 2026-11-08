@@ -524,6 +524,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 		auto writable_result = detail::make_writable_frame(
 			std::move(impl_->ring_textures_[slot]),
 			actual_desc,
+			fb_result.value(),
 			slot
 		);
 		if (!writable_result.ok()) {
@@ -581,6 +582,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 	auto writable_result = detail::make_writable_frame(
 		std::move(impl_->ring_textures_[slot]),
 		actual_desc,
+		fb_result.value(),
 		slot
 	);
 	if (!writable_result.ok()) {
