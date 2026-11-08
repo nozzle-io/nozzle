@@ -97,8 +97,10 @@ TEST_CASE("D3D11 wrap translates native format and preserves caller ownership",
                 REQUIRE(GetHandleInformation(shared_handle, &flags));
             }
             DWORD flags{};
-            CHECK_FALSE(GetHandleInformation(shared_handle, &flags));
-            CHECK(GetLastError() == ERROR_INVALID_HANDLE);
+            const BOOL handle_valid = GetHandleInformation(shared_handle, &flags);
+            const DWORD handle_error = GetLastError();
+            CHECK_FALSE(handle_valid);
+            CHECK(handle_error == ERROR_INVALID_HANDLE);
             D3D11_TEXTURE2D_DESC observed{};
             original->GetDesc(&observed);
             CHECK(observed.Format == expected.native);
