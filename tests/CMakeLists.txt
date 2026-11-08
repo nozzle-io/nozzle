@@ -155,6 +155,7 @@ endif()
 if(WIN32)
     list(APPEND INTEGRATION_TEST_SOURCES
         integration/test_d3d11_device_injection.cpp
+        integration/test_d3d11_wrap.cpp
         integration/test_d3d11_multi_receiver.cpp
         integration/test_d3d11_fanout.cpp
         integration/test_d3d11_writable_lease.cpp

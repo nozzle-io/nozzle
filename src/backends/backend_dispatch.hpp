@@ -17,7 +17,7 @@ namespace backend {
 #endif
 
 auto get_default_device() -> void *;
-auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t slot_index = 0) -> Result<texture>;
+auto create_ring_texture(void *device, uint32_t width, uint32_t height, texture_format format, uint32_t slot_index = 0) -> Result<texture>;
 auto get_shared_resource_id(const texture &tex) -> uint64_t;
 auto get_native_surface(const texture &tex) -> void *;
 void release_texture_resources(void *native_texture, void *native_surface);

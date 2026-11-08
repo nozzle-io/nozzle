@@ -63,10 +63,10 @@ texture make_texture_from_backend(
     void *backend_surface,
     uint32_t width,
     uint32_t height,
-    uint32_t pixel_format,
+    texture_format pixel_format,
     uint8_t channel_swizzle_val,
     const native_format_desc *native_desc,
-    uint32_t semantic_format_val
+    texture_format semantic_format_val
 ) {
     texture t;
     t.impl_ = std::make_unique<texture::Impl>();
@@ -74,7 +74,7 @@ texture make_texture_from_backend(
     t.impl_->native_surface = backend_surface;
     t.impl_->desc.width = width;
     t.impl_->desc.height = height;
-    auto storage_fmt = static_cast<texture_format>(pixel_format);
+    const auto storage_fmt = pixel_format;
     t.impl_->desc.format = storage_fmt;
     t.impl_->resolved_.storage_format = storage_fmt;
     t.impl_->resolved_.cpu_layout = resolve_cpu_layout(storage_fmt);
@@ -83,13 +83,13 @@ texture make_texture_from_backend(
         t.impl_->resolved_.native = *native_desc;
         t.impl_->resolved_.source = format_source::native_observed;
     } else {
-        t.impl_->resolved_.native.value = pixel_format;
+        t.impl_->resolved_.native.value = static_cast<uint32_t>(pixel_format);
         t.impl_->resolved_.source = format_source::requested;
     }
     t.impl_->desc.swizzle = static_cast<channel_swizzle>(channel_swizzle_val);
     t.impl_->resolved_.swizzle = static_cast<channel_swizzle>(channel_swizzle_val);
-    t.impl_->resolved_.semantic_format = semantic_format_val != 0
-        ? static_cast<texture_format>(semantic_format_val)
+    t.impl_->resolved_.semantic_format = semantic_format_val != texture_format::unknown
+        ? semantic_format_val
         : storage_fmt;
     t.impl_->desc.semantic_format = t.impl_->resolved_.semantic_format;
     t.impl_->valid = (backend_texture != nullptr);
