@@ -484,7 +484,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: nozzle-io/nozzle.java
-          ref: 3142b611e796a11fe389a1e942d62ca2e1b4a377
+          ref: f083bf53f613dab256396a8c79c982fe201a7928
           path: jni-consumer
 
       - name: Set up JNI headers
@@ -503,6 +503,15 @@ jobs:
           library=jni-consumer/.build/libnozzle_jni.so
           nm -DC --defined-only "$library" > jni-dynamic-symbols.txt
           nm -C --defined-only "$library" > jni-all-symbols.txt
+          nm -C "$library" > jni-symbols-with-undefined.txt
+          for symbol in nozzle_sender_get_info_snapshot nozzle_receiver_get_connected_info_snapshot nozzle_enumerate_senders nozzle_free_sender_info_array; do
+            grep -E "[[:space:]]${symbol}$" jni-dynamic-symbols.txt
+          done
+          if grep -E '[[:space:]](nozzle_sender_get_info|nozzle_receiver_get_connected_info)$' jni-symbols-with-undefined.txt; then
+            echo '::error::Legacy borrowed-info symbol remains defined or imported in the JNI DSO'
+            exit 1
+          fi
+          echo 'NOZZLE_INFO_SNAPSHOT_SYMBOLS snapshot and Discovery exports present; legacy definitions and imports absent'
           grep -F 'Java_nozzle_' jni-dynamic-symbols.txt
           if grep -F 'nozzle::detail::backend::' jni-dynamic-symbols.txt; then
             echo '::error::Private Linux dispatch symbols escaped the consumer DSO'

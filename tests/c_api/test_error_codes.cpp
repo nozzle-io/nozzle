@@ -108,17 +108,11 @@ TEST_CASE("C API: frame info rejects null and unbacked wrappers", "[c_api][frame
     CHECK(fallback.category == NOZZLE_FALLBACK_CATEGORY_NONE);
 }
 
-TEST_CASE("C API: sender and receiver info getters reject null boundaries", "[c_api][info]") {
-    NozzleSenderInfo sender_info{};
+TEST_CASE("C API: sender native device getter rejects null boundaries", "[c_api][info]") {
     NozzleNativeDevice native_device{};
-    NozzleConnectedSenderInfo connected_info{};
 
-    CHECK(nozzle_sender_get_info(nullptr, &sender_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
-    CHECK(nozzle_sender_get_info(nullptr, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
     CHECK(nozzle_sender_get_native_device(nullptr, &native_device) == NOZZLE_ERROR_INVALID_ARGUMENT);
     CHECK(nozzle_sender_get_native_device(nullptr, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
-    CHECK(nozzle_receiver_get_connected_info(nullptr, &connected_info) == NOZZLE_ERROR_INVALID_ARGUMENT);
-    CHECK(nozzle_receiver_get_connected_info(nullptr, nullptr) == NOZZLE_ERROR_INVALID_ARGUMENT);
 }
 
 #if NOZZLE_ENABLE_TEST_HOOKS
