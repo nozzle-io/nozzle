@@ -44,6 +44,7 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
 
     SenderDirectoryEntry found{};
     bool found_entry = false;
+    Error candidate_error{ErrorCode::SenderNotFound, "sender not found: " + std::string(name)};
 
     for (uint32_t i = 0; i < snapshot.value().capacity; ++i) {
         const auto &entry = snapshot.value().entries[i];
@@ -61,13 +62,19 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         }
 
         auto opened = detail::registry::open_sender_state(entry.shm_name);
-        if (!opened.ok()) return opened.error();
+        if (!opened.ok()) {
+            if (candidate_error.code == ErrorCode::SenderNotFound) candidate_error = opened.error();
+            continue;
+        }
         auto &view = opened.value();
         auto current = detail::registry::owner_is_current(*view.state);
         const bool matches = detail::registry::sender_matches_entry(*view.state, entry) &&
             detail::ipc::atomic_load_relaxed(&view.state->lifecycle_state) == detail::sender_state_open;
         detail::registry::close_sender_state(view);
-        if (!current.ok()) return current.error();
+        if (!current.ok()) {
+            if (candidate_error.code == ErrorCode::SenderNotFound) candidate_error = current.error();
+            continue;
+        }
         if (!matches || !current.value()) continue;
 
         std::memcpy(found.shm_name, entry.shm_name, sizeof(found.shm_name));
@@ -80,7 +87,7 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
     }
 
     if (!found_entry) {
-        return Error{ErrorCode::SenderNotFound, "sender not found: " + std::string(name)};
+        return candidate_error;
     }
 
     return found;
