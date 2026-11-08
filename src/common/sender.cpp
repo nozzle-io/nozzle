@@ -440,7 +440,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 			impl_->native_device_,
 			tdesc.width,
 			tdesc.height,
-			static_cast<uint32_t>(tdesc.format),
+			tdesc.format,
 			slot
 		);
 
@@ -453,7 +453,7 @@ Result<writable_frame> sender::acquire_writable_frame(const texture_desc &tdesc)
 					impl_->native_device_,
 					tdesc.width,
 					tdesc.height,
-					static_cast<uint32_t>(plan.fallback),
+					plan.fallback,
 					slot
 				);
 				if (tex_result.ok()) {
@@ -856,7 +856,7 @@ Result<void> sender::publish_native_texture(void *native_texture, uint32_t width
 
 		if (needs_create) {
 			auto tex_result = detail::backend::create_ring_texture(
-				impl_->native_device_, width, height, static_cast<uint32_t>(storage_format), slot);
+				impl_->native_device_, width, height, storage_format, slot);
 			if (!tex_result.ok()) return tex_result.error();
 			impl_->ring_textures_[slot] = std::move(tex_result.value());
 		}

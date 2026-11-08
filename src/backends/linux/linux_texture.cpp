@@ -382,13 +382,13 @@ Result<texture> create_dmabuf_texture(
     void *device,
     uint32_t width,
     uint32_t height,
-    uint32_t format
+    texture_format format
 ) {
     if (width == 0 || height == 0) {
         return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
     }
 
-    uint32_t fourcc = drm_format_from_nozzle(format);
+    uint32_t fourcc = drm_format_from_nozzle(static_cast<uint32_t>(format));
     if (fourcc == DRM_FORMAT_INVALID) {
         return Error{ErrorCode::UnsupportedFormat,
             "No supported DRM FourCC for nozzle pixel format in DMA-BUF allocation"};
@@ -399,7 +399,7 @@ Result<texture> create_dmabuf_texture(
         return Error{ErrorCode::BackendError, "No GBM device available"};
     }
 
-    auto alloc_result = allocate_dmabuf(gbm_dev, width, height, format);
+    auto alloc_result = allocate_dmabuf(gbm_dev, width, height, static_cast<uint32_t>(format));
     if (!alloc_result.ok()) {
         return alloc_result.error();
     }
@@ -481,7 +481,7 @@ Result<texture> import_dmabuf_texture(
         native.plane_offsets[i] = planes[i].offset;
     }
 
-    return make_texture_from_backend(native_texture, native_surface, width, height, 0, 0, &native);
+    return make_texture_from_backend(native_texture, native_surface, width, height, texture_format::unknown, 0, &native);
 }
 
 } // namespace nozzle::detail::linux_backend
@@ -698,7 +698,7 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
     }
 
     return detail::make_texture_from_backend(
-        native_texture, native_surface, desc.width, desc.height, 0, 0, &native);
+        native_texture, native_surface, desc.width, desc.height, texture_format::unknown, 0, &native);
 }
 
 void *get_egl_image(const texture &tex) {

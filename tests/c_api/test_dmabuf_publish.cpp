@@ -171,7 +171,7 @@ TEST_CASE("DMA-BUF backend: float create rejects before GBM device probe", "[dma
         nullptr,
         16,
         16,
-        static_cast<uint32_t>(nozzle::texture_format::rgba16_float));
+        nozzle::texture_format::rgba16_float);
 
     REQUIRE(!result.ok());
     CHECK(result.error().code == nozzle::ErrorCode::UnsupportedFormat);
@@ -555,7 +555,7 @@ TEST_CASE("DMA-BUF backend: texture destruction clears the shared slot", "[dmabu
         // The real destructor is compiled in texture.cpp, not this test TU.
         auto owned_texture = nozzle::detail::make_texture_from_backend(
             nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(ring_fd.release())),
-            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+            16, 16, nozzle::texture_format::rgba8_unorm);
     }
 
     CHECK(!fd_is_open(fd));
@@ -578,7 +578,7 @@ TEST_CASE("DMA-BUF backend: reused fd numbers advance allocation generation", "[
     {
         auto original = nozzle::detail::make_texture_from_backend(
             nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(original_fd.release())),
-            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+            16, 16, nozzle::texture_format::rgba8_unorm);
         // Exercise the same registration operation as create_ring_texture, without EGL.
         nozzle::detail::backend::register_ring_texture_fd(fd, 1);
         old_generation = nozzle::detail::backend::test_get_sender_slot_generation(1);
@@ -596,7 +596,7 @@ TEST_CASE("DMA-BUF backend: reused fd numbers advance allocation generation", "[
     {
         auto replacement = nozzle::detail::make_texture_from_backend(
             nullptr, reinterpret_cast<void *>(static_cast<intptr_t>(fd)),
-            16, 16, static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+            16, 16, nozzle::texture_format::rgba8_unorm);
         nozzle::detail::backend::register_ring_texture_fd(fd, 1);
         CHECK(nozzle::detail::backend::test_get_sender_slot_generation(1) == old_generation + 1);
         CHECK(dmabuf_dispatch_peer::sender_slot_fd(1) == fd);

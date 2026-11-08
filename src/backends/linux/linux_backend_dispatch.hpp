@@ -489,7 +489,7 @@ inline void register_ring_texture_fd(int fd, uint32_t ring_slot) {
 }
 
 inline auto create_ring_texture(
-    void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t ring_slot
+    void *device, uint32_t width, uint32_t height, texture_format format, uint32_t ring_slot
 ) -> Result<texture> {
     auto tex_result = linux_backend::create_dmabuf_texture(device, width, height, format);
     if (!tex_result.ok()) {
@@ -834,7 +834,9 @@ inline auto lookup_texture(
         native.plane_strides[i] = planes[i].stride;
         native.plane_offsets[i] = planes[i].offset;
     }
-    return make_texture_from_backend(egl_image, native_surface, width, height, format, 0, &native, semantic_format);
+    return make_texture_from_backend(egl_image, native_surface, width, height,
+        static_cast<texture_format>(format), 0, &native,
+        static_cast<texture_format>(semantic_format));
 }
 
 inline auto get_backend_type() -> backend_type {

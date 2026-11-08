@@ -71,7 +71,7 @@ Result<texture> create_dmabuf_texture(
     void *device,
     uint32_t width,
     uint32_t height,
-    uint32_t format
+    texture_format format
 );
 
 Result<texture> import_dmabuf_texture(
@@ -95,10 +95,10 @@ texture make_texture_from_backend(
     void *backend_surface,
     uint32_t width,
     uint32_t height,
-    uint32_t pixel_format,
+    texture_format pixel_format,
     uint8_t channel_swizzle,
     const native_format_desc *native_desc,
-    uint32_t semantic_format_val
+    texture_format semantic_format_val
 );
 
 void *get_texture_native(const texture &t);

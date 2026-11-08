@@ -16,7 +16,7 @@
 namespace nozzle {
 namespace d3d11 {
 
-static texture_format dxgi_format_to_storage_format(DXGI_FORMAT format) {
+texture_format dxgi_format_to_storage_format(DXGI_FORMAT format) {
     switch (format) {
         case DXGI_FORMAT_R8_UNORM:                  return texture_format::r8_unorm;
         case DXGI_FORMAT_R8G8_UNORM:                return texture_format::rg8_unorm;
@@ -40,8 +40,8 @@ static texture_format dxgi_format_to_storage_format(DXGI_FORMAT format) {
     }
 }
 
-static DXGI_FORMAT to_dxgi_format(uint32_t nozzle_format) {
-    switch (static_cast<texture_format>(nozzle_format)) {
+static DXGI_FORMAT to_dxgi_format(texture_format nozzle_format) {
+    switch (nozzle_format) {
         case texture_format::r8_unorm:         return DXGI_FORMAT_R8_UNORM;
         case texture_format::rg8_unorm:        return DXGI_FORMAT_R8G8_UNORM;
         case texture_format::rgb8_unorm:       return DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -73,7 +73,7 @@ Result<texture> create_shared_texture(
     void *d3d11_device,
     uint32_t width,
     uint32_t height,
-    uint32_t format
+    texture_format format
 ) {
     if (!d3d11_device) {
         return Error{ErrorCode::InvalidArgument, "D3D11 device is null"};
@@ -145,7 +145,7 @@ Result<texture> create_shared_texture(
         reinterpret_cast<void *>(shared_handle),
         width,
         height,
-        static_cast<uint32_t>(storage_format),
+        storage_format,
         0,
         &native,
         format
@@ -245,10 +245,10 @@ Result<texture> lookup_shared_texture(
         reinterpret_cast<void *>(local_handle),
         width,
         height,
-        static_cast<uint32_t>(storage_format),
+        storage_format,
         0,
         &native,
-        semantic_format
+        static_cast<texture_format>(semantic_format)
     );
 }
 

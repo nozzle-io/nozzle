@@ -96,7 +96,7 @@ TEST_CASE("D3D11: NT shared handle opens on another device and preserves keyed m
 	REQUIRE(create_warp_device(&receiver_device, &receiver_context));
 
 	auto texture_result = nozzle::d3d11::create_shared_texture(
-		sender_device, 4, 4, static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm));
+		sender_device, 4, 4, nozzle::texture_format::bgra8_unorm);
 	REQUIRE(texture_result.ok());
 	nozzle::texture sender_shared_texture = std::move(texture_result.value());
 
