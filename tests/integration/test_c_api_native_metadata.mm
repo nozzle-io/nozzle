@@ -216,7 +216,7 @@ TEST_CASE("External texture: public BGRA publication preserves raw semantics and
 TEST_CASE("Writable texture export preserves frame intent across ring reuse",
     "[integration][c_api][metal][writable_export]") {
     for (bool external : {false, true}) {
-        DYNAMIC_SECTION(external ? "external texture" : "normal commit") {
+        DYNAMIC_SECTION((external ? "external texture" : "normal commit")) {
             @autoreleasepool {
                 constexpr uint32_t width = 7;
                 constexpr uint32_t height = 3;
