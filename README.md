@@ -32,9 +32,9 @@ The API/ABI may change in v0.x; the `stable` branch does not mean the API is fro
 - C ABI (`nozzle_c.h`) for plugin/host integration
 - Zero runtime dependencies (C++17 STL + OS frameworks only)
 - Header-only logging via [plog](https://github.com/SergiusTheBest/plog) (submodule)
-- Thread-safe sender and receiver objects, except the deprecated C borrowed-pointer
-  info getters, which require external synchronization; use the value snapshot
-  getters for concurrent access
+- Thread-safe sender and receiver operations while handles remain alive; C info
+  getters return caller-owned snapshots. Destruction must not race with calls
+  using the same handle.
 
 ## Status
 
@@ -202,6 +202,49 @@ at creation. Pass standard UTF-8 at wrapper boundaries. Windows ANSI/CP932
 strings and JNI modified UTF-8 are not substitutes; convert from the host's
 encoding before calling nozzle. No shared-memory capacity, layout or version
 changes are part of this validation change.
+
+### C metadata snapshots and ABI migration
+
+**Breaking change (nozzle-dev#193):** the deprecated C functions
+`nozzle_sender_get_info` and `nozzle_receiver_get_connected_info`, and the
+`NozzleConnectedSenderInfo` type, have been removed. Use
+`nozzle_sender_get_info_snapshot` with `NozzleSenderInfoSnapshot` and
+`nozzle_receiver_get_connected_info_snapshot` with
+`NozzleConnectedSenderSnapshot`. Update callers and rebuild binaries that
+imported the removed symbols; there is no compatibility fallback. Raw
+header-generated surfaces, including Zig's `c` import and Swift's `CNozzle`,
+also lose these declarations. The C++ metadata APIs are unchanged.
+
+On success, each snapshot owns inline `char` arrays for `name`,
+`application_name` and `id`, with capacities 64, 64 and 37 including the NUL.
+These are values, not allocated strings requiring a library free call. Copies
+remain valid after subsequent calls or handle destruction. Allocate the complete
+struct from `nozzle_c.h`, including all scalar fields. The receiver snapshot
+copies metadata and its `uint32_t connected` flag under one receiver lock:
+1 means last-observed connected, 0 means not connected. After an observed
+disconnect, last-known identity is retained. Getter success is not a connected predicate or a fresh
+liveness check. Snapshot ownership does not allow destruction to race with an
+in-flight call.
+
+Before any successful connection, a zero/default snapshot has `connected == 0`
+and empty identity, as does a default-constructed C++ receiver's snapshot.
+This does not describe a usable unconnected C handle: `nozzle_receiver_create`
+requires an initial connection and returns an error with a null output handle
+when the sender is unavailable. A getter on that null handle fails; it does not
+successfully return an empty snapshot.
+
+Snapshots use the target's native C alignment and field layout, not a packed
+wire format or a universal 232-byte layout. FFI bindings must verify sizes,
+offsets and inline capacities against the target compiler's header layout.
+CI targets include macOS arm64/x86_64 SDK builds and Windows/Linux x64 builds;
+that coverage does not establish i386 SysV ABI compatibility or runtime coverage
+on every architecture. No shared-memory layout, capacity or version changes
+are part of this C API retirement.
+
+Discovery is unchanged: `NozzleSenderInfo` and `NozzleSenderInfoArray` remain
+with `nozzle_enumerate_senders` and `nozzle_free_sender_info_array`. Discovery
+strings belong to the returned array; copy them before freeing it if needed
+afterward. They do not have the snapshots' inline-value ownership.
 
 ### Texture format metadata
 

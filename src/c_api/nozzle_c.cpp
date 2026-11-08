@@ -478,19 +478,6 @@ NozzleErrorCode copy_mapped_pixels_to_buffer(
 
 namespace {
 
-void assign_if_changed(std::string &dst, const std::string &src) {
-    if (dst != src) {
-        dst = src;
-    }
-}
-
-template <typename info_type>
-void refresh_cached_strings(NozzleCachedSenderStrings &cached, const info_type &info) {
-    assign_if_changed(cached.name, info.name);
-    assign_if_changed(cached.application_name, info.application_name);
-    assign_if_changed(cached.id, info.id);
-}
-
 template <std::size_t capacity>
 void copy_snapshot_string(char (&destination)[capacity], const std::string &source) {
     const std::size_t length = std::min(source.size(), capacity - 1);
@@ -772,22 +759,6 @@ NozzleErrorCode nozzle_sender_discard_frame(
     return NOZZLE_OK;
 }
 
-NozzleErrorCode nozzle_sender_get_info(
-    NozzleSender *sender,
-    NozzleSenderInfo *out_info
-) {
-    if (!sender || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
-
-    const auto info = sender->obj->info();
-    std::lock_guard<std::mutex> lock(sender->cached_info_mutex);
-    refresh_cached_strings(sender->cached_strings, info);
-    out_info->name = sender->cached_strings.name.c_str();
-    out_info->application_name = sender->cached_strings.application_name.c_str();
-    out_info->id = sender->cached_strings.id.c_str();
-    out_info->backend = to_c_backend_type(info.backend);
-    return NOZZLE_OK;
-}
-
 NozzleErrorCode nozzle_sender_get_info_snapshot(
     NozzleSender *sender,
     NozzleSenderInfoSnapshot *out_info
@@ -894,33 +865,6 @@ NozzleErrorCode nozzle_receiver_acquire_frame(
 
 void nozzle_frame_release(NozzleFrame *frame) {
     delete frame;
-}
-
-NozzleErrorCode nozzle_receiver_get_connected_info(
-    NozzleReceiver *receiver,
-    NozzleConnectedSenderInfo *out_info
-) {
-    if (!receiver || !out_info) return NOZZLE_ERROR_INVALID_ARGUMENT;
-
-    const auto ci = receiver->obj->connected_info();
-    std::lock_guard<std::mutex> lock(receiver->cached_connected_info_mutex);
-    receiver->cached_connected_info = ci;
-    refresh_cached_strings(receiver->cached_strings, ci);
-    out_info->name = receiver->cached_strings.name.c_str();
-    out_info->application_name = receiver->cached_strings.application_name.c_str();
-    out_info->id = receiver->cached_strings.id.c_str();
-    out_info->backend = to_c_backend_type(ci.backend);
-    out_info->width = ci.width;
-    out_info->height = ci.height;
-    out_info->format = to_c_format(ci.format);
-    out_info->semantic_format = to_c_format(ci.semantic_format);
-    out_info->estimated_fps = ci.estimated_fps;
-    out_info->frame_counter = ci.frame_counter;
-    out_info->last_update_time_ns = ci.last_update_time_ns;
-    out_info->native_format_kind = to_c_native_kind(static_cast<nozzle::native_format_kind>(ci.native_format_kind));
-    out_info->native_format_value = ci.native_format_value;
-    out_info->native_format_modifier = ci.native_format_modifier;
-    return NOZZLE_OK;
 }
 
 NozzleErrorCode nozzle_receiver_get_connected_info_snapshot(
