@@ -71,11 +71,11 @@ Result<SenderDirectoryEntry> find_sender_in_directory(const char *name) {
         const bool matches = detail::registry::sender_matches_entry(*view.state, entry) &&
             detail::ipc::atomic_load_relaxed(&view.state->lifecycle_state) == detail::sender_state_open;
         detail::registry::close_sender_state(view);
-        if (!current.ok()) {
+        if (!current.ok() && current.error().code != ErrorCode::BackendError) {
             if (candidate_error.code == ErrorCode::SenderNotFound) candidate_error = current.error();
             continue;
         }
-        if (!matches || !current.value()) continue;
+        if (!matches || (current.ok() && !current.value())) continue;
 
         std::memcpy(found.shm_name, entry.shm_name, sizeof(found.shm_name));
         std::memcpy(found.application_name, entry.application_name, sizeof(found.application_name));
@@ -98,6 +98,7 @@ struct ConnectionSetup {
     connected_sender_info info{};
     uint64_t sender_pid{0};
     uint64_t sender_instance{0};
+    uint64_t instance_checked_ns{0};
 };
 
 bool sender_is_closed(const detail::SenderSharedState &state) {
@@ -123,7 +124,8 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
 
     auto *state = setup.state_view.state;
     auto current = detail::registry::owner_is_current(*state);
-    if (!current.ok() || !current.value()) {
+    if ((current.ok() && !current.value()) ||
+        (!current.ok() && current.error().code != ErrorCode::BackendError)) {
         detail::registry::close_sender_state(setup.state_view);
         return current.ok() ? Error{ErrorCode::SenderNotFound, "sender process instance ended"}
                             : current.error();
@@ -140,6 +142,7 @@ Result<ConnectionSetup> establish_connection(const std::string &sender_name) {
         return Error{ErrorCode::SenderNotFound, "sender identity changed during lookup"};
     }
     setup.sender_instance = state->owner_instance;
+    setup.instance_checked_ns = detail::ipc::monotonic_ns();
     setup.info.name = state->name;
     setup.info.application_name = state->application_name;
     setup.info.id = state->uuid;
@@ -245,6 +248,7 @@ struct receiver::Impl {
     bool connected_{false};
     uint64_t sender_pid_{0};
     uint64_t sender_instance_{0};
+    uint64_t instance_checked_ns_{0};
     mutable std::mutex mutex_;
 };
 
@@ -292,6 +296,7 @@ Result<receiver> receiver::create(const receiver_desc &desc) {
     recv.impl_->state_view_ = std::move(setup.value().state_view);
     recv.impl_->sender_pid_ = setup.value().sender_pid;
     recv.impl_->sender_instance_ = setup.value().sender_instance;
+    recv.impl_->instance_checked_ns_ = setup.value().instance_checked_ns;
     recv.impl_->connected_ = true;
     recv.impl_->last_frame_ = 0;
     recv.impl_->connected_info_ = std::move(setup.value().info);
@@ -342,20 +347,14 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         impl_->state_view_ = std::move(setup.value().state_view);
         impl_->sender_pid_ = setup.value().sender_pid;
         impl_->sender_instance_ = setup.value().sender_instance;
+        impl_->instance_checked_ns_ = setup.value().instance_checked_ns;
         impl_->connected_ = true;
         impl_->last_frame_ = 0;
         impl_->connected_info_ = std::move(setup.value().info);
     }
 
-    auto current_instance = detail::ipc::process_instance_token(impl_->sender_pid_);
-    if (!current_instance.ok()) {
-        if (current_instance.error().code == ErrorCode::SenderClosed) {
-            return disconnect("sender process is no longer alive");
-        }
-        return current_instance.error();
-    }
-    if (current_instance.value() != impl_->sender_instance_) {
-        return disconnect("sender process instance changed");
+    if (!detail::ipc::is_pid_alive(impl_->sender_pid_)) {
+        return disconnect("sender process is no longer alive");
     }
 
     auto *state = impl_->state_view_.state;
@@ -376,6 +375,22 @@ Result<frame> receiver::acquire_frame(const acquire_desc &desc) {
         }
         if (sender_is_closed(*state)) {
             return disconnect("sender was destroyed");
+        }
+        // Unknown process metadata is not death. Budget failed probes too,
+        // while retaining closure/identity checks on every acquisition retry.
+        const auto now = detail::ipc::monotonic_ns();
+        if (now - impl_->instance_checked_ns_ >= 1000000000ULL) {
+            impl_->instance_checked_ns_ = now;
+            auto current_instance = detail::ipc::process_instance_token(impl_->sender_pid_);
+            if (current_instance.ok()) {
+                if (current_instance.value() != impl_->sender_instance_) {
+                    return disconnect("sender process instance changed");
+                }
+            } else if (current_instance.error().code == ErrorCode::SenderClosed) {
+                return disconnect("sender process is no longer alive");
+            } else if (current_instance.error().code != ErrorCode::BackendError) {
+                return current_instance.error();
+            }
         }
         uint64_t frame = detail::ipc::atomic_load_relaxed(&state->committed_frame);
         detail::ipc::atomic_fence_acquire();

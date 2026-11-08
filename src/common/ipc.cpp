@@ -326,20 +326,16 @@ pid_type current_pid() noexcept {
 }
 
 bool is_pid_alive(pid_type pid) noexcept {
-    if (pid == 0) {
+    if (pid == 0 || pid > (std::numeric_limits<DWORD>::max)()) {
         return false;
     }
-    void *h = open_process_for_probe(PROCESS_QUERY_LIMITED_INFORMATION, pid);
+    HANDLE h = open_process_for_probe(SYNCHRONIZE, pid);
     if (!h) {
-        return false;
+        return GetLastError() != ERROR_INVALID_PARAMETER;
     }
-    DWORD exit_code = 0;
-    if (GetExitCodeProcess(h, &exit_code) == 0) {
-        CloseHandle(h);
-        return false;
-    }
+    const DWORD wait = WaitForSingleObject(h, 0);
     CloseHandle(h);
-    return exit_code == STILL_ACTIVE;
+    return wait != WAIT_OBJECT_0;
 }
 
 Result<uint64_t> process_instance_token(pid_type pid) {
@@ -598,7 +594,7 @@ pid_type current_pid() noexcept {
 }
 
 bool is_pid_alive(pid_type pid) noexcept {
-    if (pid == 0) {
+    if (pid == 0 || pid > static_cast<uint64_t>((std::numeric_limits<pid_t>::max)())) {
         return false;
     }
     return probe_pid(pid) == 0 || errno != ESRCH;
@@ -699,8 +695,10 @@ Result<uint64_t> process_instance_token(pid_type pid) {
 #if NOZZLE_PLATFORM_LINUX || defined(__APPLE__)
     if (probe_pid(native_pid) != 0) {
         const int error = errno;
-        return native_error(error == ESRCH ? ErrorCode::SenderClosed : ErrorCode::BackendError,
-                            "process existence check", error);
+        if (error != EPERM) {
+            return native_error(error == ESRCH ? ErrorCode::SenderClosed : ErrorCode::BackendError,
+                                "process existence check", error);
+        }
     }
     return token;
 #endif

@@ -356,7 +356,10 @@ for that state; `SenderClosed` describes the end of an existing connection.
 A same-name replacement uses its new
 UUID, metadata, and frame sequence. This is a retryable lifecycle event, not a
 reason for an interactive receiver to permanently stop polling. Process-death
-detection verifies the owner's process instance, not PID existence alone. Backend waits retain
+detection uses conservative PID liveness checks on acquisition and verifies the
+owner's process instance at approximately one-second intervals per receiver,
+including during CPU-side frame polling. Connection initializes that interval;
+failed metadata queries consume the same retry budget. Backend waits retain
 their existing timeouts and are not asynchronously cancelled by closure.
 Connection snapshots and `is_connected()` describe the last observed state, not
 an independent liveness probe. Frames already returned retain their ownership.
@@ -374,8 +377,11 @@ a later sweep. Read-only discovery/acquisition never perform cleanup.
 
 Process identity uses Linux `/proc/PID/stat` start ticks, macOS native process
 start timestamp, or Windows creation `FILETIME`. Unavailable metadata is not
-proof of death: discovery omits unverified senders and connection/acquisition
-returns an error. A different or exited instance disconnects an existing
+proof of death: an otherwise valid sender stays discoverable and connectable,
+and acquisition continues normally when the native query is unavailable.
+Permission denial is not process death; malformed identities remain errors.
+Cleanup still requires positive evidence before reclaiming anything. A
+positively different or exited instance disconnects an existing
 receiver with `SenderClosed`. Linux peers must share compatible PID/proc/time
 namespaces; cross-namespace sharing is unsupported. Tokens are observations,
 not process-lifetime locks or authentication. On Windows stale directory slots

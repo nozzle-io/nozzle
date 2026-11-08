@@ -41,7 +41,7 @@ std::vector<sender_info> enumerate_senders() {
         auto &view = opened.value();
         auto current = detail::registry::owner_is_current(*view.state);
         const bool visible = detail::registry::sender_matches_entry(*view.state, entry) &&
-            current.ok() && current.value() &&
+            (current.ok() ? current.value() : current.error().code == ErrorCode::BackendError) &&
             detail::ipc::atomic_load_relaxed(&view.state->lifecycle_state) == detail::sender_state_open;
         detail::registry::close_sender_state(view);
         if (!visible) continue;

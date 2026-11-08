@@ -81,6 +81,7 @@ Result<dir_lock> dir_lock_acquire(const char *name, bool exclusive);
 void dir_lock_release(dir_lock &lock) noexcept;
 
 pid_type current_pid() noexcept;
+// Conservative liveness: unavailable native queries are not proof of death.
 bool is_pid_alive(pid_type pid) noexcept;
 // Native start token: SenderClosed means observed absence/exit, BackendError
 // means unknown, and InvalidArgument means an invalid PID. Never returns zero.
