@@ -24,6 +24,8 @@ set(UNIT_TEST_SOURCES
     unit/test_simd_parity.cpp
     unit/test_shared_metadata.cpp
     unit/test_shared_layout.cpp
+    unit/test_stale_cleanup.cpp
+    unit/test_process_instance.cpp
     ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
     ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
     ${CMAKE_SOURCE_DIR}/src/common/metadata.cpp
@@ -52,6 +54,28 @@ if(WIN32)
 endif()
 
 add_executable(nozzle_tests ${UNIT_TEST_SOURCES})
+
+if(UNIX)
+    add_executable(nozzle_stale_sender_owner
+        helpers/stale_sender_owner.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/ipc.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/registry.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/metadata.cpp
+    )
+    target_include_directories(nozzle_stale_sender_owner PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/common
+        ${CMAKE_SOURCE_DIR}/include
+    )
+    if(APPLE)
+        target_compile_definitions(nozzle_stale_sender_owner PRIVATE NOZZLE_PLATFORM_MACOS=1)
+    else()
+        target_compile_definitions(nozzle_stale_sender_owner PRIVATE NOZZLE_PLATFORM_LINUX=1)
+    endif()
+    add_dependencies(nozzle_tests nozzle_stale_sender_owner)
+    target_compile_definitions(nozzle_tests PRIVATE
+        NOZZLE_STALE_SENDER_OWNER_PATH="$<TARGET_FILE:nozzle_stale_sender_owner>"
+    )
+endif()
 
 if(WIN32)
     add_dependencies(nozzle_tests nozzle_windows_ipc_owner)
@@ -98,6 +122,7 @@ endif()
 set(INTEGRATION_TEST_SOURCES
     integration/test_cross_process.cpp
     integration/test_sender_lifecycle.cpp
+    integration/test_process_instance.cpp
     integration/test_initial_metadata.cpp
     integration/test_c_sender_desc.cpp
     integration/test_cpp_sender_desc.cpp
@@ -146,6 +171,9 @@ endif()
 
 if(NOT BUILD_SHARED_LIBS)
     add_executable(nozzle_integration_tests ${INTEGRATION_TEST_SOURCES})
+    if(NOZZLE_ENABLE_TEST_HOOKS)
+        target_compile_definitions(nozzle_integration_tests PRIVATE NOZZLE_ENABLE_TEST_HOOKS=1)
+    endif()
 
     add_executable(nozzle_shared_layout_probe helpers/shared_layout_probe.cpp)
     target_link_libraries(nozzle_shared_layout_probe PRIVATE nozzle)
@@ -193,7 +221,11 @@ endif()
 
 include(CTest)
 include(Catch)
-catch_discover_tests(nozzle_tests)
+# Other registry cases mutate the shared directory. Keep the crash fixtures
+# exclusive across CTest processes without changing the other test fixtures.
+catch_discover_tests(nozzle_tests TEST_SPEC "[stale_cleanup]"
+    PROPERTIES RUN_SERIAL TRUE TIMEOUT 60)
+catch_discover_tests(nozzle_tests TEST_SPEC "~[stale_cleanup]")
 if(NOT BUILD_SHARED_LIBS)
     # Shared-layout probes temporarily replace the global directory. Exclude
     # every other CTest process while those cases own it, including unit tests.

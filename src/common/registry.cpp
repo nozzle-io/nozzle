@@ -164,7 +164,114 @@ Result<directory_mapping> open_directory_locked() {
     return dir;
 }
 
+bool canonical_sender_name(const DirectoryEntry &entry) {
+    if (!valid_directory_strings(entry) || std::strlen(entry.uuid) != 36) return false;
+    for (std::size_t i = 0; i < 36; ++i) {
+        const char c = entry.uuid[i];
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (c != '-') return false;
+        } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return false;
+        }
+    }
+    if (entry.uuid[14] != '4' || std::strchr("89ab", entry.uuid[19]) == nullptr) return false;
+    char expected[sizeof(entry.shm_name)]{};
+    std::snprintf(expected, sizeof(expected), "%s%.8s", kSenderShmPrefix, entry.uuid);
+    return std::strcmp(expected, entry.shm_name) == 0;
+}
+
+void cleanup_stale_locked(directory_mapping &dir) {
+    auto *header = static_cast<DirectoryHeader *>(dir.mapped);
+    auto *entries = reinterpret_cast<DirectoryEntry *>(header + 1);
+    bool changed = false;
+    for (uint32_t i = 0; i < dir.capacity; ++i) {
+        auto &entry = entries[i];
+        if (entry.valid != entry_valid_flag::valid || !canonical_sender_name(entry)) continue;
+        bool aliased = false;
+        for (uint32_t j = 0; j < dir.capacity; ++j) {
+            if (i != j && entries[j].valid == entry_valid_flag::valid &&
+                std::strcmp(entries[j].shm_name, entry.shm_name) == 0) {
+                aliased = true;
+                break;
+            }
+        }
+        if (aliased) continue;
+
+        auto opened = open_sender_state(entry.shm_name);
+        if (!opened.ok()) {
+            // A missing object needs no deletion. Access/layout errors and
+            // reused live PIDs are not sufficient proof to reclaim the slot.
+            if (opened.error().code == ErrorCode::SenderNotFound) {
+                auto owner = ipc::process_instance_token(entry.pid);
+                if (!owner.ok() && owner.error().code == ErrorCode::SenderClosed) {
+                    auto missing = ipc::shm_open_ro(entry.shm_name);
+                    if (!missing.ok() && missing.error().code == ErrorCode::SenderNotFound) {
+                        entry.valid = entry_valid_flag::invalid;
+                        changed = true;
+                    } else if (missing.ok()) {
+                        ipc::shm_close(missing.value());
+                    }
+                }
+            }
+            continue;
+        }
+        auto &view = opened.value();
+        bool reclaim = sender_matches_entry(*view.state, entry);
+        if (reclaim) {
+            auto current = owner_is_current(*view.state);
+            reclaim = current.ok() && !current.value();
+        }
+#if !defined(_WIN32)
+        if (reclaim) {
+            auto owned = ipc::shm_owned_by_current_user(view.handle);
+            reclaim = owned.ok() && owned.value();
+        }
+#endif
+        if (reclaim) {
+            // The directory lock excludes cooperating creators/unregisterers,
+            // not hostile unlink/recreate or mutation of these identity bytes.
+            auto current = owner_is_current(*view.state);
+            reclaim = sender_matches_entry(*view.state, entry) && current.ok() && !current.value();
+        }
+#if !defined(_WIN32)
+        if (reclaim) {
+            const auto removed = ipc::shm_unlink_checked(entry.shm_name);
+            reclaim = removed.ok();
+        }
+#endif
+        close_sender_state(view);
+        if (reclaim) {
+            entry.valid = entry_valid_flag::invalid;
+            changed = true;
+        }
+    }
+    if (changed) {
+        ipc::atomic_store_relaxed(&header->change_counter,
+            ipc::atomic_load_relaxed(&header->change_counter) + 1);
+    }
+}
+
 } // anonymous namespace
+
+bool sender_matches_entry(const SenderSharedState &state, const DirectoryEntry &entry) {
+    return valid_directory_strings(entry) && validate_sender_layout(state).ok() &&
+        state.owner_pid == entry.pid && std::strcmp(state.uuid, entry.uuid) == 0 &&
+        std::strcmp(state.name, entry.sender_name) == 0 &&
+        std::strcmp(state.application_name, entry.application_name) == 0 &&
+        state.backend == entry.backend;
+}
+
+Result<bool> owner_is_current(const SenderSharedState &state) {
+    if (state.owner_instance == 0) {
+        return Error{ErrorCode::BackendError, "sender has no process instance identity"};
+    }
+    auto actual = ipc::process_instance_token(state.owner_pid);
+    if (!actual.ok()) {
+        if (actual.error().code == ErrorCode::SenderClosed) return false;
+        return actual.error();
+    }
+    return actual.value() == state.owner_instance;
+}
 
 Result<DirectorySnapshot> read_directory_snapshot() {
     // Readers never open the writer lock: render-thread polling must not wait
@@ -198,18 +305,7 @@ void cleanup_stale_entries() {
     }
     auto &dir = dir_result.value();
 
-    auto *header = static_cast<DirectoryHeader *>(dir.mapped);
-    auto *entries = reinterpret_cast<DirectoryEntry *>(
-        static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
-
-    for (uint32_t i = 0; i < dir.capacity; ++i) {
-        if (entries[i].valid == entry_valid_flag::valid && !ipc::is_pid_alive(entries[i].pid)) {
-            entries[i].valid = entry_valid_flag::invalid;
-        }
-    }
-
-    ipc::atomic_store_relaxed(&header->change_counter,
-        ipc::atomic_load_relaxed(&header->change_counter) + 1);
+    cleanup_stale_locked(dir);
 }
 
 Result<Registration> register_sender(
@@ -234,6 +330,9 @@ Result<Registration> register_sender(
     if (!name_result.ok()) return name_result.error();
     auto app_result = validate_application_name(application_name);
     if (!app_result.ok()) return app_result.error();
+    const auto owner_pid = ipc::current_pid();
+    auto owner_instance = ipc::process_instance_token(owner_pid);
+    if (!owner_instance.ok()) return owner_instance.error();
     const auto application_length = utf8_prefix_length(
         application_name, sizeof(SenderSharedState::application_name) - 1);
     static_assert(sizeof(DirectoryEntry::sender_name) == sizeof(SenderSharedState::name), "name capacity mismatch");
@@ -254,11 +353,7 @@ Result<Registration> register_sender(
     auto *entries = reinterpret_cast<DirectoryEntry *>(
         static_cast<uint8_t *>(dir.mapped) + sizeof(DirectoryHeader));
 
-    for (uint32_t i = 0; i < dir.capacity; ++i) {
-        if (entries[i].valid == entry_valid_flag::valid && !ipc::is_pid_alive(entries[i].pid)) {
-            entries[i].valid = entry_valid_flag::invalid;
-        }
-    }
+    cleanup_stale_locked(dir);
 
     int slot_index = kSlotNotFound;
     for (uint32_t i = 0; i < dir.capacity; ++i) {
@@ -296,6 +391,8 @@ Result<Registration> register_sender(
     std::memset(state, 0, sizeof(SenderSharedState));
     state->version = kSharedMemVersion;
     state->lifecycle_state = sender_state_open;
+    state->owner_pid = owner_pid;
+    state->owner_instance = owner_instance.value();
     std::memcpy(state->name, name, sender_name.size());
     std::memcpy(state->application_name, app_name, application_length);
     std::memcpy(state->uuid, reg.uuid, sizeof(state->uuid));
@@ -315,7 +412,7 @@ Result<Registration> register_sender(
     std::memcpy(entry.uuid, reg.uuid, sizeof(entry.uuid));
     std::memcpy(entry.shm_name, reg.shm_name, sizeof(entry.shm_name));
     entry.backend = backend;
-    entry.pid = ipc::current_pid();
+    entry.pid = owner_pid;
     ipc::atomic_fence_release();
     entry.valid = entry_valid_flag::valid;
     ipc::atomic_store_relaxed(&header->change_counter,

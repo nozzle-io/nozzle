@@ -99,6 +99,9 @@ inline Result<uint32_t> validate_sender_layout(const SenderSharedState &state) {
         !terminated_field(state.uuid)) {
         return Error{ErrorCode::BackendError, "sender state has unterminated identity fields"};
     }
+    if (state.owner_pid == 0 || state.owner_instance == 0) {
+        return Error{ErrorCode::BackendError, "sender state has invalid process identity"};
+    }
     return ring_size;
 }
 
