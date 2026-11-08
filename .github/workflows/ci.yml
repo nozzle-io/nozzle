@@ -275,6 +275,16 @@ jobs:
         timeout-minutes: 3
         run: ./build/tests/Debug/nozzle_tests.exe "[shared_layout]" --reporter console --success
 
+      - name: D3D11 native wrap regression
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/Debug/nozzle_integration_tests.exe "[native_wrap]" --reporter compact | tee native-wrap.log
+          if grep -qi "skipped" native-wrap.log; then exit 1; fi
+          grep -q "All tests passed" native-wrap.log
+
       - name: Shared layout receiver regression
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 3
@@ -382,6 +392,15 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Debug
+
+      - name: D3D11 native wrap regression
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/tests/Debug/nozzle_integration_tests.exe "[native_wrap]" --reporter compact | tee native-wrap.log
+          if grep -qi "skipped" native-wrap.log; then exit 1; fi
+          grep -q "All tests passed" native-wrap.log
 
       - name: Windows IPC lifetime and abandoned mutex regression
         timeout-minutes: 2

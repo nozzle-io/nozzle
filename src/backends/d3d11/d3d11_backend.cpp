@@ -5,6 +5,8 @@
 #include <nozzle/backends/d3d11.hpp>
 #include <nozzle/result.hpp>
 
+#include "d3d11_helpers.hpp"
+
 #include <d3d11.h>
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
@@ -24,6 +26,19 @@ Result<device> wrap_device(const DeviceDesc &desc) {
 Result<texture> wrap_texture(const TextureWrapDesc &desc) {
     if (!desc.texture) {
         return Error{ErrorCode::InvalidArgument, "texture is null"};
+    }
+
+    // Validate before retaining or consuming the resource's one-shot NT handle.
+    D3D11_TEXTURE2D_DESC tex_desc{};
+    desc.texture->GetDesc(&tex_desc);
+    if (desc.width != tex_desc.Width || desc.height != tex_desc.Height ||
+        desc.dxgi_format != static_cast<uint32_t>(tex_desc.Format)) {
+        return Error{ErrorCode::InvalidArgument,
+            "wrapped D3D11 texture dimensions and DXGI format must match GetDesc"};
+    }
+    const auto storage_format = dxgi_format_to_storage_format(tex_desc.Format);
+    if (storage_format == texture_format::unknown) {
+        return Error{ErrorCode::UnsupportedFormat, "Unsupported D3D11 storage format"};
     }
     desc.texture->AddRef();
 
@@ -48,9 +63,6 @@ Result<texture> wrap_texture(const TextureWrapDesc &desc) {
         return Error{ErrorCode::SharedHandleFailed, "failed to create NT shared handle"};
     }
 
-    D3D11_TEXTURE2D_DESC tex_desc{};
-    desc.texture->GetDesc(&tex_desc);
-
     native_format_desc native{};
     native.backend = backend_type::d3d11;
     native.kind = native_format_kind::dxgi_format;
@@ -59,9 +71,9 @@ Result<texture> wrap_texture(const TextureWrapDesc &desc) {
     return detail::make_texture_from_backend(
         reinterpret_cast<void *>(desc.texture),
         reinterpret_cast<void *>(shared_handle),
-        desc.width,
-        desc.height,
-        desc.dxgi_format,
+        tex_desc.Width,
+        tex_desc.Height,
+        storage_format,
         0,
         &native
     );

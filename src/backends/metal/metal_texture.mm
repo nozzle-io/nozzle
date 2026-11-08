@@ -180,7 +180,7 @@ Result<metal_texture_pair> create_iosurface_texture(
     void *mtl_device_ptr,
     uint32_t width,
     uint32_t height,
-    uint32_t pixel_format
+    texture_format pixel_format
 ) {
     @autoreleasepool {
         id<MTLDevice> mtl_device = NOZZLE_BRIDGE_GET(id<MTLDevice>, mtl_device_ptr);
@@ -191,7 +191,7 @@ Result<metal_texture_pair> create_iosurface_texture(
             return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
         }
 
-        auto nozzle_fmt = static_cast<texture_format>(pixel_format);
+        auto nozzle_fmt = pixel_format;
         if (nozzle_fmt == texture_format::rgba8_srgb || nozzle_fmt == texture_format::bgra8_srgb) {
             return Error{
                 ErrorCode::UnsupportedFormat,
@@ -274,8 +274,7 @@ Result<metal_texture_pair> create_iosurface_texture(
 
         OSType actual_fourcc = IOSurfaceGetPixelFormat(surface);
         const auto *mtl_desc = lookup_metal_iosurface_format(mtl_format);
-        result.pixel_format = static_cast<uint32_t>(
-            mtl_desc ? mtl_desc->storage_format : nozzle_fmt);
+        result.pixel_format = mtl_desc ? mtl_desc->storage_format : nozzle_fmt;
         result.fourcc = static_cast<uint32_t>(actual_fourcc);
         result.mtl_pixel_format = static_cast<uint32_t>(mtl_format);
 
@@ -310,7 +309,7 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
         id<MTLTexture> mtl_tex = NOZZLE_BRIDGE_GET(id<MTLTexture>, desc.texture);
 
         void *surface_ptr = nullptr;
-        uint32_t actual_fmt = desc.format;
+        auto actual_fmt = static_cast<texture_format>(desc.format);
         native_format_desc native{};
         native.backend = backend_type::metal;
         native.kind = native_format_kind::mtl_pixel_format;
@@ -321,7 +320,7 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
                 return Error{ErrorCode::UnsupportedFormat,
                     "wrapped Metal texture format does not match MTLPixelFormat"};
             }
-            actual_fmt = static_cast<uint32_t>(mtl_desc->storage_format);
+            actual_fmt = mtl_desc->storage_format;
         }
         if (desc.io_surface) {
             IOSurfaceRef surface = (IOSurfaceRef)desc.io_surface;
@@ -348,7 +347,7 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
             actual_fmt,
             static_cast<uint8_t>(desc.swizzle),
             &native,
-            static_cast<uint32_t>(desc.format)
+            static_cast<texture_format>(desc.format)
         );
     }
 }
@@ -498,10 +497,10 @@ Result<texture> lookup_iosurface_texture(
             (void *)surface,
             width,
             height,
-            static_cast<uint32_t>(nozzle_fmt),
+            nozzle_fmt,
             0,
             &native,
-            semantic_format
+            static_cast<texture_format>(semantic_format)
         );
     }
 }
@@ -604,10 +603,10 @@ Result<texture> wrap_direct_publish_texture(
             (void *)surface,
             desc.width,
             desc.height,
-            static_cast<uint32_t>(desc.storage_format),
+            desc.storage_format,
             static_cast<uint8_t>(desc.swizzle),
             &native,
-            static_cast<uint32_t>(desc.semantic_format)
+            desc.semantic_format
         );
     }
 }

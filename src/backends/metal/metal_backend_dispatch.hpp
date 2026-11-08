@@ -13,7 +13,7 @@ inline auto get_default_device() -> void * {
     return metal::get_default_mtl_device();
 }
 
-inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, uint32_t format, uint32_t /*slot_index*/) -> Result<texture> {
+inline auto create_ring_texture(void *device, uint32_t width, uint32_t height, texture_format format, uint32_t /*slot_index*/) -> Result<texture> {
     auto pair_result = metal::create_iosurface_texture(device, width, height, format);
     if (!pair_result.ok()) {
         return pair_result.error();

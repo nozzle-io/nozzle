@@ -1,6 +1,23 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <nozzle/texture.hpp>
+#include "backends/backend_dispatch.hpp"
+
+#include <type_traits>
+
+// Native enum values and serialized integers must be translated explicitly at
+// the backend boundary, never accepted as nozzle storage or semantic formats.
+using texture_factory = decltype(&nozzle::detail::make_texture_from_backend);
+static_assert(std::is_same_v<texture_factory,
+    nozzle::texture (*)(void *, void *, uint32_t, uint32_t, nozzle::texture_format,
+                        uint8_t, const nozzle::native_format_desc *, nozzle::texture_format)>);
+static_assert(!std::is_invocable_v<texture_factory, void *, void *, uint32_t, uint32_t,
+    uint32_t, uint8_t, const nozzle::native_format_desc *, nozzle::texture_format>);
+static_assert(!std::is_invocable_v<texture_factory, void *, void *, uint32_t, uint32_t,
+    nozzle::texture_format, uint8_t, const nozzle::native_format_desc *, uint32_t>);
+static_assert(std::is_same_v<decltype(&nozzle::detail::backend::create_ring_texture),
+    nozzle::Result<nozzle::texture> (*)(void *, uint32_t, uint32_t,
+                                       nozzle::texture_format, uint32_t)>);
 
 TEST_CASE("Texture construction: descriptor and resolved semantics agree",
           "[integration][shared_layout][texture_semantics]") {
@@ -31,9 +48,9 @@ TEST_CASE("Texture construction: descriptor and resolved semantics agree",
             // No resources or backend calls: this deliberately invalid texture
             // tests descriptor construction, not backend support or transport.
             auto texture = nozzle::detail::make_texture_from_backend(
-                nullptr, nullptr, 7, 3, static_cast<uint32_t>(c.storage),
+                nullptr, nullptr, 7, 3, c.storage,
                 static_cast<uint8_t>(c.swizzle), &native,
-                static_cast<uint32_t>(c.requested));
+                c.requested);
             CHECK_FALSE(texture.valid());
             const auto &desc = texture.desc();
             const auto &resolved = texture.resolved();

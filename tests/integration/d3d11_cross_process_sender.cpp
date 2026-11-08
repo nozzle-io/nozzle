@@ -80,7 +80,7 @@ int run_raw_sender(const char *ready_file) {
     }
 
     auto texture_result = nozzle::d3d11::create_shared_texture(
-        device, k_width, k_height, static_cast<uint32_t>(nozzle::texture_format::bgra8_unorm));
+        device, k_width, k_height, nozzle::texture_format::bgra8_unorm);
     if (!texture_result.ok()) {
         context->Release();
         device->Release();
