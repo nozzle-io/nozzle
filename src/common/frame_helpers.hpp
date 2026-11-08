@@ -51,7 +51,7 @@ private:
 
 frame make_frame(texture tex, frame_info info);
 frame make_frame(texture tex, frame_info info, uint32_t slot_index);
-Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, uint32_t slot_index);
+Result<writable_frame> make_writable_frame(texture tex, texture_desc desc, const format_fallback_info &intent, uint32_t slot_index);
 uint32_t get_writable_frame_slot(const writable_frame &f);
 const void *get_writable_frame_state_token(const writable_frame &f);
 writable_cpu_mapping_state_ref get_writable_frame_mapping_state(const writable_frame &f) noexcept;

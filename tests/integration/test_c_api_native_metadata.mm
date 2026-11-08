@@ -3,6 +3,9 @@
 #include <nozzle/nozzle_c.h>
 #include <nozzle/nozzle.hpp>
 #include <nozzle/pixel_access.hpp>
+#include <nozzle/backends/metal.hpp>
+
+#import <IOSurface/IOSurface.h>
 
 #include <array>
 #include <cstdint>
@@ -208,4 +211,152 @@ TEST_CASE("External texture: public BGRA publication preserves raw semantics and
 		}
 		REQUIRE(nozzle_pixel_mapping_unlock_checked(&received.mapping) == NOZZLE_OK);
 	}
+}
+
+TEST_CASE("Writable texture export preserves frame intent across ring reuse",
+    "[integration][c_api][metal][writable_export]") {
+    for (bool external : {false, true}) {
+        DYNAMIC_SECTION((external ? "external texture" : "normal commit")) {
+            @autoreleasepool {
+                constexpr uint32_t width = 7;
+                constexpr uint32_t height = 3;
+                const std::string prefix = "export_intent_" + std::to_string(::getpid())
+                    + (external ? "_external" : "_commit");
+                nozzle::sender_desc owner_desc{};
+                owner_desc.name = prefix + "_owner";
+                owner_desc.application_name = "export_intent_tests";
+                owner_desc.ring_buffer_size = 2;
+                auto owner_result = nozzle::sender::create(owner_desc);
+                REQUIRE(owner_result.ok());
+                auto &owner = owner_result.value();
+                nozzle::sender_desc publisher_desc = owner_desc;
+                publisher_desc.name = prefix + "_publisher";
+                auto publisher_result = nozzle::sender::create(publisher_desc);
+                REQUIRE(publisher_result.ok());
+                auto &publisher = publisher_result.value();
+                const auto &published_name = external ? publisher_desc.name : owner_desc.name;
+
+                // Commit rotates two slots; external publication followed by discard
+                // reuses the reserved slot. In both routes compare actual IOSurface IDs.
+                std::array<IOSurfaceID, 2> initial_surfaces{};
+                for (uint32_t iteration = 0; iteration < 6; ++iteration) {
+                    CAPTURE(external, iteration);
+                    const bool rgba_intent = iteration < 2 || iteration >= 4;
+                    const auto semantic = rgba_intent ? nozzle::texture_format::rgba8_unorm
+                                                     : nozzle::texture_format::bgra8_unorm;
+                    const auto swizzle = rgba_intent ? nozzle::channel_swizzle::swap_rb
+                                                    : nozzle::channel_swizzle::identity;
+                    const auto c_semantic = rgba_intent ? NOZZLE_FORMAT_RGBA8_UNORM
+                                                       : NOZZLE_FORMAT_BGRA8_UNORM;
+                    const auto c_swizzle = rgba_intent ? NOZZLE_CHANNEL_SWIZZLE_SWAP_RB
+                                                      : NOZZLE_CHANNEL_SWIZZLE_IDENTITY;
+                    nozzle::texture_desc requested{width, height, nozzle::texture_format::bgra8_unorm,
+                        semantic, swizzle};
+                    auto acquired = owner.acquire_writable_frame(requested);
+                    REQUIRE(acquired.ok());
+                    auto &writable = acquired.value();
+                    const auto &texture = writable.get_texture();
+                    CHECK(writable.desc().semantic_format == semantic);
+                    CHECK(writable.desc().swizzle == swizzle);
+                    // Nonfatal: still collect independent receiver evidence on old code.
+                    CHECK(texture.desc().semantic_format == semantic);
+                    CHECK(texture.desc().swizzle == swizzle);
+                    CHECK(texture.resolved().semantic_format == semantic);
+                    CHECK(texture.resolved().swizzle == swizzle);
+                    CHECK(texture.resolved().storage_format == nozzle::texture_format::bgra8_unorm);
+                    CHECK(texture.resolved().cpu_layout.order == nozzle::channel_order::bgra);
+                    CHECK(texture.resolved().native.kind == nozzle::native_format_kind::mtl_pixel_format);
+                    CHECK(texture.resolved().native.value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+                    auto surface = static_cast<IOSurfaceRef>(nozzle::metal::get_io_surface(texture));
+                    REQUIRE(surface != nullptr);
+                    const auto surface_id = IOSurfaceGetID(surface);
+                    REQUIRE(surface_id != 0);
+                    const uint32_t slot = external ? 0 : iteration % 2;
+                    if (iteration < (external ? 1u : 2u)) initial_surfaces[slot] = surface_id;
+                    else CHECK(surface_id == initial_surfaces[slot]);
+
+                    auto mapping = nozzle::lock_writable_pixels_mapping_with_origin(
+                        writable, nozzle::texture_origin::top_left);
+                    REQUIRE(mapping.ok());
+                    const auto &pixels = mapping.value().pixels();
+                    REQUIRE(pixels.data != nullptr);
+                    REQUIRE(pixels.width == width);
+                    REQUIRE(pixels.height == height);
+                    REQUIRE(pixels.format == nozzle::texture_format::bgra8_unorm);
+                    REQUIRE(pixels.row_stride_bytes >= width * 4);
+                    for (uint32_t y = 0; y < height; ++y) {
+                        auto *row = static_cast<uint8_t *>(pixels.data) + y * pixels.row_stride_bytes;
+                        for (uint32_t x = 0; x < width; ++x) {
+                            auto expected = external_bgra_pixel(x, y);
+                            // Distinguish consecutive frames as well as channels/alpha.
+                            expected[1] = static_cast<uint8_t>(expected[1] + iteration);
+                            for (std::size_t c = 0; c < expected.size(); ++c) row[4 * x + c] = expected[c];
+                        }
+                    }
+                    REQUIRE(mapping.value().unlock_checked().ok());
+                    if (external) REQUIRE(publisher.publish_external_texture(texture).ok());
+                    else REQUIRE(owner.commit_frame(writable).ok());
+
+                    {
+                        // A separate C receiver observes raw wire metadata and resolved
+                        // native layout. Owners remain alive; release before slot reuse.
+                        external_receiver_handles received;
+                        NozzleReceiverDesc receiver_desc{};
+                        receiver_desc.name = published_name.c_str();
+                        receiver_desc.application_name = "export_intent_receiver";
+                        REQUIRE(nozzle_receiver_create(&receiver_desc, &received.receiver) == NOZZLE_OK);
+                        NozzleAcquireDesc acquire_desc{1000};
+                        REQUIRE(nozzle_receiver_acquire_frame(received.receiver, &acquire_desc,
+                            &received.frame) == NOZZLE_OK);
+                        NozzleFrameInfo info{};
+                        REQUIRE(nozzle_frame_get_info(received.frame, &info) == NOZZLE_OK);
+                        CHECK(info.frame_index == iteration + 1);
+                        CHECK(info.width == width);
+                        CHECK(info.height == height);
+                        CHECK(info.format == NOZZLE_FORMAT_BGRA8_UNORM);
+                        CHECK(info.semantic_format == c_semantic);
+                        NozzleResolvedTextureFormat resolved{};
+                        REQUIRE(nozzle_frame_get_resolved_format(received.frame, &resolved) == NOZZLE_OK);
+                        CHECK(resolved.storage_format == NOZZLE_FORMAT_BGRA8_UNORM);
+                        CHECK(resolved.semantic_format == c_semantic);
+                        CHECK(resolved.native_backend == NOZZLE_BACKEND_METAL);
+                        CHECK(resolved.native_kind == NOZZLE_NATIVE_KIND_MTL_PIXEL_FORMAT);
+                        CHECK(resolved.native_value == static_cast<uint32_t>(MTLPixelFormatBGRA8Unorm));
+                        CHECK(resolved.channel_order == static_cast<uint32_t>(nozzle::channel_order::bgra));
+                        CHECK(resolved.bytes_per_pixel == 4);
+                        NozzleFormatFallbackInfo fallback{};
+                        REQUIRE(nozzle_frame_get_format_fallback_info(received.frame, &fallback) == NOZZLE_OK);
+                        CHECK(fallback.requested_format == c_semantic);
+                        CHECK(fallback.storage_format == NOZZLE_FORMAT_BGRA8_UNORM);
+                        CHECK(fallback.swizzle == c_swizzle);
+                        NozzleConnectedSenderSnapshot connected{};
+                        REQUIRE(nozzle_receiver_get_connected_info_snapshot(received.receiver, &connected) == NOZZLE_OK);
+                        CHECK(connected.semantic_format == c_semantic);
+
+                        NozzleMappedPixels readback{};
+                        REQUIRE(nozzle_frame_lock_pixels_mapping_with_origin(received.frame,
+                            NOZZLE_ORIGIN_TOP_LEFT, &received.mapping, &readback) == NOZZLE_OK);
+                        REQUIRE(readback.data != nullptr);
+                        REQUIRE(readback.width == width);
+                        REQUIRE(readback.height == height);
+                        REQUIRE(readback.format == NOZZLE_FORMAT_BGRA8_UNORM);
+                        REQUIRE(readback.row_stride_bytes >= width * 4);
+                        for (uint32_t y = 0; y < height; ++y) {
+                            const auto *row = static_cast<const uint8_t *>(readback.data) + y * readback.row_stride_bytes;
+                            for (uint32_t x = 0; x < width; ++x) {
+                                auto expected = external_bgra_pixel(x, y);
+                                expected[1] = static_cast<uint8_t>(expected[1] + iteration);
+                                for (std::size_t c = 0; c < expected.size(); ++c) {
+                                    CAPTURE(x, y, c);
+                                    CHECK(row[4 * x + c] == expected[c]);
+                                }
+                            }
+                        }
+                        REQUIRE(nozzle_pixel_mapping_unlock_checked(&received.mapping) == NOZZLE_OK);
+                    }
+                    if (external) REQUIRE(owner.discard_frame(writable).ok());
+                }
+            }
+        }
+    }
 }

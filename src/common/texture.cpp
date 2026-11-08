@@ -96,6 +96,16 @@ texture make_texture_from_backend(
     return t;
 }
 
+void set_texture_semantics(texture &t, texture_format semantic_format, channel_swizzle swizzle) {
+    if (!t.impl_) {
+        return;
+    }
+    t.impl_->desc.semantic_format = semantic_format;
+    t.impl_->desc.swizzle = swizzle;
+    t.impl_->resolved_.semantic_format = semantic_format;
+    t.impl_->resolved_.swizzle = swizzle;
+}
+
 void *get_texture_native(const texture &t) {
     if (!t.valid()) {
         return nullptr;
