@@ -203,6 +203,24 @@ strings and JNI modified UTF-8 are not substitutes; convert from the host's
 encoding before calling nozzle. No shared-memory capacity, layout or version
 changes are part of this validation change.
 
+### Texture format metadata
+
+Backend-created textures expose the same normalized semantic format through
+`texture::desc()` and `texture::resolved()`. An explicitly supplied semantic
+format is preserved; otherwise the known storage format supplies the default.
+Storage layout, native identity and swizzle are not changed by normalization.
+Native-only imports without a classified storage or semantic format remain
+unknown; normalization does not infer a format from native identifiers.
+External texture publication therefore uses the texture's normalized semantics.
+
+This is a texture construction invariant, not a promise that all requested
+`writable_frame::desc()` overrides have reached its underlying texture.
+Frame-only semantic/swizzle handoff on texture export is tracked separately in
+[nozzle-dev#263](https://github.com/nozzle-io/nozzle-dev/issues/263).
+Input `texture_desc` still defaults to unknown semantics. Receivers interoperating
+with older publishers should retain their resolved-format fallback for unknown
+raw semantics, without overriding explicitly supplied semantics.
+
 ### CPU pixel mapping semantics
 
 New CPU pixel mapping code should use the owned mapping-handle APIs. The handle
