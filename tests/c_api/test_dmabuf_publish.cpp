@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <mutex>
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -584,11 +585,13 @@ struct fd_zero_image_cleanup {
 } // anonymous namespace
 
 TEST_CASE("DMA-BUF public wrap owns fd zero and preserves resource identity", "[dmabuf][fd_zero][ownership]") {
-    INFO("child failure bits: 1 validity, 2 fd getter, 4 resource identity, "
+    INFO("child failure bits: 1 validity, 2 fd getter/object identity, 4 resource identity, "
          "8 close, 16 slot cleanup, 32 image cleanup, 64 repeated close; 128+ setup failure");
     require_fd_zero_child(+[]() -> int {
         auto sentinel = fd_zero_sentinel();
         if (sentinel.get() < 0 || dup2(sentinel.get(), 0) != 0) return 128;
+        struct stat original{};
+        if (fstat(0, &original) != 0) return 133;
         if (!nozzle::detail::backend::test_ensure_sender_state().ok()) return 129;
         nozzle::detail::backend::test_reset_sender_state();
         fd_zero_image_cleanup image;
@@ -608,6 +611,9 @@ TEST_CASE("DMA-BUF public wrap owns fd zero and preserves resource identity", "[
             if (!wrapped.value().valid()) failures |= 1;
             const int reported_fd = nozzle::dma_buf::get_dmabuf_fd(wrapped.value());
             if (!fd_is_open(reported_fd)) failures |= 2;
+            struct stat observed{};
+            if (fstat(reported_fd, &observed) != 0 ||
+                observed.st_dev != original.st_dev || observed.st_ino != original.st_ino) failures |= 2;
             // Still inspect the destructor when the pre-fix getter loses fd zero.
             owned_fd = reported_fd >= 0 ? reported_fd : 0;
             nozzle::detail::backend::register_ring_texture_fd(owned_fd, 1);
