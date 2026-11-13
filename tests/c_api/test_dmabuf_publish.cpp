@@ -591,6 +591,24 @@ TEST_CASE("DMA-BUF sender returns to ring publication after direct publication",
         direct.planes[0].stride = 64;
         direct.storage_format = nozzle::texture_format::rgba8_unorm;
         direct.semantic_format = direct.storage_format;
+        SECTION("failed registration preserves the cached ring") {
+            const int closed_fd = dup(external_fd.get());
+            REQUIRE(closed_fd >= 0);
+            REQUIRE(close(closed_fd) == 0);
+            direct.dmabuf_fd = closed_fd;
+            auto failed = sender.publish_dmabuf_texture(direct);
+            REQUIRE(!failed.ok());
+            CHECK(failed.error().message == "failed to duplicate DMA-BUF fd");
+            CHECK(test_get_sender_slot_fd(0) == ring_fd);
+            CHECK(test_get_sender_slot_generation(0) == first_generation);
+            CHECK(fd_is_open(ring_fd));
+            CHECK(gpu.image_releases == 0);
+            auto reused = sender.acquire_writable_frame(texture_desc);
+            REQUIRE(reused.ok());
+            REQUIRE(sender.commit_frame(reused.value()).ok());
+            CHECK(gpu.allocations == 1);
+        }
+        SECTION("successful registration allows return to ring publication") {
         REQUIRE(sender.publish_dmabuf_texture(direct).ok());
         const int broker_fd = test_get_sender_slot_fd(0);
         REQUIRE(broker_fd >= 0);
@@ -598,6 +616,8 @@ TEST_CASE("DMA-BUF sender returns to ring publication after direct publication",
         CHECK(test_sender_slot_owned_by_state(0));
         CHECK(test_get_sender_slot_generation(0) == first_generation + 1);
         CHECK(fd_is_open(external_fd.get()));
+        CHECK(!fd_is_open(ring_fd));
+        CHECK(gpu.image_releases == 1);
 
         auto next = sender.acquire_writable_frame(texture_desc);
         REQUIRE(next.ok());
@@ -609,6 +629,8 @@ TEST_CASE("DMA-BUF sender returns to ring publication after direct publication",
         CHECK(fd_is_open(test_get_sender_slot_fd(0)));
         CHECK(!fd_is_open(broker_fd));
         CHECK(fd_is_open(external_fd.get()));
+        CHECK(gpu.allocations == 2);
+        }
     }
     CHECK(gpu.allocations == gpu.image_releases);
     CHECK(fd_is_open(external_fd.get()));
