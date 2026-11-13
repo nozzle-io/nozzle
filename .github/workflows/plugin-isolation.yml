@@ -61,3 +61,32 @@ jobs:
           build-plugin-current/plugin_host
           "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
           "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
+
+      - name: Static core symbols are not plugin exports
+        run: |
+          nm -DC --defined-only build-plugin-current/libplugin.so > plugin-exports.txt
+          grep -E '[[:space:]]current_probe$' plugin-exports.txt
+          if grep -E 'nozzle::|[[:space:]]nozzle_[[:alnum:]_]+$' plugin-exports.txt; then
+            echo '::error::Static core symbols escaped the plugin'
+            exit 1
+          fi
+
+      - name: Shared core still exposes its intentional C API
+        run: |
+          cmake -S . -B build-plugin-shared -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON -DNOZZLE_BUILD_TESTS=OFF \
+            -DNOZZLE_BUILD_EXAMPLES=OFF -DNOZZLE_BUILD_OPENGL=OFF
+          cmake --build build-plugin-shared -j 3
+          nm -D --defined-only build-plugin-shared/libnozzle.so > shared-exports.txt
+          grep -E '[[:space:]]T nozzle_sender_create$' shared-exports.txt
+          python3 - <<'PY'
+          import ctypes
+          from pathlib import Path
+
+          library = ctypes.CDLL(str(Path("build-plugin-shared/libnozzle.so").resolve()))
+          library.nozzle_backend_is_available.argtypes = [ctypes.c_int]
+          library.nozzle_backend_is_available.restype = ctypes.c_int
+          assert library.nozzle_backend_is_available(3) == 0  # OpenGL disabled.
+          assert library.nozzle_backend_is_available(4) == 1  # DMA-BUF compiled, no GPU probe.
+          print("SHARED_C_API availability calls PASS")
+          PY

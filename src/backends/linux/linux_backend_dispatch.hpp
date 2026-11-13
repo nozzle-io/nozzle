@@ -28,7 +28,8 @@
 
 namespace nozzle {
 namespace detail {
-// Share state within one linked binary, never across independently loaded plugins.
+// Share state across TUs in this linked image. Embedding plugins must also keep
+// core API calls local; hidden state alone does not prevent symbol interposition.
 namespace backend __attribute__((visibility("hidden"))) {
 
 #if NOZZLE_ENABLE_TEST_HOOKS
@@ -390,7 +391,7 @@ inline auto notify_sender_uuid(const char *uuid) -> Result<void> {
         if (state->listen_fd_ >= 0) {
             close(fd);
             return Error{ErrorCode::BackendError,
-                "DMA-BUF backend supports only one sender per process"};
+                "DMA-BUF backend supports only one sender per linked core instance"};
         }
         state->listen_fd_ = fd;
         state->socket_path_ = name;

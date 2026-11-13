@@ -65,17 +65,19 @@ endif()
 
 add_library(nozzle)
 
+# A static archive embedded in a plugin must not interpose on another core copy.
+set_target_properties(nozzle PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+target_compile_options(nozzle PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fvisibility=hidden>
+)
+
 if(BUILD_SHARED_LIBS)
     target_compile_definitions(nozzle
         PRIVATE NOZZLE_EXPORTS
         PUBLIC NOZZLE_SHARED
-    )
-    set_target_properties(nozzle PROPERTIES
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
-    )
-    target_compile_options(nozzle PRIVATE
-        $<$<COMPILE_LANGUAGE:OBJCXX>:-fvisibility=hidden>
     )
 endif()
 
