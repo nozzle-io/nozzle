@@ -1,0 +1,63 @@
+name: Static plugin isolation
+
+on:
+  push:
+    branches: [main, stable]
+  pull_request:
+    branches: [main, stable]
+
+jobs:
+  linux-global-plugins:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      HISTORICAL_CORE: 8b317f457cc855025c99f04d04a16b1fdc012721
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check out a different, pinned core version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HISTORICAL_CORE }}
+          path: historical-core
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Build two independent static-core plugins
+        id: build
+        run: |
+          cmake -S tests/plugin_isolation -B build-plugin-old \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNOZZLE_CORE_SOURCE="$GITHUB_WORKSPACE/historical-core" \
+            -DNOZZLE_CORE_REVISION="$HISTORICAL_CORE" \
+            -DNOZZLE_PROBE_NAME=old_probe -DNOZZLE_BUILD_OPENGL=ON
+          cmake --build build-plugin-old -j 3
+          cmake -S tests/plugin_isolation -B build-plugin-current \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNOZZLE_CORE_SOURCE="$GITHUB_WORKSPACE" \
+            -DNOZZLE_CORE_REVISION="$(git rev-parse HEAD)" \
+            -DNOZZLE_PROBE_NAME=current_probe -DNOZZLE_BUILD_OPENGL=OFF
+          cmake --build build-plugin-current -j 3
+
+      - name: Each plugin works alone
+        run: |
+          build-plugin-current/plugin_host "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
+          build-plugin-current/plugin_host "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
+
+      - name: Historical plugin first
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          build-plugin-current/plugin_host
+          "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
+          "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
+
+      - name: Current plugin first
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          build-plugin-current/plugin_host
+          "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
+          "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
