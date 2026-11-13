@@ -277,6 +277,9 @@ typedef struct NozzleConnectedSenderSnapshot {
     NozzleTextureFormat semantic_format;
     double estimated_fps;
     uint64_t frame_counter;
+    // Receiver-local core monotonic nanoseconds: initialized on connection,
+    // then set to the acquired frame's timestamp_ns. Not sender activity time;
+    // reading a snapshot alone does not refresh it. Zero in an empty snapshot.
     uint64_t last_update_time_ns;
     NozzleNativeFormatKind native_format_kind;
     uint32_t native_format_value;
@@ -287,6 +290,10 @@ typedef struct NozzleConnectedSenderSnapshot {
 
 typedef struct NozzleFrameInfo {
     uint64_t frame_index;
+    // Receiver acquisition time in core monotonic nanoseconds, sampled after
+    // backend wait and slot validation; retained across reads of this frame.
+    // Not capture, sender publication, or GPU completion time; not UTC or
+    // comparable across machines. Zero for an unpublished writable frame.
     uint64_t timestamp_ns;
     uint32_t width;
     uint32_t height;
