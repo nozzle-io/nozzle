@@ -34,6 +34,12 @@ namespace backend __attribute__((visibility("hidden"))) {
 
 #if NOZZLE_ENABLE_TEST_HOOKS
 using test_peer_query_function = int (*)(int, struct ucred *, socklen_t *, void *);
+struct test_ring_texture_hooks {
+    Result<texture> (*create)(uint32_t, uint32_t, texture_format, void *);
+    bool (*destroy_image)(void *, void *);
+    void *context;
+};
+inline thread_local test_ring_texture_hooks *active_ring_texture_hooks = nullptr;
 #endif
 
 inline auto peer_has_effective_uid(int socket_fd, uid_t expected_uid
@@ -492,7 +498,13 @@ inline void register_ring_texture_fd(int fd, uint32_t ring_slot) {
 inline auto create_ring_texture(
     void *device, uint32_t width, uint32_t height, texture_format format, uint32_t ring_slot
 ) -> Result<texture> {
-    auto tex_result = linux_backend::create_dmabuf_texture(device, width, height, format);
+    auto tex_result =
+#if NOZZLE_ENABLE_TEST_HOOKS
+        active_ring_texture_hooks && active_ring_texture_hooks->create
+        ? active_ring_texture_hooks->create(width, height, format, active_ring_texture_hooks->context)
+        :
+#endif
+        linux_backend::create_dmabuf_texture(device, width, height, format);
     if (!tex_result.ok()) {
         return tex_result.error();
     }
@@ -702,9 +714,18 @@ inline auto get_native_surface(const texture &tex) -> void * {
 }
 
 inline void release_texture_resources(void *native_texture, void *native_surface) {
-    void *egl_disp = linux_backend::get_egl_display();
-    if (native_texture && egl_disp) {
-        linux_backend::destroy_egl_image(egl_disp, native_texture);
+    bool image_released = false;
+#if NOZZLE_ENABLE_TEST_HOOKS
+    if (active_ring_texture_hooks && active_ring_texture_hooks->destroy_image) {
+        image_released = active_ring_texture_hooks->destroy_image(
+            native_texture, active_ring_texture_hooks->context);
+    }
+#endif
+    if (!image_released) {
+        void *egl_disp = linux_backend::get_egl_display();
+        if (native_texture && egl_disp) {
+            linux_backend::destroy_egl_image(egl_disp, native_texture);
+        }
     }
     if (native_surface) {
         int fd = static_cast<int>(reinterpret_cast<intptr_t>(native_surface));
