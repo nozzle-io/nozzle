@@ -19,6 +19,10 @@
 #include <condition_variable>
 #include <fcntl.h>
 #include <mutex>
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
@@ -531,6 +535,204 @@ TEST_CASE("DMA-BUF fd broker serves a normal client and cleans up", "[dmabuf][fd
 
 #if !defined(NOZZLE_SHARED)
 // These inspect private state in the linked binary, not a separate shared core.
+namespace {
+
+void require_fd_zero_child(int (*scenario)()) {
+    const pid_t child = fork();
+    if (child == 0) {
+        if (signal(SIGALRM, SIG_DFL) == SIG_ERR) _exit(132);
+        sigset_t alarm_mask;
+        sigemptyset(&alarm_mask);
+        sigaddset(&alarm_mask, SIGALRM);
+        if (sigprocmask(SIG_UNBLOCK, &alarm_mask, nullptr) != 0) _exit(132);
+        alarm(10);
+        _exit(scenario());
+    }
+    REQUIRE(child >= 0);
+    int status{0};
+    pid_t waited;
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    REQUIRE(waited == child);
+    INFO("child wait status: " << status);
+    REQUIRE(WIFEXITED(status));
+    CHECK(WEXITSTATUS(status) == 0);
+}
+
+auto fd_zero_sentinel() -> unique_fd {
+    auto source = open_harmless_fd();
+    return unique_fd{fcntl(source.get(), F_DUPFD_CLOEXEC, 3)};
+}
+
+struct fd_zero_image_cleanup {
+    unsigned releases{0};
+    nozzle::detail::backend::test_ring_texture_hooks hooks{
+        nullptr,
+        [](void *image, void *context) {
+            if (image != context) return false;
+            ++static_cast<fd_zero_image_cleanup *>(context)->releases;
+            return true;
+        }, this};
+
+    fd_zero_image_cleanup() {
+        nozzle::detail::backend::active_ring_texture_hooks = &hooks;
+    }
+    ~fd_zero_image_cleanup() {
+        nozzle::detail::backend::active_ring_texture_hooks = nullptr;
+    }
+};
+
+} // anonymous namespace
+
+TEST_CASE("DMA-BUF public wrap owns fd zero and preserves resource identity", "[dmabuf][fd_zero][ownership]") {
+    INFO("child failure bits: 1 validity, 2 fd getter/object identity, 4 resource identity, "
+         "8 close, 16 slot cleanup, 32 image cleanup, 64 repeated close; 128+ setup failure");
+    require_fd_zero_child(+[]() -> int {
+        auto sentinel = fd_zero_sentinel();
+        if (sentinel.get() < 0 || dup2(sentinel.get(), 0) != 0) return 128;
+        struct stat original{};
+        if (fstat(0, &original) != 0) return 133;
+        if (!nozzle::detail::backend::test_ensure_sender_state().ok()) return 129;
+        nozzle::detail::backend::test_reset_sender_state();
+        fd_zero_image_cleanup image;
+        int failures{0};
+        int owned_fd{0};
+        {
+            nozzle::dma_buf::texture_wrap_desc desc;
+            desc.egl_image = &image;
+            desc.dmabuf_fd = 0;
+            desc.width = 16;
+            desc.height = 16;
+            desc.fourcc = rgba8_fourcc();
+            desc.plane_count = 1;
+            desc.plane_strides[0] = 64;
+            auto wrapped = nozzle::dma_buf::wrap_texture(desc);
+            if (!wrapped.ok()) return 130;
+            if (!wrapped.value().valid()) failures |= 1;
+            const int reported_fd = nozzle::dma_buf::get_dmabuf_fd(wrapped.value());
+            if (!fd_is_open(reported_fd)) failures |= 2;
+            struct stat observed{};
+            if (fstat(reported_fd, &observed) != 0 ||
+                observed.st_dev != original.st_dev || observed.st_ino != original.st_ino) failures |= 2;
+            // Still inspect the destructor when the pre-fix getter loses fd zero.
+            owned_fd = reported_fd >= 0 ? reported_fd : 0;
+            nozzle::detail::backend::register_ring_texture_fd(owned_fd, 1);
+            const uint64_t expected_id =
+                (uint64_t{nozzle::detail::backend::test_get_sender_slot_generation(1)} << 32) | 1;
+            if (nozzle::detail::backend::get_shared_resource_id(wrapped.value()) != expected_id) {
+                failures |= 4;
+            }
+            auto moved = std::move(wrapped.value());
+            moved = nozzle::texture{};
+            if (fcntl(owned_fd, F_GETFD) != -1 || errno != EBADF) failures |= 8;
+            if (owned_fd != 0 && (fcntl(0, F_GETFD) != -1 || errno != EBADF)) failures |= 8;
+            if (nozzle::detail::backend::test_get_sender_slot_fd(1) != -1) failures |= 16;
+            if (image.releases != 1) failures |= 32;
+            // Reuse the exact descriptor before moved-from objects leave scope.
+            if (dup2(sentinel.get(), owned_fd) != owned_fd) return 131;
+        }
+        nozzle::detail::backend::test_reset_sender_state();
+        if (!fd_is_open(owned_fd)) failures |= 64;
+        if (image.releases != 1) failures |= 32;
+        close(owned_fd);
+        return failures;
+    });
+}
+
+TEST_CASE("DMA-BUF invalid public wrap leaves caller fd zero open", "[dmabuf][fd_zero][ownership]") {
+    INFO("child status: 1 validation, 2 caller fd closed, 3 image destroyed; 128+ setup failure");
+    require_fd_zero_child(+[]() -> int {
+        auto sentinel = fd_zero_sentinel();
+        if (sentinel.get() < 0 || dup2(sentinel.get(), 0) != 0) return 128;
+        fd_zero_image_cleanup image;
+        {
+            nozzle::dma_buf::texture_wrap_desc desc;
+            desc.egl_image = &image;
+            desc.dmabuf_fd = 0;
+            desc.width = 0;
+            desc.height = 16;
+            auto wrapped = nozzle::dma_buf::wrap_texture(desc);
+            if (wrapped.ok() || wrapped.error().code != nozzle::ErrorCode::InvalidArgument) return 1;
+        }
+        if (!fd_is_open(0)) return 2;
+        if (image.releases != 0) return 3;
+        close(0);
+        return 0;
+    });
+}
+
+TEST_CASE("DMA-BUF public publication borrows caller fd zero", "[dmabuf][fd_zero][ownership]") {
+    INFO("child status: 1 publish, 2 duplicate ownership, 3 validation, "
+         "4 caller fd closed, 5 duplicate leaked; 128+ setup failure");
+    require_fd_zero_child(+[]() -> int {
+        auto sentinel = fd_zero_sentinel();
+        if (sentinel.get() < 0 || dup2(sentinel.get(), 0) != 0) return 128;
+        int broker_fd{-1};
+        {
+            nozzle::sender_desc desc;
+            desc.name = "fd-zero-publication-" + std::to_string(getpid());
+            desc.ring_buffer_size = 1;
+            desc.native_device = {nozzle::backend_type::dma_buf, &sentinel, nullptr};
+            desc.fallback_flags = nozzle::fallback_none;
+            auto created = nozzle::sender::create(desc);
+            if (!created.ok()) return 129;
+            nozzle::detail::backend::cleanup_sender_socket();
+            nozzle::dma_buf::publish_desc frame;
+            frame.dmabuf_fd = 0;
+            frame.width = 16;
+            frame.height = 16;
+            frame.fourcc = rgba8_fourcc();
+            frame.plane_count = 1;
+            frame.planes[0].stride = 64;
+            frame.storage_format = nozzle::texture_format::rgba8_unorm;
+            frame.semantic_format = frame.storage_format;
+            if (!created.value().publish_dmabuf_texture(frame).ok()) return 1;
+            broker_fd = nozzle::detail::backend::test_get_sender_slot_fd(0);
+            if (broker_fd <= 0 || !fd_is_open(broker_fd) ||
+                !nozzle::detail::backend::test_sender_slot_owned_by_state(0)) return 2;
+            if (!fd_is_open(0)) return 4;
+            frame.width = 0;
+            auto rejected = created.value().publish_dmabuf_texture(frame);
+            if (rejected.ok() || rejected.error().code != nozzle::ErrorCode::InvalidArgument) return 3;
+            if (!fd_is_open(0)) return 4;
+        }
+        if (!fd_is_open(0)) return 4;
+        if (fcntl(broker_fd, F_GETFD) != -1 || errno != EBADF) return 5;
+        close(0);
+        return 0;
+    });
+}
+
+TEST_CASE("DMA-BUF fd zero normalization failure preserves caller resources", "[dmabuf][fd_zero][ownership]") {
+    INFO("child status: 1 error result, 2 caller fd closed, 3 image destroyed; 128+ setup failure");
+    require_fd_zero_child(+[]() -> int {
+        auto sentinel = fd_zero_sentinel();
+        if (sentinel.get() < 0 || dup2(sentinel.get(), 0) != 0 ||
+            dup2(sentinel.get(), 1) != 1 || dup2(sentinel.get(), 2) != 2) return 128;
+        fd_zero_image_cleanup image;
+        nozzle::dma_buf::texture_wrap_desc desc;
+        desc.egl_image = &image;
+        desc.dmabuf_fd = 0;
+        desc.width = 16;
+        desc.height = 16;
+        struct rlimit original{};
+        if (getrlimit(RLIMIT_NOFILE, &original) != 0 || original.rlim_cur < 3) return 129;
+        auto restricted = original;
+        restricted.rlim_cur = 3;
+        // All allocatable descriptors are occupied. Only this child is limited;
+        // the existing high sentinel remains open for ownership checks.
+        if (setrlimit(RLIMIT_NOFILE, &restricted) != 0) return 130;
+        auto wrapped = nozzle::dma_buf::wrap_texture(desc);
+        if (setrlimit(RLIMIT_NOFILE, &original) != 0) return 131;
+        if (wrapped.ok() || wrapped.error().code != nozzle::ErrorCode::ResourceCreationFailed) return 1;
+        if (!fd_is_open(0) || !fd_is_open(sentinel.get())) return 2;
+        if (image.releases != 0) return 3;
+        close(0);
+        return 0;
+    });
+}
+
 TEST_CASE("DMA-BUF sender returns to ring publication after direct publication", "[dmabuf][cross_tu][mixed_publish]") {
     using namespace nozzle::detail::backend;
     struct fixture {

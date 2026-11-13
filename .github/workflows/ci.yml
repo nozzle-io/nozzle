@@ -508,6 +508,10 @@ jobs:
       - name: Cross-TU regression without GPU requirements
         run: ./build-cross-tu/tests/nozzle_c_api_tests '[cross_tu]' --reporter console --success
 
+      - name: DMA-BUF fd zero ownership regression without GPU requirements
+        timeout-minutes: 2
+        run: ./build-cross-tu/tests/nozzle_c_api_tests '[fd_zero]' --reporter console --success
+
       - name: Check out pinned JNI consumer
         if: matrix.build_type == 'Release'
         uses: actions/checkout@v4

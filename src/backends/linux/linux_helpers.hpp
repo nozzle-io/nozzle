@@ -59,6 +59,10 @@ void destroy_gbm_device(void *gbm_dev);
 
 void destroy_dmabuf_allocation(dmabuf_allocation &alloc);
 
+// Texture surfaces encode raw fds as pointers and reserve nullptr for absence.
+// Success consumes fd 0; failure leaves it owned by the caller.
+Result<int> normalize_owned_texture_fd(int fd);
+
 uint32_t drm_format_from_nozzle(uint32_t nozzle_format);
 
 void *get_egl_display();
@@ -74,6 +78,7 @@ Result<texture> create_dmabuf_texture(
     texture_format format
 );
 
+// Adopts fd on success; errors leave fd owned by the caller.
 Result<texture> import_dmabuf_texture(
     int fd,
     uint32_t width,
