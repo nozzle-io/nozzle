@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <mutex>
 #include <signal.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
@@ -698,6 +699,35 @@ TEST_CASE("DMA-BUF public publication borrows caller fd zero", "[dmabuf][fd_zero
         }
         if (!fd_is_open(0)) return 4;
         if (fcntl(broker_fd, F_GETFD) != -1 || errno != EBADF) return 5;
+        close(0);
+        return 0;
+    });
+}
+
+TEST_CASE("DMA-BUF fd zero normalization failure preserves caller resources", "[dmabuf][fd_zero][ownership]") {
+    INFO("child status: 1 error result, 2 caller fd closed, 3 image destroyed; 128+ setup failure");
+    require_fd_zero_child(+[]() -> int {
+        auto sentinel = fd_zero_sentinel();
+        if (sentinel.get() < 0 || dup2(sentinel.get(), 0) != 0 ||
+            dup2(sentinel.get(), 1) != 1 || dup2(sentinel.get(), 2) != 2) return 128;
+        fd_zero_image_cleanup image;
+        nozzle::dma_buf::texture_wrap_desc desc;
+        desc.egl_image = &image;
+        desc.dmabuf_fd = 0;
+        desc.width = 16;
+        desc.height = 16;
+        struct rlimit original{};
+        if (getrlimit(RLIMIT_NOFILE, &original) != 0 || original.rlim_cur < 3) return 129;
+        auto restricted = original;
+        restricted.rlim_cur = 3;
+        // All allocatable descriptors are occupied. Only this child is limited;
+        // the existing high sentinel remains open for ownership checks.
+        if (setrlimit(RLIMIT_NOFILE, &restricted) != 0) return 130;
+        auto wrapped = nozzle::dma_buf::wrap_texture(desc);
+        if (setrlimit(RLIMIT_NOFILE, &original) != 0) return 131;
+        if (wrapped.ok() || wrapped.error().code != nozzle::ErrorCode::ResourceCreationFailed) return 1;
+        if (!fd_is_open(0) || !fd_is_open(sentinel.get())) return 2;
+        if (image.releases != 0) return 3;
         close(0);
         return 0;
     });

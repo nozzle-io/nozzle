@@ -28,6 +28,10 @@ struct texture_wrap_desc {
     uint32_t plane_offsets[4]{0};
 };
 
+// Success transfers ownership of egl_image and dmabuf_fd to the texture.
+// A supplied fd 0 is closed and replaced with an owned nonzero duplicate;
+// use get_dmabuf_fd() to obtain the texture's borrowed descriptor afterward.
+// On error both resources remain owned by the caller.
 Result<texture> wrap_texture(const texture_wrap_desc &desc);
 
 struct plane_desc {

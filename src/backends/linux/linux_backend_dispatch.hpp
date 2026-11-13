@@ -824,6 +824,13 @@ inline auto lookup_texture(
         return Error{ErrorCode::BackendError, "failed to duplicate cached DMA-BUF fd"};
     }
 
+    auto normalized_fd = linux_backend::normalize_owned_texture_fd(texture_fd);
+    if (!normalized_fd.ok()) {
+        close(texture_fd);
+        return normalized_fd.error();
+    }
+    texture_fd = normalized_fd.value();
+
     void *egl_disp = linux_backend::get_egl_display();
     if (!egl_disp) {
         close(texture_fd);

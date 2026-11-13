@@ -374,6 +374,21 @@ void destroy_dmabuf_allocation(dmabuf_allocation &alloc) {
     alloc.modifier = 0;
 }
 
+Result<int> normalize_owned_texture_fd(int fd) {
+    if (fd < 0) {
+        return Error{ErrorCode::InvalidArgument, "DMA-BUF fd is invalid"};
+    }
+    if (fd != 0) {
+        return fd;
+    }
+    const int normalized_fd = fcntl(fd, F_DUPFD_CLOEXEC, 1);
+    if (normalized_fd < 0) {
+        return Error{ErrorCode::ResourceCreationFailed, "Failed to normalize DMA-BUF texture fd"};
+    }
+    close(fd);
+    return normalized_fd;
+}
+
 } // namespace nozzle::detail::linux_backend
 
 namespace nozzle::detail::linux_backend {
@@ -404,6 +419,13 @@ Result<texture> create_dmabuf_texture(
         return alloc_result.error();
     }
     auto alloc = std::move(alloc_result.value());
+
+    auto normalized_fd = normalize_owned_texture_fd(alloc.fd);
+    if (!normalized_fd.ok()) {
+        destroy_dmabuf_allocation(alloc);
+        return normalized_fd.error();
+    }
+    alloc.fd = normalized_fd.value();
 
     void *egl_disp = get_egl_display();
     if (!egl_disp) {
@@ -467,8 +489,14 @@ Result<texture> import_dmabuf_texture(
             "Failed to import DMA-BUF fd as EGLImage"};
     }
 
+    auto normalized_fd = normalize_owned_texture_fd(fd);
+    if (!normalized_fd.ok()) {
+        destroy_egl_image(egl_disp, egl_image);
+        return normalized_fd.error();
+    }
+
     void *native_texture = egl_image;
-    void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(fd));
+    void *native_surface = reinterpret_cast<void *>(static_cast<intptr_t>(normalized_fd.value()));
 
     native_format_desc native{};
     native.backend = backend_type::dma_buf;
@@ -682,9 +710,14 @@ Result<texture> wrap_texture(const texture_wrap_desc &desc) {
         return Error{ErrorCode::InvalidArgument, "Texture dimensions must be non-zero"};
     }
 
+    auto normalized_fd = detail::linux_backend::normalize_owned_texture_fd(desc.dmabuf_fd);
+    if (!normalized_fd.ok()) {
+        return normalized_fd.error();
+    }
+
     void *native_texture = desc.egl_image;
     void *native_surface = reinterpret_cast<void *>(
-        static_cast<intptr_t>(desc.dmabuf_fd));
+        static_cast<intptr_t>(normalized_fd.value()));
 
     native_format_desc native{};
     native.backend = backend_type::dma_buf;
