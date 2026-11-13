@@ -1,0 +1,92 @@
+name: Static plugin isolation
+
+on:
+  push:
+    branches: [main, stable]
+  pull_request:
+    branches: [main, stable]
+
+jobs:
+  linux-global-plugins:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      HISTORICAL_CORE: 8b317f457cc855025c99f04d04a16b1fdc012721
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check out a different, pinned core version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HISTORICAL_CORE }}
+          path: historical-core
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+
+      - name: Build two independent static-core plugins
+        id: build
+        run: |
+          cmake -S tests/plugin_isolation -B build-plugin-old \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNOZZLE_CORE_SOURCE="$GITHUB_WORKSPACE/historical-core" \
+            -DNOZZLE_CORE_REVISION="$HISTORICAL_CORE" \
+            -DNOZZLE_PROBE_NAME=old_probe -DNOZZLE_BUILD_OPENGL=ON
+          cmake --build build-plugin-old -j 3
+          cmake -S tests/plugin_isolation -B build-plugin-current \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNOZZLE_CORE_SOURCE="$GITHUB_WORKSPACE" \
+            -DNOZZLE_CORE_REVISION="$(git rev-parse HEAD)" \
+            -DNOZZLE_PROBE_NAME=current_probe -DNOZZLE_BUILD_OPENGL=OFF
+          cmake --build build-plugin-current -j 3
+
+      - name: Each plugin works alone
+        run: |
+          build-plugin-current/plugin_host "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
+          build-plugin-current/plugin_host "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
+
+      - name: Historical plugin first
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          build-plugin-current/plugin_host
+          "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
+          "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
+
+      - name: Current plugin first
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          build-plugin-current/plugin_host
+          "$GITHUB_WORKSPACE/build-plugin-current/libplugin.so" current_probe
+          "$GITHUB_WORKSPACE/build-plugin-old/libplugin.so" old_probe
+
+      - name: Static core symbols are not plugin exports
+        run: |
+          nm -DC --defined-only build-plugin-current/libplugin.so > plugin-exports.txt
+          grep -E '[[:space:]]current_probe$' plugin-exports.txt
+          if grep -E 'nozzle::|[[:space:]]nozzle_[[:alnum:]_]+$' plugin-exports.txt; then
+            echo '::error::Static core symbols escaped the plugin'
+            exit 1
+          fi
+
+      - name: Shared core still exposes its intentional C API
+        run: |
+          cmake -S . -B build-plugin-shared -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON -DNOZZLE_BUILD_TESTS=OFF \
+            -DNOZZLE_BUILD_EXAMPLES=OFF -DNOZZLE_BUILD_OPENGL=OFF
+          cmake --build build-plugin-shared -j 3
+          nm -D --defined-only build-plugin-shared/libnozzle.so > shared-exports.txt
+          grep -E '[[:space:]]T nozzle_sender_create$' shared-exports.txt
+          python3 - <<'PY'
+          import ctypes
+          from pathlib import Path
+
+          library = ctypes.CDLL(str(Path("build-plugin-shared/libnozzle.so").resolve()))
+          library.nozzle_backend_is_available.argtypes = [ctypes.c_int]
+          library.nozzle_backend_is_available.restype = ctypes.c_int
+          assert library.nozzle_backend_is_available(3) == 0  # OpenGL disabled.
+          assert library.nozzle_backend_is_available(4) == 1  # DMA-BUF compiled, no GPU probe.
+          print("SHARED_C_API availability calls PASS")
+          PY

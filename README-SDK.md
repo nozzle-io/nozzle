@@ -8,6 +8,27 @@ nozzle v0.x is pre-ABI-stable. The C ABI in `include/nozzle/nozzle_c.h` is the i
 
 The C++ headers are source-facing only. Do not treat the C++ API or C++ ABI as a stable binary contract.
 
+## Embedding in plugins
+
+Core's CMake target compiles static archive symbols with hidden visibility. A
+plugin embedding this archive must export its own host entry points, not re-export
+the static core's C/C++ symbols. Otherwise a host loading multiple core versions
+with `RTLD_GLOBAL` can bind one plugin's calls to another plugin's implementation.
+Hiding only the plugin's own source does not hide objects in a linked archive.
+
+For Linux builds that compile core outside CMake, use hidden visibility for core
+objects or localize the archive at the final DSO link, for example
+`-Wl,--exclude-libs,libnozzle.a`. This ELF option must not be applied on macOS or
+Windows. Preserve the wrapper's required host exports. A wrapper intentionally
+providing a shared nozzle C API must instead use the shared-library build and its
+`NOZZLE_EXPORTS`/`NOZZLE_SHARED` contract, not rely on incidental static exports.
+
+Linux DMA-BUF sender state is owned by a linked core image. Within that image the
+backend still supports one sender; isolated static plugin images have separate
+state, whereas clients of the same shared core image share it. This isolation
+change does not add multi-sender support within an image or change the published
+capability structure. It also does not establish host-specific GPU interoperability.
+
 ## Static library link model
 
 Even when an application calls only the C API, the static library is implemented in C++ and platform-native implementation files. Consumers must link with the platform C++ linker/runtime.
