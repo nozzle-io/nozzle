@@ -220,6 +220,10 @@ struct resolved_texture_format {
 
 struct frame_info {
     uint64_t frame_index{0};
+    // Receiver acquisition time in core monotonic nanoseconds, sampled after
+    // backend wait and slot validation; retained for this acquired frame.
+    // Not capture, sender publication, or GPU completion time; not UTC or
+    // comparable across machines. Zero for default/unpublished frame info.
     uint64_t timestamp_ns{0};
     uint32_t width{0};
     uint32_t height{0};
@@ -276,6 +280,9 @@ struct connected_sender_info {
     uint32_t plane_offsets[4]{0};
     double estimated_fps{0.0};
     uint64_t frame_counter{0};
+    // Receiver-local core monotonic time: initialized on connection, then set
+    // to timestamp_ns on successful acquisition. Not sender activity time;
+    // reading connection info alone does not refresh it. Zero by default.
     uint64_t last_update_time_ns{0};
     format_fallback_info fallback{};
 };

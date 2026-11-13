@@ -459,8 +459,36 @@ malicious concurrent mutation/truncation or unlink/recreate. In particular,
 macOS POSIX shm does not supply meaningful device/inode identity through
 `fstat`; locking and full protocol identity provide the cooperating-writer
 boundary, not atomic unlink-by-handle. Namespace/security enforcement remains
-[nozzle-dev#250](https://github.com/nozzle-io/nozzle-dev/issues/250); publication
-timestamp semantics remain [nozzle-dev#255](https://github.com/nozzle-io/nozzle-dev/issues/255).
+[nozzle-dev#250](https://github.com/nozzle-io/nozzle-dev/issues/250).
+
+### Frame timestamps
+
+`frame_info.timestamp_ns` (C: `NozzleFrameInfo.timestamp_ns`) is the receiver's
+acquisition time in core monotonic nanoseconds. It is sampled after the existing
+backend wait and post-wait slot validation, before the acquired frame is returned.
+Reading the same acquired frame's info again returns the saved timestamp, not the
+time of the getter call. Default frame info and unpublished writable-frame info
+use zero.
+
+This is not capture time, sender publication time, or a GPU completion timestamp.
+It does not provide an additional GPU-readiness guarantee beyond the backend's
+acquisition contract. Subtracting it from a later receive-side time does not
+measure sender-to-receiver transport latency. No sender publication timestamp is
+currently exposed.
+
+The clock is core's `CLOCK_MONOTONIC` on macOS/Linux and `QueryPerformanceCounter`
+converted to nanoseconds on Windows, not UTC or Unix time. Values are not
+comparable across machines; do not assume an arbitrary language runtime's clock
+has the same epoch. Linux cross-namespace sharing remains unsupported as above.
+
+`connected_sender_info.last_update_time_ns` (C:
+`NozzleConnectedSenderSnapshot.last_update_time_ns`) is also receiver-local core
+monotonic time: initialized when a connection is established, then replaced with
+the frame's `timestamp_ns` on each successful acquisition. Reading connection info
+or its snapshot does not refresh it. It is not the sender's last publication or a
+heartbeat, and can be nonzero before the first frame is acquired. Empty/default
+connection info uses zero. See [nozzle-dev#255](https://github.com/nozzle-io/nozzle-dev/issues/255)
+for the decision to defer a separate sender timestamp until a consumer needs it.
 
 ### Backend: macOS Metal
 
