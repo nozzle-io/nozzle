@@ -602,7 +602,7 @@ TEST_CASE("DMA-BUF sender returns to ring publication after direct publication",
         auto next = sender.acquire_writable_frame(texture_desc);
         REQUIRE(next.ok());
         auto committed = sender.commit_frame(next.value());
-        INFO(committed.ok() ? "ring commit succeeded" : committed.error().message);
+        INFO((committed.ok() ? "ring commit succeeded" : committed.error().message));
         REQUIRE(committed.ok());
         CHECK(!test_sender_slot_owned_by_state(0));
         CHECK(test_get_sender_slot_generation(0) == first_generation + 2);
