@@ -531,6 +531,111 @@ TEST_CASE("DMA-BUF fd broker serves a normal client and cleans up", "[dmabuf][fd
 
 #if !defined(NOZZLE_SHARED)
 // These inspect private state in the linked binary, not a separate shared core.
+TEST_CASE("DMA-BUF sender returns to ring publication after direct publication", "[dmabuf][cross_tu][mixed_publish]") {
+    using namespace nozzle::detail::backend;
+    struct fixture {
+        unsigned allocations{0};
+        unsigned image_releases{0};
+        test_ring_texture_hooks hooks;
+        fixture() : hooks{
+            [](uint32_t width, uint32_t height, nozzle::texture_format format, void *context)
+                -> nozzle::Result<nozzle::texture> {
+                auto &self = *static_cast<fixture *>(context);
+                auto fd = open_harmless_fd();
+                if (fd.get() < 0) {
+                    return nozzle::Error{nozzle::ErrorCode::ResourceCreationFailed, "test fd allocation failed"};
+                }
+                ++self.allocations;
+                // Only GBM/EGL allocation is replaced. Registration, fd ownership,
+                // sender reservation/commit and destruction remain production code.
+                return nozzle::detail::make_texture_from_backend(
+                    context, reinterpret_cast<void *>(static_cast<intptr_t>(fd.release())),
+                    width, height, format);
+            },
+            [](void *image, void *context) {
+                if (image != context) return false;
+                ++static_cast<fixture *>(context)->image_releases;
+                return true;
+            }, this} { active_ring_texture_hooks = &hooks; }
+        ~fixture() { active_ring_texture_hooks = nullptr; }
+    } gpu;
+
+    auto external_fd = open_harmless_fd();
+    REQUIRE(external_fd.get() > 0);
+    {
+        nozzle::sender_desc desc;
+        desc.name = "mixed-publication-" + std::to_string(getpid());
+        desc.ring_buffer_size = 1;
+        desc.native_device = {nozzle::backend_type::dma_buf, &gpu, nullptr};
+        desc.fallback_flags = nozzle::fallback_none;
+        auto created = nozzle::sender::create(desc);
+        REQUIRE(created.ok());
+        auto &sender = created.value();
+        nozzle::texture_desc texture_desc;
+        texture_desc.width = 16;
+        texture_desc.height = 16;
+        texture_desc.format = nozzle::texture_format::rgba8_unorm;
+        auto first = sender.acquire_writable_frame(texture_desc);
+        REQUIRE(first.ok());
+        const int ring_fd = test_get_sender_slot_fd(0);
+        REQUIRE(ring_fd > 0);
+        REQUIRE(sender.commit_frame(first.value()).ok());
+        const auto first_generation = test_get_sender_slot_generation(0);
+
+        nozzle::dma_buf::publish_desc direct;
+        direct.dmabuf_fd = external_fd.get();
+        direct.width = 16;
+        direct.height = 16;
+        direct.fourcc = rgba8_fourcc();
+        direct.plane_count = 1;
+        direct.planes[0].stride = 64;
+        direct.storage_format = nozzle::texture_format::rgba8_unorm;
+        direct.semantic_format = direct.storage_format;
+        SECTION("failed registration preserves the cached ring") {
+            const int closed_fd = dup(external_fd.get());
+            REQUIRE(closed_fd >= 0);
+            REQUIRE(close(closed_fd) == 0);
+            direct.dmabuf_fd = closed_fd;
+            auto failed = sender.publish_dmabuf_texture(direct);
+            REQUIRE(!failed.ok());
+            CHECK(failed.error().message == "failed to duplicate DMA-BUF fd");
+            CHECK(test_get_sender_slot_fd(0) == ring_fd);
+            CHECK(test_get_sender_slot_generation(0) == first_generation);
+            CHECK(fd_is_open(ring_fd));
+            CHECK(gpu.image_releases == 0);
+            auto reused = sender.acquire_writable_frame(texture_desc);
+            REQUIRE(reused.ok());
+            REQUIRE(sender.commit_frame(reused.value()).ok());
+            CHECK(gpu.allocations == 1);
+        }
+        SECTION("successful registration allows return to ring publication") {
+        REQUIRE(sender.publish_dmabuf_texture(direct).ok());
+        const int broker_fd = test_get_sender_slot_fd(0);
+        REQUIRE(broker_fd >= 0);
+        CHECK(broker_fd != external_fd.get());
+        CHECK(test_sender_slot_owned_by_state(0));
+        CHECK(test_get_sender_slot_generation(0) == first_generation + 1);
+        CHECK(fd_is_open(external_fd.get()));
+        CHECK(!fd_is_open(ring_fd));
+        CHECK(gpu.image_releases == 1);
+
+        auto next = sender.acquire_writable_frame(texture_desc);
+        REQUIRE(next.ok());
+        auto committed = sender.commit_frame(next.value());
+        INFO((committed.ok() ? "ring commit succeeded" : committed.error().message));
+        REQUIRE(committed.ok());
+        CHECK(!test_sender_slot_owned_by_state(0));
+        CHECK(test_get_sender_slot_generation(0) == first_generation + 2);
+        CHECK(fd_is_open(test_get_sender_slot_fd(0)));
+        CHECK(!fd_is_open(broker_fd));
+        CHECK(fd_is_open(external_fd.get()));
+        CHECK(gpu.allocations == 2);
+        }
+    }
+    CHECK(gpu.allocations == gpu.image_releases);
+    CHECK(fd_is_open(external_fd.get()));
+}
+
 TEST_CASE("DMA-BUF backend: state identity crosses translation units", "[dmabuf][cross_tu]") {
     CHECK(dmabuf_dispatch_peer::sender_state_address() ==
         &nozzle::detail::backend::g_sender_state);

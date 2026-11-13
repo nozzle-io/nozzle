@@ -1124,6 +1124,10 @@ Result<void> sender::publish_dmabuf_texture(const dma_buf::publish_desc &desc) {
 			return resource_id_result.error();
 		}
 
+		// The broker now owns the external duplicate, not the cached ring fd.
+		// Drop the stale texture only after registration succeeds and unlocks.
+		impl_->ring_textures_[slot] = texture{};
+
 		resolved_texture_format resolved = make_resolved_dmabuf_format(desc);
 		format_fallback_info fallback = make_dmabuf_fallback_info(desc);
 
