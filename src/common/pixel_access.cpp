@@ -16,7 +16,9 @@
 #include <IOSurface/IOSurface.h>
 #elif NOZZLE_PLATFORM_LINUX
 #include <nozzle/backends/linux.hpp>
+#include <limits>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #elif NOZZLE_PLATFORM_WINDOWS
 #include <nozzle/backends/d3d11.hpp>
@@ -27,38 +29,6 @@
 
 namespace nozzle {
 
-namespace {
-
-uint32_t bytes_per_pixel(texture_format fmt) {
-    switch (fmt) {
-    case texture_format::r8_unorm: return 1;
-    case texture_format::rg8_unorm: return 2;
-    case texture_format::rgb8_unorm: return 3;
-    case texture_format::r16_unorm:
-    case texture_format::r16_float: return 2;
-    case texture_format::rgba8_unorm:
-    case texture_format::bgra8_unorm:
-    case texture_format::rgba8_srgb:
-    case texture_format::bgra8_srgb:
-    case texture_format::r32_float:
-    case texture_format::r32_uint: return 4;
-    case texture_format::rg16_unorm:
-    case texture_format::rg16_float: return 4;
-    case texture_format::rgb16_unorm:
-    case texture_format::rgb16_float: return 6;
-    case texture_format::rg32_float: return 8;
-    case texture_format::rgba16_unorm:
-    case texture_format::rgba16_float: return 8;
-    case texture_format::rgb32_float:
-    case texture_format::rgb32_uint: return 12;
-    case texture_format::rgba32_float:
-    case texture_format::rgba32_uint: return 16;
-    case texture_format::depth32_float: return 4;
-    default: return 0;
-    }
-}
-
-} // anonymous namespace
 
 struct pixel_mapping::Impl {
     mapped_pixels pixels{};
@@ -341,107 +311,91 @@ struct linux_mapping final : pixel_mapping::Impl {
     }
 };
 
+Result<pixel_mapping> map_linear_plane(
+    const texture &tex, texture_origin origin,
+    const detail::writable_cpu_mapping_state_ref &write_state = {}
+) {
+    const int fd = dma_buf::get_dmabuf_fd(tex);
+    if (fd < 0) {
+        return Error{ErrorCode::BackendError, "no DMA-BUF fd in frame"};
+    }
+    const auto &resolved = tex.resolved();
+    const auto &native = resolved.native;
+    if (native.kind != native_format_kind::drm_fourcc || native.plane_count != 1 ||
+        native.modifier != 0) {
+        return Error{ErrorCode::UnsupportedFormat, "CPU mapping requires a single linear DMA-BUF plane"};
+    }
+    const auto &desc = tex.desc();
+    const uint32_t bpp = resolved.cpu_layout.bytes_per_pixel;
+    if (!bpp || resolved.storage_format == texture_format::unknown) {
+        return Error{ErrorCode::UnsupportedFormat, "unknown DMA-BUF storage layout"};
+    }
+    const uint64_t pitch = native.plane_strides[0];
+    const uint64_t offset = native.plane_offsets[0];
+    const uint64_t row_bytes = uint64_t(desc.width) * bpp;
+    if (!desc.width || !desc.height || pitch < row_bytes) {
+        return Error{ErrorCode::InvalidArgument, "invalid DMA-BUF dimensions or pitch"};
+    }
+
+    // Check all addressing against ptrdiff_t, including the negative-stride view.
+    const uint64_t limit = std::numeric_limits<std::ptrdiff_t>::max();
+    if (pitch > limit || offset > limit || row_bytes > limit - offset ||
+        (desc.height - 1) > (limit - offset - row_bytes) / pitch) {
+        return Error{ErrorCode::InvalidArgument, "DMA-BUF plane span is too large"};
+    }
+    const auto last_row = static_cast<size_t>((desc.height - 1) * pitch);
+    const auto span = static_cast<size_t>(offset + last_row + row_bytes);
+    struct stat statbuf{};
+    if (fstat(fd, &statbuf) != 0) {
+        return Error{ErrorCode::BackendError, "cannot determine DMA-BUF size"};
+    }
+    if (statbuf.st_size <= 0 || static_cast<uint64_t>(statbuf.st_size) < span) {
+        return Error{ErrorCode::InvalidArgument, "DMA-BUF is shorter than the observed plane span"};
+    }
+
+    const int protection = write_state ? PROT_READ | PROT_WRITE : PROT_READ;
+    void *ptr = mmap(nullptr, span, protection, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED) {
+        return Error{ErrorCode::BackendError, "mmap failed"};
+    }
+    auto *mapping = new (std::nothrow) linux_mapping(ptr, span, bool(write_state), write_state);
+    if (!mapping) {
+        munmap(ptr, span);
+        return Error{ErrorCode::ResourceCreationFailed, "failed to allocate pixel mapping"};
+    }
+    auto *base = static_cast<uint8_t *>(ptr) + static_cast<size_t>(offset);
+    auto stride = static_cast<std::ptrdiff_t>(pitch);
+    if (origin == texture_origin::bottom_left) {
+        base += last_row;
+        stride = -stride;
+    }
+    mapping->pixels = mapped_pixels{base, stride, desc.width, desc.height, resolved.storage_format,
+        origin, resolved.cpu_layout, resolved.source};
+    return make_pixel_mapping(mapping);
+}
+
 } // anonymous namespace
 
 Result<pixel_mapping> lock_frame_pixels_mapping_with_origin(const frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "frame is not valid"};
     }
-
-    auto &tex = frm.get_texture();
-    int fd = dma_buf::get_dmabuf_fd(tex);
-    if (fd < 0) {
-        return Error{ErrorCode::BackendError, "no DMA-BUF fd in frame"};
-    }
-
-    auto info = frm.info();
-    uint32_t bpp = bytes_per_pixel(info.format);
-    if (bpp == 0) {
-        return Error{ErrorCode::UnsupportedFormat, "unsupported pixel format for CPU map"};
-    }
-    size_t row_bytes = static_cast<size_t>(info.width) * bpp;
-    size_t map_size = row_bytes * static_cast<size_t>(info.height);
-    void *ptr = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, fd, 0);
-    if (ptr == MAP_FAILED) {
-        return Error{ErrorCode::BackendError, "mmap failed"};
-    }
-
-    auto *mapping_impl = new (std::nothrow) linux_mapping(ptr, map_size, false);
-    if (!mapping_impl) {
-        munmap(ptr, map_size);
-        return Error{ErrorCode::ResourceCreationFailed, "failed to allocate pixel mapping"};
-    }
-
-    auto *base = static_cast<uint8_t *>(ptr);
-    int64_t stride = static_cast<int64_t>(row_bytes);
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        mapping_impl->pixels = mapped_pixels{base, stride, info.width, info.height, info.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        mapping_impl->pixels = mapped_pixels{
-            base + static_cast<int64_t>(info.height - 1) * stride,
-            -stride,
-            info.width, info.height, info.format, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-    return make_pixel_mapping(mapping_impl);
+    return map_linear_plane(frm.get_texture(), desired_origin);
 }
 
 Result<pixel_mapping> lock_writable_pixels_mapping_with_origin(writable_frame &frm, texture_origin desired_origin) {
     if (!frm.valid()) {
         return Error{ErrorCode::InvalidArgument, "writable_frame is not valid"};
     }
-
-    auto &tex = frm.get_texture();
-    int fd = dma_buf::get_dmabuf_fd(tex);
-    if (fd < 0) {
-        return Error{ErrorCode::BackendError, "no DMA-BUF fd in writable_frame"};
+    auto state = detail::begin_writable_frame_cpu_mapping(frm);
+    if (!state.ok()) {
+        return state.error();
     }
-
-    auto state_result = detail::begin_writable_frame_cpu_mapping(frm);
-    if (!state_result.ok()) {
-        return state_result.error();
+    auto mapping = map_linear_plane(frm.get_texture(), desired_origin, state.value());
+    if (!mapping.ok()) {
+        detail::mark_writable_cpu_mapping_unlocked(state.value());
     }
-    auto mapping_state = std::move(state_result.value());
-
-    auto desc = frm.desc();
-    uint32_t bpp = bytes_per_pixel(desc.format);
-    if (bpp == 0) {
-        detail::mark_writable_cpu_mapping_unlocked(mapping_state);
-        return Error{ErrorCode::UnsupportedFormat, "unsupported pixel format for CPU map"};
-    }
-    size_t row_bytes = static_cast<size_t>(desc.width) * bpp;
-    size_t map_size = row_bytes * static_cast<size_t>(desc.height);
-    void *ptr = mmap(nullptr, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (ptr == MAP_FAILED) {
-        detail::mark_writable_cpu_mapping_unlocked(mapping_state);
-        return Error{ErrorCode::BackendError, "mmap failed"};
-    }
-
-    auto *mapping_impl = new (std::nothrow) linux_mapping(ptr, map_size, true, std::move(mapping_state));
-    if (!mapping_impl) {
-        munmap(ptr, map_size);
-        detail::mark_writable_cpu_mapping_unlocked(mapping_state);
-        return Error{ErrorCode::ResourceCreationFailed, "failed to allocate pixel mapping"};
-    }
-
-    auto *base = static_cast<uint8_t *>(ptr);
-    int64_t stride = static_cast<int64_t>(row_bytes);
-    auto resolved = tex.resolved();
-
-    if (desired_origin == texture_origin::top_left) {
-        mapping_impl->pixels = mapped_pixels{base, stride, desc.width, desc.height, desc.format, texture_origin::top_left, resolved.cpu_layout, resolved.source};
-    } else {
-        mapping_impl->pixels = mapped_pixels{
-            base + static_cast<int64_t>(desc.height - 1) * stride,
-            -stride,
-            desc.width, desc.height, desc.format, texture_origin::bottom_left,
-            resolved.cpu_layout, resolved.source
-        };
-    }
-    return make_pixel_mapping(mapping_impl);
+    return mapping;
 }
 
 #elif NOZZLE_PLATFORM_WINDOWS

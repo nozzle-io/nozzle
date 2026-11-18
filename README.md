@@ -544,6 +544,12 @@ allocation succeeds, the frame reports RGBA16 UNORM storage, not packed RGB16.
 This Linux restriction does not change support on other backends. A valid
 FourCC alone does not establish that a particular driver can allocate it.
 
+Linux CPU pixel mapping requires one linear plane with a known pitch and a
+backing FD large enough for the observed offset and rows. Use the returned
+signed row stride, not width times pixel size: bottom-left mappings start at
+the last stored row and step backwards by the native pitch. Tiled, unknown
+modifier and multi-plane buffers are not exposed as linear CPU pointers.
+
 ### Backend: Linux DMA-BUF peer policy
 
 The FD broker admits only peers whose connection-time effective UID matches

@@ -858,7 +858,8 @@ inline auto lookup_texture(
     native.kind = native_format_kind::drm_fourcc;
     native.value = fourcc;
     native.modifier = native_modifier;
-    native.plane_count = pc;
+    // The EGL import default is not evidence for direct CPU mapping.
+    native.plane_count = native_plane_count;
     for (uint32_t i = 0; i < pc && i < 4; ++i) {
         native.plane_strides[i] = planes[i].stride;
         native.plane_offsets[i] = planes[i].offset;
