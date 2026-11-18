@@ -90,19 +90,6 @@ constexpr uint64_t metal_iosurface_storage_formats =
         texture_format::r32_uint,
         texture_format::rgba32_uint);
 
-constexpr uint64_t floating_point_formats =
-    bits(texture_format::r16_float,
-        texture_format::rg16_float,
-        texture_format::rgb16_float,
-        texture_format::rgba16_float,
-        texture_format::r32_float,
-        texture_format::rg32_float,
-        texture_format::rgb32_float,
-        texture_format::rgba32_float);
-
-constexpr uint64_t dmabuf_requested_formats =
-    requested_color_formats & ~floating_point_formats;
-
 constexpr uint64_t dmabuf_direct_formats =
     bits(texture_format::r8_unorm,
         texture_format::rg8_unorm,
@@ -111,11 +98,10 @@ constexpr uint64_t dmabuf_direct_formats =
         texture_format::bgra8_unorm,
         texture_format::r16_unorm,
         texture_format::rg16_unorm,
-        texture_format::rgb16_unorm,
-        texture_format::rgba16_unorm,
-        texture_format::r32_uint,
-        texture_format::rgb32_uint,
-        texture_format::rgba32_uint);
+        texture_format::rgba16_unorm);
+
+constexpr uint64_t dmabuf_requested_formats = dmabuf_direct_formats |
+    bits(texture_format::rgba8_srgb, texture_format::bgra8_srgb, texture_format::rgb16_unorm);
 
 constexpr uint64_t opengl_interop_formats =
     bits(texture_format::r8_unorm,
@@ -151,7 +137,7 @@ constexpr uint64_t known_quality_loss_formats =
         texture_format::rgba16_float);
 
 constexpr uint64_t dmabuf_known_quality_loss_formats =
-    known_quality_loss_formats & ~floating_point_formats;
+    known_quality_loss_formats & dmabuf_requested_formats;
 
 constexpr backend_capabilities metal_capabilities{
     backend_capabilities_version,

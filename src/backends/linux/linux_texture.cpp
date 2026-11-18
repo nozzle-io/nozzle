@@ -29,29 +29,13 @@ void *g_egl_display{nullptr};
 void *g_gbm_device{nullptr};
 int g_drm_fd{-1};
 
-#ifndef fourcc_code
-#define fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | \
-    ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
-#endif
-
 #ifndef DRM_FORMAT_MOD_LINEAR
 #define DRM_FORMAT_MOD_LINEAR 0
 #endif
 
-#ifndef DRM_FORMAT_R32
-#define DRM_FORMAT_R32 fourcc_code('R', '3', '2', ' ')
-#endif
-
-#ifndef DRM_FORMAT_RG3232
-#define DRM_FORMAT_RG3232 fourcc_code('R', 'G', '3', '2')
-#endif
-
-#ifndef DRM_FORMAT_RGBA16161616
-#define DRM_FORMAT_RGBA16161616 fourcc_code('R', 'A', '6', '4')
-#endif
-
-#ifndef DRM_FORMAT_RGBA32323232
-#define DRM_FORMAT_RGBA32323232 fourcc_code('R', 'A', '1', '2')
+#ifndef DRM_FORMAT_ABGR16161616
+// Linux UAPI drm_fourcc.h: packed 16:16:16:16 A:B:G:R; older libdrm omits this name.
+#define DRM_FORMAT_ABGR16161616 fourcc_code('A', 'B', '4', '8')
 #endif
 
 struct egl_ext_procs {
@@ -148,29 +132,18 @@ void release_linux_device(void * /*device*/) {
 }
 
 uint32_t drm_format_from_nozzle(uint32_t nozzle_format) {
+    // DRM packed names describe high-to-low bits, not bytes in memory.
     switch (static_cast<texture_format>(nozzle_format)) {
         case texture_format::r8_unorm:         return DRM_FORMAT_R8;
-        case texture_format::rg8_unorm:        return DRM_FORMAT_RG88;
-        case texture_format::rgb8_unorm:       return DRM_FORMAT_RGB888;
-        case texture_format::rgba8_unorm:      return DRM_FORMAT_RGBA8888;
-        case texture_format::bgra8_unorm:      return DRM_FORMAT_BGRA8888;
-        case texture_format::rgba8_srgb:       return DRM_FORMAT_RGBA8888;
-        case texture_format::bgra8_srgb:       return DRM_FORMAT_BGRA8888;
+        case texture_format::rg8_unorm:        return DRM_FORMAT_GR88;
+        case texture_format::rgb8_unorm:       return DRM_FORMAT_BGR888;
+        case texture_format::rgba8_unorm:      return DRM_FORMAT_ABGR8888;
+        case texture_format::bgra8_unorm:      return DRM_FORMAT_ARGB8888;
+        case texture_format::rgba8_srgb:       return DRM_FORMAT_ABGR8888;
+        case texture_format::bgra8_srgb:       return DRM_FORMAT_ARGB8888;
         case texture_format::r16_unorm:        return DRM_FORMAT_R16;
-        case texture_format::rg16_unorm:       return DRM_FORMAT_RG1616;
-        case texture_format::rgb16_unorm:      return DRM_FORMAT_RGBA16161616;
-        case texture_format::rgba16_unorm:     return DRM_FORMAT_RGBA16161616;
-        case texture_format::r16_float:        return DRM_FORMAT_INVALID;
-        case texture_format::rg16_float:       return DRM_FORMAT_INVALID;
-        case texture_format::rgb16_float:      return DRM_FORMAT_INVALID;
-        case texture_format::rgba16_float:     return DRM_FORMAT_INVALID;
-        case texture_format::r32_float:        return DRM_FORMAT_INVALID;
-        case texture_format::rg32_float:       return DRM_FORMAT_INVALID;
-        case texture_format::rgb32_float:      return DRM_FORMAT_INVALID;
-        case texture_format::rgba32_float:     return DRM_FORMAT_INVALID;
-        case texture_format::r32_uint:         return DRM_FORMAT_R32;
-        case texture_format::rgba32_uint:      return DRM_FORMAT_RGBA32323232;
-        case texture_format::rgb32_uint:       return DRM_FORMAT_RGBA32323232;
+        case texture_format::rg16_unorm:       return DRM_FORMAT_GR1616;
+        case texture_format::rgba16_unorm:     return DRM_FORMAT_ABGR16161616;
         default:                               return DRM_FORMAT_INVALID;
     }
 }
@@ -196,10 +169,7 @@ Result<dmabuf_allocation> allocate_dmabuf(
         return Error{ErrorCode::InvalidArgument, "GBM device is null"};
     }
 
-    uint32_t flags = GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR;
-    if (fourcc == DRM_FORMAT_RGBA16161616 || fourcc == DRM_FORMAT_RGBA32323232) {
-        flags |= GBM_BO_USE_RENDERING;
-    }
+    const uint32_t flags = GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR;
 
     uint64_t linear_mod = DRM_FORMAT_MOD_LINEAR;
     auto *bo = gbm_bo_create_with_modifiers(dev, width, height, fourcc,
