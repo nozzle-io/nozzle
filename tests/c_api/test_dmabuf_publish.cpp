@@ -11,17 +11,21 @@
 #include <nozzle/sender.hpp>
 #include "backends/backend_dispatch.hpp"
 #include "backends/linux/linux_helpers.hpp"
+#include "common/frame_helpers.hpp"
 #include "dmabuf_dispatch_peer.hpp"
 
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <fcntl.h>
+#include <linux/memfd.h>
 #include <mutex>
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -614,7 +618,113 @@ struct fd_zero_image_cleanup {
     }
 };
 
+struct plane_map_fixture {
+    static constexpr uint32_t width = 65, height = 2, offset = 64, pitch = 320;
+    static constexpr auto format = nozzle::texture_format::rgba8_unorm;
+    static constexpr size_t span = offset + pitch * (height - 1) + width * 4;
+    fd_zero_image_cleanup image;
+    unique_fd fd{static_cast<int>(syscall(SYS_memfd_create, "nozzle-plane-map", MFD_CLOEXEC))};
+    nozzle::native_format_desc native{};
+
+    plane_map_fixture() {
+        REQUIRE(fd.get() >= 0);
+        native.backend = nozzle::backend_type::dma_buf;
+        native.kind = nozzle::native_format_kind::drm_fourcc;
+        native.value = rgba8_fourcc();
+        native.plane_count = 1;
+        native.plane_offsets[0] = offset;
+        native.plane_strides[0] = pitch;
+    }
+
+    nozzle::texture texture() {
+        int owned_fd = fcntl(fd.get(), F_DUPFD_CLOEXEC, 3);
+        REQUIRE(owned_fd >= 3);
+        return nozzle::detail::make_texture_from_backend(&image,
+            reinterpret_cast<void *>(static_cast<intptr_t>(owned_fd)), width, height, format, 0, &native);
+    }
+
+    nozzle::frame reader() {
+        nozzle::frame_info info{};
+        info.width = width;
+        info.height = height;
+        info.format = format;
+        return nozzle::detail::make_frame(texture(), info);
+    }
+
+    nozzle::writable_frame writer() {
+        nozzle::format_fallback_info intent{};
+        intent.requested_format = intent.storage_format = format;
+        auto result = nozzle::detail::make_writable_frame(texture(), {width, height, format}, intent, 0);
+        REQUIRE(result.ok());
+        return std::move(result.value());
+    }
+};
+
 } // anonymous namespace
+
+TEST_CASE("DMA-BUF CPU mapping addresses the observed linear plane", "[dmabuf][plane_map]") {
+    using fixture = plane_map_fixture;
+    using nozzle::texture_origin;
+    for (auto origin : {texture_origin::top_left, texture_origin::bottom_left}) {
+        for (bool write : {false, true}) {
+            const bool top = origin == texture_origin::top_left;
+            DYNAMIC_SECTION((write ? "write" : "read") << (top ? " top-left" : " bottom-left")) {
+                fixture f;
+                std::array<uint8_t, fixture::span> expected;
+                expected.fill(0xa5);
+                expected[fixture::offset] = 0x11;
+                expected[fixture::offset + fixture::pitch] = 0x22;
+                REQUIRE(pwrite(f.fd.get(), expected.data(), expected.size(), 0) == ssize_t(expected.size()));
+
+                auto reader = f.reader();
+                auto writer = f.writer();
+                auto mapping = write ? nozzle::lock_writable_pixels_mapping_with_origin(writer, origin)
+                                     : nozzle::lock_frame_pixels_mapping_with_origin(reader, origin);
+                REQUIRE(mapping.ok());
+                const auto &pixels = mapping.value().pixels();
+                REQUIRE(pixels.row_stride_bytes == (top ? 320 : -320));
+                REQUIRE(pixels.origin == origin);
+                REQUIRE(pixels.data != nullptr);
+                auto *row = static_cast<uint8_t *>(pixels.data);
+                REQUIRE(row[0] == (top ? 0x11 : 0x22));
+                REQUIRE(row[pixels.row_stride_bytes] == (top ? 0x22 : 0x11));
+                if (write) {
+                    row[0] = 0x33;
+                    row[pixels.row_stride_bytes] = 0x44;
+                    expected[fixture::offset] = top ? 0x33 : 0x44;
+                    expected[fixture::offset + fixture::pitch] = top ? 0x44 : 0x33;
+                }
+                REQUIRE(mapping.value().unlock_checked().ok());
+                if (write) {
+                    std::array<uint8_t, fixture::span> actual{};
+                    REQUIRE(pread(f.fd.get(), actual.data(), actual.size(), 0) == ssize_t(actual.size()));
+                    CHECK(actual == expected);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("DMA-BUF CPU mapping rejects unprovable plane layouts", "[dmabuf][plane_map]") {
+    plane_map_fixture f;
+    off_t size = f.span;
+    SECTION("nonlinear modifier") { f.native.modifier = 1; }
+    SECTION("unknown DRM modifier") { f.native.modifier = 0x00ffffffffffffffULL; }
+    SECTION("missing plane") { f.native.plane_count = 0; }
+    SECTION("multiple planes") { f.native.plane_count = 2; }
+    SECTION("pitch shorter than pixel row") { f.native.plane_strides[0] = f.width * 4 - 1; }
+    SECTION("fd ends one byte before the last pixel ends") { --size; }
+    REQUIRE(ftruncate(f.fd.get(), size) == 0);
+
+    auto reader = f.reader();
+    auto writer = f.writer();
+    const auto origin = nozzle::texture_origin::top_left;
+    auto read_map = nozzle::lock_frame_pixels_mapping_with_origin(reader, origin);
+    CHECK_FALSE(read_map.ok());
+    auto write_map = nozzle::lock_writable_pixels_mapping_with_origin(writer, origin);
+    REQUIRE_FALSE(write_map.ok());
+    CHECK_FALSE(nozzle::detail::writable_frame_cpu_mapping_active(writer));
+}
 
 TEST_CASE("DMA-BUF public wrap owns fd zero and preserves resource identity", "[dmabuf][fd_zero][ownership]") {
     INFO("child failure bits: 1 validity, 2 fd getter/object identity, 4 resource identity, "
