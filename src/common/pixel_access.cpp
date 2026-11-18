@@ -16,6 +16,7 @@
 #include <IOSurface/IOSurface.h>
 #elif NOZZLE_PLATFORM_LINUX
 #include <nozzle/backends/linux.hpp>
+#include "backends/linux/linux_helpers.hpp"
 #include <limits>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -327,8 +328,10 @@ Result<pixel_mapping> map_linear_plane(
     }
     const auto &desc = tex.desc();
     const uint32_t bpp = resolved.cpu_layout.bytes_per_pixel;
-    if (!bpp || resolved.storage_format == texture_format::unknown) {
-        return Error{ErrorCode::UnsupportedFormat, "unknown DMA-BUF storage layout"};
+    const uint32_t fourcc = detail::linux_backend::drm_format_from_nozzle(
+        static_cast<uint32_t>(resolved.storage_format));
+    if (!bpp || !fourcc || native.value != fourcc) {
+        return Error{ErrorCode::UnsupportedFormat, "DMA-BUF FourCC disagrees with CPU storage layout"};
     }
     const uint64_t pitch = native.plane_strides[0];
     const uint64_t offset = native.plane_offsets[0];

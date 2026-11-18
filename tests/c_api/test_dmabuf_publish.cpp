@@ -712,6 +712,7 @@ TEST_CASE("DMA-BUF CPU mapping rejects unprovable plane layouts", "[dmabuf][plan
     SECTION("nonlinear modifier") { f.native.modifier = 1; }
     SECTION("unknown DRM modifier") { f.native.modifier = 0x00ffffffffffffffULL; }
     SECTION("missing plane") { f.native.plane_count = 0; }
+    SECTION("RGBA16 native pixels declared as RGBA8 storage") { f.native.value = wire_code("AB48"); }
     SECTION("multiple planes") { f.native.plane_count = 2; }
     SECTION("pitch shorter than pixel row") {
         f.native.plane_strides[0] = f.width * 4 - 1;
