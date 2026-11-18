@@ -206,6 +206,7 @@ jobs:
   # cases also run on the forced path.
   simd-parity-x86-f16c:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -219,8 +220,22 @@ jobs:
             exit 1
           fi
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - &install_linux_dependencies
+        name: Install dependencies
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          . /etc/os-release
+          echo "$PRETTY_NAME"
+          dpkg-query -W apt
+          packages=(libdrm-dev libgbm-dev libegl-dev libgl-dev)
+          network=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+
+          # Trace each command so the last phase is visible even on a timeout.
+          set -ex
+          sudo apt-get "${network[@]}" --error-on=any update
+          sudo apt-get "${network[@]}" --download-only install -y "${packages[@]}"
+          sudo apt-get --no-download install -y "${packages[@]}"
 
       - name: Configure
         run: cmake -B build -DNOZZLE_BUILD_EXAMPLES=OFF "-DCMAKE_CXX_FLAGS=-mf16c -DNOZZLE_TEST_EXPECT_F16C=1"
@@ -236,13 +251,13 @@ jobs:
 
   simd-parity-arm64-neon:
     runs-on: ubuntu-22.04-arm
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Configure
         run: cmake -B build -DNOZZLE_BUILD_EXAMPLES=OFF "-DCMAKE_CXX_FLAGS=-DNOZZLE_TEST_EXPECT_NEON_FP16=1"
@@ -411,13 +426,13 @@ jobs:
 
   build-linux-strict:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Configure
         run: cmake -B build -DNOZZLE_STRICT_NO_EXCEPTIONS=ON -DNOZZLE_ENABLE_TEST_HOOKS=ON
@@ -436,13 +451,13 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Configure
         run: cmake -B build -DNOZZLE_ENABLE_TEST_HOOKS=ON
@@ -482,6 +497,7 @@ jobs:
 
   linux-dispatch-cross-tu:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -491,8 +507,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Build fixed dispatch without linkage warnings
         shell: bash
@@ -565,13 +580,13 @@ jobs:
 
   build-linux-production-default:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Configure
         run: cmake -B build
@@ -587,6 +602,7 @@ jobs:
 
   f16c-regression:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       BROKEN_F16C_SHA: 2d3b7de5dd15983a5cb571bc43d337ff5fad238b
     steps:
@@ -613,8 +629,7 @@ jobs:
             exit 1
           fi
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Report current nozzle.go production-flags F16C macro state
         shell: bash
@@ -739,13 +754,13 @@ jobs:
   # no longer demonstrated.
   isa-baseline-x86-64-v2:
     runs-on: ubuntu-26.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Record compiler default target
         run: |
@@ -924,13 +939,13 @@ jobs:
 
   package-sdk-linux:
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdrm-dev libgbm-dev libegl-dev libgl-dev
+      - *install_linux_dependencies
 
       - name: Prepare SDK metadata
         id: meta
