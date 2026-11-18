@@ -532,6 +532,16 @@ mutex ownership does not make interrupted shared-memory writes transactional
 or validate directory/state layouts; layout validation is tracked in
 [nozzle-dev#189](https://github.com/nozzle-io/nozzle-dev/issues/189).
 
+### Backend: Linux DMA-BUF storage compatibility
+
+RGBA8 and BGRA8 peers must now supply `DRM_FORMAT_ABGR8888` and
+`DRM_FORMAT_ARGB8888`, respectively (also for their sRGB storage aliases).
+The FourCC describes the packed bits; the bytes are R,G,B,A and B,G,R,A.
+Update producers that copied the former reversed mappings. RGB16 UNORM,
+32-bit UINT and float formats have no supported DMA-BUF storage mapping.
+This Linux restriction does not change support on other backends. A valid
+FourCC alone does not establish that a particular driver can allocate it.
+
 ### Backend: Linux DMA-BUF peer policy
 
 The FD broker admits only peers whose connection-time effective UID matches
