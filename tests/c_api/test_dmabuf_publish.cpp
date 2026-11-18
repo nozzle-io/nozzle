@@ -708,12 +708,19 @@ TEST_CASE("DMA-BUF CPU mapping addresses the observed linear plane", "[dmabuf][p
 TEST_CASE("DMA-BUF CPU mapping rejects unprovable plane layouts", "[dmabuf][plane_map]") {
     plane_map_fixture f;
     off_t size = f.span;
+    auto expected = nozzle::ErrorCode::UnsupportedFormat;
     SECTION("nonlinear modifier") { f.native.modifier = 1; }
     SECTION("unknown DRM modifier") { f.native.modifier = 0x00ffffffffffffffULL; }
     SECTION("missing plane") { f.native.plane_count = 0; }
     SECTION("multiple planes") { f.native.plane_count = 2; }
-    SECTION("pitch shorter than pixel row") { f.native.plane_strides[0] = f.width * 4 - 1; }
-    SECTION("fd ends one byte before the last pixel ends") { --size; }
+    SECTION("pitch shorter than pixel row") {
+        f.native.plane_strides[0] = f.width * 4 - 1;
+        expected = nozzle::ErrorCode::InvalidArgument;
+    }
+    SECTION("fd ends one byte before the last pixel ends") {
+        --size;
+        expected = nozzle::ErrorCode::InvalidArgument;
+    }
     REQUIRE(ftruncate(f.fd.get(), size) == 0);
 
     auto reader = f.reader();
@@ -721,9 +728,15 @@ TEST_CASE("DMA-BUF CPU mapping rejects unprovable plane layouts", "[dmabuf][plan
     const auto origin = nozzle::texture_origin::top_left;
     auto read_map = nozzle::lock_frame_pixels_mapping_with_origin(reader, origin);
     CHECK_FALSE(read_map.ok());
+    if (!read_map.ok()) CHECK(read_map.error().code == expected);
     auto write_map = nozzle::lock_writable_pixels_mapping_with_origin(writer, origin);
     REQUIRE_FALSE(write_map.ok());
+    CHECK(write_map.error().code == expected);
     CHECK_FALSE(nozzle::detail::writable_frame_cpu_mapping_active(writer));
+    CHECK_FALSE(nozzle::detail::writable_frame_cpu_unlock_failed(writer));
+    auto reservation = nozzle::detail::begin_writable_frame_cpu_mapping(writer);
+    REQUIRE(reservation.ok());
+    nozzle::detail::mark_writable_cpu_mapping_unlocked(reservation.value());
 }
 
 TEST_CASE("DMA-BUF public wrap owns fd zero and preserves resource identity", "[dmabuf][fd_zero][ownership]") {
