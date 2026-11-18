@@ -233,7 +233,8 @@ jobs:
 
           # Trace each command so the last phase is visible even on a timeout.
           set -ex
-          sudo apt-get "${network[@]}" --error-on=any update
+          # Keep APT's index warnings visible, including for unrelated runner repositories.
+          sudo apt-get "${network[@]}" update
           sudo apt-get "${network[@]}" --download-only install -y "${packages[@]}"
           sudo apt-get --no-download install -y "${packages[@]}"
 
