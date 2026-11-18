@@ -32,14 +32,17 @@
 namespace {
 
 #if NOZZLE_HAS_DMA_BUF
-uint32_t invalid_fourcc() {
-    return nozzle::detail::linux_backend::drm_format_from_nozzle(
-        static_cast<uint32_t>(nozzle::texture_format::unknown));
+constexpr uint32_t invalid_fourcc() {
+    return 0;
 }
 
-uint32_t rgba8_fourcc() {
-    return nozzle::detail::linux_backend::drm_format_from_nozzle(
-        static_cast<uint32_t>(nozzle::texture_format::rgba8_unorm));
+constexpr uint32_t wire_code(const char (&name)[5]) {
+    return uint32_t(name[0]) | (uint32_t(name[1]) << 8) |
+        (uint32_t(name[2]) << 16) | (uint32_t(name[3]) << 24);
+}
+
+constexpr uint32_t rgba8_fourcc() {
+    return wire_code("AB24");
 }
 #endif
 
@@ -139,6 +142,26 @@ auto fail_accept_with_emfile(int, void *context) -> int {
     return -1;
 }
 #endif
+
+TEST_CASE("DMA-BUF backend: storage maps to independent DRM wire codes", "[dmabuf][format]") {
+    using format = nozzle::texture_format;
+    struct mapping { format storage; uint32_t code; };
+    // Wire spellings from drm_fourcc.h, independent of the backend mapper.
+    const mapping cases[] = {
+        {format::r8_unorm, wire_code("R8  ")}, {format::r16_unorm, wire_code("R16 ")},
+        {format::rg8_unorm, wire_code("GR88")}, {format::rg16_unorm, wire_code("GR32")},
+        {format::rgb8_unorm, wire_code("BG24")}, {format::rgba8_unorm, wire_code("AB24")},
+        {format::rgba8_srgb, wire_code("AB24")}, {format::bgra8_unorm, wire_code("AR24")},
+        {format::bgra8_srgb, wire_code("AR24")}, {format::rgba16_unorm, wire_code("AB48")},
+        {format::rgb16_unorm, 0}, {format::r32_uint, 0},
+        {format::rgb32_uint, 0}, {format::rgba32_uint, 0}
+    };
+    for (auto item : cases) {
+        CAPTURE(static_cast<uint32_t>(item.storage));
+        CHECK(nozzle::detail::linux_backend::drm_format_from_nozzle(
+            static_cast<uint32_t>(item.storage)) == item.code);
+    }
+}
 
 TEST_CASE("DMA-BUF backend: float nozzle formats have no DRM FourCC mapping", "[dmabuf][format]") {
     const nozzle::texture_format float_formats[] = {
@@ -243,7 +266,7 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
 
 #if NOZZLE_HAS_DMA_BUF
     SECTION("fourcc must exactly match storage format") {
-        desc.drm_fourcc = rgba8_fourcc() + 1;
+        desc.drm_fourcc = wire_code("RA24"); // previous, wrong byte order for RGBA
         CHECK(nozzle_sender_publish_dmabuf(nullptr, &desc) == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
     }
 
