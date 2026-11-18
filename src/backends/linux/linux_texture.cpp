@@ -174,7 +174,8 @@ Result<dmabuf_allocation> allocate_dmabuf(
     uint64_t linear_mod = DRM_FORMAT_MOD_LINEAR;
     auto *bo = gbm_bo_create_with_modifiers(dev, width, height, fourcc,
         &linear_mod, 1);
-    if (!bo) {
+    const bool use_linear_flag = !bo;
+    if (use_linear_flag) {
         bo = gbm_bo_create(dev, width, height, fourcc, flags);
     }
     if (!bo) {
@@ -197,7 +198,9 @@ Result<dmabuf_allocation> allocate_dmabuf(
         alloc.planes[i].offset = gbm_bo_get_offset(bo, i);
     }
     uint64_t mod = gbm_bo_get_modifier(bo);
-    if (mod == ((1ULL << 56) - 1)) {
+    // Only our flag-based allocation can vouch for an unreported modifier.
+    // Never turn an unknown external (or explicitly negotiated) layout into linear.
+    if (use_linear_flag && mod == DRM_FORMAT_MOD_INVALID) {
         mod = DRM_FORMAT_MOD_LINEAR;
     }
     alloc.modifier = mod;
