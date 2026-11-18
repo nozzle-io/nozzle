@@ -46,6 +46,10 @@ jobs:
         id: build
         run: cmake --build build
 
+      - name: CGL BGRA8 IOSurface copy
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./build/tests/nozzle_integration_tests "[cgl_bgra_copy]" --reporter console --success
+
       - name: Shared layout unit regression
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 3

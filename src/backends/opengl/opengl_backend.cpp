@@ -938,6 +938,16 @@ Result<void> publish_gl_texture_wgl_dx_interop2(
 
 namespace {
 
+CGLError bind_cgl_surface(IOSurfaceRef surface, texture_format storage_format,
+                          const gl_texture_desc &desc, gl_format_mapping mapping) {
+    if (storage_format == texture_format::bgra8_unorm) {
+        mapping = {GL_RGBA8, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV};
+    }
+    return CGLTexImageIOSurface2D(CGLGetCurrentContext(), GL_TEXTURE_RECTANGLE_ARB,
+        mapping.internal_format, static_cast<GLsizei>(desc.width), static_cast<GLsizei>(desc.height),
+        mapping.format, mapping.type, surface, 0);
+}
+
 // macOS CGL + IOSurface measured blit rects.
 // CGLTexImageIOSurface2D maps GL texel row 0 (y=0, bottom in GL coords)
 // to IOSurface memory row 0 (= image top, canonical top_left).
@@ -1029,20 +1039,7 @@ Result<void> publish_gl_texture(sender &snd, const gl_texture_desc &gl_desc) {
     scoped_texture io_tex;
     glBindTexture(GL_TEXTURE_RECTANGLE_ARB, io_tex.name);
 
-    CGLError cgl_err;
-    if (publish_format == texture_format::bgra8_unorm) {
-        cgl_err = CGLTexImageIOSurface2D(
-            CGLGetCurrentContext(), GL_TEXTURE_RECTANGLE_ARB, GL_RGBA8,
-            static_cast<GLsizei>(gl_desc.width),
-            static_cast<GLsizei>(gl_desc.height),
-            GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0);
-    } else {
-        cgl_err = CGLTexImageIOSurface2D(
-            CGLGetCurrentContext(), GL_TEXTURE_RECTANGLE_ARB, gl_fmt.internal_format,
-            static_cast<GLsizei>(gl_desc.width),
-            static_cast<GLsizei>(gl_desc.height),
-            gl_fmt.format, gl_fmt.type, surface, 0);
-    }
+    CGLError cgl_err = bind_cgl_surface(surface, publish_format, gl_desc, gl_fmt);
     if (cgl_err != kCGLNoError) {
         return Error{ErrorCode::BackendError, "CGLTexImageIOSurface2D failed"};
     }
@@ -1110,17 +1107,7 @@ Result<void> copy_frame_to_gl_texture(const frame &frm, const gl_texture_desc &g
     scoped_texture io_tex;
     glBindTexture(GL_TEXTURE_RECTANGLE_ARB, io_tex.name);
 
-    CGLError cgl_err = CGLTexImageIOSurface2D(
-        CGLGetCurrentContext(),
-        GL_TEXTURE_RECTANGLE_ARB,
-        gl_fmt.internal_format,
-        static_cast<GLsizei>(gl_desc.width),
-        static_cast<GLsizei>(gl_desc.height),
-        gl_fmt.format,
-        gl_fmt.type,
-        surface,
-        0
-    );
+    CGLError cgl_err = bind_cgl_surface(surface, frm.info().format, gl_desc, gl_fmt);
     if (cgl_err != kCGLNoError) {
         return Error{ErrorCode::BackendError, "CGLTexImageIOSurface2D failed"};
     }

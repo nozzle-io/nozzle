@@ -142,6 +142,10 @@ set(INTEGRATION_TEST_SOURCES
         integration/test_c_api_native_metadata.mm
     )
 
+    if(NOZZLE_BUILD_OPENGL)
+        list(APPEND INTEGRATION_TEST_SOURCES integration/test_cgl_bgra_copy.cpp)
+    endif()
+
     add_executable(nozzle_metal_direct_cross_process_sender
         integration/metal_direct_cross_process_sender.mm
     )
