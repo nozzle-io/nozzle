@@ -101,7 +101,7 @@ constexpr uint64_t dmabuf_direct_formats =
         texture_format::rgba16_unorm);
 
 constexpr uint64_t dmabuf_requested_formats = dmabuf_direct_formats |
-    bits(texture_format::rgba8_srgb, texture_format::bgra8_srgb);
+    bits(texture_format::rgba8_srgb, texture_format::bgra8_srgb, texture_format::rgb16_unorm);
 
 constexpr uint64_t opengl_interop_formats =
     bits(texture_format::r8_unorm,

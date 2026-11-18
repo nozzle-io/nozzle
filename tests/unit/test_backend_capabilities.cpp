@@ -176,8 +176,14 @@ TEST_CASE("compiled DMA-BUF capability table excludes unsupported storage format
     CHECK(supports_format(result->requested_format_bits, texture_format::rgba8_unorm));
     CHECK(supports_format(result->direct_publish_format_bits, texture_format::rgba8_unorm));
 
+    const auto rgb16 = texture_format::rgb16_unorm;
+    CHECK(supports_format(result->requested_format_bits, rgb16));
+    CHECK(!supports_format(result->writable_storage_format_bits, rgb16));
+    CHECK(!supports_format(result->direct_publish_format_bits, rgb16));
+    CHECK(!supports_format(result->cpu_read_format_bits, rgb16));
+    CHECK(!supports_format(result->cpu_write_format_bits, rgb16));
+
     const texture_format unsupported_formats[] = {
-        texture_format::rgb16_unorm,
         texture_format::r32_uint,
         texture_format::rgb32_uint,
         texture_format::rgba32_uint,

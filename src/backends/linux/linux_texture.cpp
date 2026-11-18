@@ -33,6 +33,11 @@ int g_drm_fd{-1};
 #define DRM_FORMAT_MOD_LINEAR 0
 #endif
 
+#ifndef DRM_FORMAT_ABGR16161616
+// Linux UAPI drm_fourcc.h: packed 16:16:16:16 A:B:G:R; older libdrm omits this name.
+#define DRM_FORMAT_ABGR16161616 fourcc_code('A', 'B', '4', '8')
+#endif
+
 struct egl_ext_procs {
     PFNEGLCREATEIMAGEKHRPROC create_image{nullptr};
     PFNEGLDESTROYIMAGEKHRPROC destroy_image{nullptr};

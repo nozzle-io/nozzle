@@ -270,6 +270,14 @@ TEST_CASE("C API: publish_dmabuf validates descriptor before backend use", "[c_a
         CHECK(nozzle_sender_publish_dmabuf(nullptr, &desc) == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
     }
 
+    SECTION("direct RGB16 storage cannot use the expanded RGBA16 wire format") {
+        desc.storage_format = NOZZLE_FORMAT_RGB16_UNORM;
+        desc.semantic_format = NOZZLE_FORMAT_RGB16_UNORM;
+        desc.drm_fourcc = wire_code("AB48");
+        desc.planes[0].stride = desc.width * 8;
+        CHECK(nozzle_sender_publish_dmabuf(nullptr, &desc) == NOZZLE_ERROR_UNSUPPORTED_FORMAT);
+    }
+
     SECTION("float storage format rejects old non-float fourcc mapping") {
         desc.storage_format = NOZZLE_FORMAT_RGBA16_FLOAT;
         desc.semantic_format = NOZZLE_FORMAT_RGBA16_FLOAT;
